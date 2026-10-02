@@ -24,9 +24,11 @@ ProviderName = Literal["nvidia", "nebius"]
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1/"
 
-# Verified live 2026-09-23. The brief's nvidia/nemotron-nano-12b-v2-vl returns
-# HTTP 410 "has reached its end of life on 2026-08-26", so this is the NVIDIA
-# open-source vision model actually reachable on build.nvidia.com today.
+# Defaults, not assumptions. app/discovery.py checks each host's /models list
+# before a run extracts and adopts a served model if this name is gone — which
+# is not hypothetical: the model this brief asked for, and the one recorded
+# below as verified on 2026-09-23, both went away mid-project (410 Gone on
+# build.nvidia.com, 404 on Token Factory).
 NVIDIA_VISION_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
 
 # Nebius fallback vision model. Live-verified earlier: text+image->text,

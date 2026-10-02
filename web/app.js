@@ -617,6 +617,15 @@ function renderTransparency(report) {
   if (run.result_source === 'authored' || docs.some((d) => d.source === 'cached_authored')) {
     notes.push('At least one value comes from a hand-authored fixture, not from a model.');
   }
+  // A model name that was never confirmed against the host is a different claim
+  // from one that was, and the difference matters when an endpoint 404s. Skipped
+  // in DEMO_MODE, where the line above already says nothing was called.
+  if (run.model_selection === 'discovered') {
+    notes.push(`Configured model is not served by this host; used ${run.model} instead.`);
+  } else if (!run.demo_mode && run.model_selection !== 'configured') {
+    notes.push(`'${run.model}' was not confirmed against the host's model list${
+      run.model_note ? ': ' + run.model_note : ''}.`);
+  }
   const caveat = $('#tp-caveat');
   caveat.textContent = notes.join(' ');
   caveat.hidden = !notes.length;

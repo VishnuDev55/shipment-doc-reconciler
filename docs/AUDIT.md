@@ -237,10 +237,10 @@ availability on both hosts changes without notice, and
 | 3 | Declare `pyflakes`, or drop `make lint` | P0 | **done** — declared |
 | 4 | Baseline commit + conventional history | P0 | **done** — local only; no remote authorized |
 | 5 | `docs/AUDIT.md` | P0 | **this file** |
-| 6 | Keep `raw_dir` + per-attempt usage/latency; drop `_usage` discard | P0 | B1; prerequisite for the transparency panel |
+| 6 | Keep `raw_dir` + per-attempt usage/latency; drop `_usage` discard | P0 | **done** — `tests/test_transparency.py`, panel in `web/` |
 | 7 | Auth or default-off for `POST /api/config` | P0 | R1 |
 | 8 | Done-callback and exception logging on the background task | P1 | B4 |
-| 9 | Model discovery instead of hardcoded literals | P1 | R9; cache-verify only, no key |
+| 9 | Model discovery instead of hardcoded literals | P1 | **done** — `app/discovery.py`; logic verified against replayed catalogs, **unverified live** (no key). Export's duplicate literal removed |
 | 10 | Nebius adjudicator for the 70-89 band and low-confidence cases | P1 | never overrides a deterministic verdict |
 | 11 | Streaming upload limit + magic bytes + PIL bomb limit | P1 | R2, R7 |
 | 12 | Off-loop ingest and file IO | P1 | R3 |

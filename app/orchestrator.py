@@ -24,6 +24,7 @@ from .client import (
 )
 from .compare import FieldObservation, compare_field
 from .config import Settings, get_settings
+from .discovery import Catalog, Selection, fetch, resolve
 from .fields import FIELD_ORDER, FieldKey
 from .ingest import PageImage, ingest
 from .models import (
@@ -38,6 +39,7 @@ from .models import (
 )
 from .narrative_cache import NarrativeCache
 from .normalize import normalize_field
+from .providers import summary_endpoint, vision_endpoint
 from .store import RunStore, new_shipment_id
 from .summary import build_summary_prompt, summary_is_plausible
 
@@ -292,6 +294,11 @@ class Reconciler:
         self.summary_client = SummaryClient(self.settings)
         self._reports: dict[str, Report] = {}
         self._tasks: dict[str, asyncio.Task] = {}
+        # Discovery results, keyed by host so two roles on one host share a
+        # catalog. Both are best-effort: an unreachable host leaves the
+        # configured model alone.
+        self._catalogs: dict[str, Catalog] = {}
+        self._selections: dict[str, Selection] = {}
 
     # Settings the GUI may change on a running process. Anything path- or
     # limit-shaped stays env-only: re-reading runs_dir mid-run would strand a
@@ -331,6 +338,107 @@ class Reconciler:
         # demo_mode it used, so no report is ever mislabelled after the fact.
         self.client = ExtractionClient(self.settings)
         self.summary_client = SummaryClient(self.settings)
+
+    # ------------------------------------------------------------------
+    # Model discovery
+    # ------------------------------------------------------------------
+
+    def model_selections(self) -> list[dict]:
+        """What discovery decided, per role. Reads state; makes no calls."""
+        return [
+            {
+                "role": s.role,
+                "provider": s.provider,
+                "host": s.host,
+                "requested": s.requested,
+                "chosen": s.chosen,
+                "status": s.status,
+                "note": s.note,
+                "available": list(s.available),
+            }
+            for s in (self._selections.get("vision"), self._selections.get("summary"))
+            if s
+        ]
+
+    async def refresh_models(self, *, force: bool = False, transport=None) -> list[Selection]:
+        """Check the configured models against what each host actually lists.
+
+        Called before a run extracts rather than at import time. It is the only
+        thing that catches a model retiring underneath the app — which already
+        happened once here, see providers.py — and it must stay out of DEMO_MODE,
+        where there is no key and nothing to discover. TTL-cached per host so a
+        busy server asks once a quarter-hour, not once a shipment.
+
+        Never raises. An unreachable host, a bad key or an odd payload leaves the
+        configured model in place with the reason recorded, because discovery
+        improving the odds is not worth trading certainty for.
+        """
+        settings = self.settings
+        if settings.demo_mode or not settings.model_discovery:
+            return list(self._selections.values())
+
+        changed = False
+        for role, endpoint in (("vision", vision_endpoint(settings)),
+                               ("summary", summary_endpoint(settings))):
+            if not _key_is_real(endpoint.api_key):
+                self._selections[role] = Selection(
+                    role=role, provider=endpoint.provider, host=endpoint.host,
+                    requested=endpoint.model, chosen=endpoint.model,
+                    status="unverified",
+                    note="no key for this host, so the model was not verified",
+                )
+                continue
+
+            catalog = self._catalogs.get(endpoint.host)
+            stale = catalog is None or (
+                time.monotonic() - catalog.fetched_at
+            ) >= settings.model_discovery_ttl_seconds
+            if stale or force:
+                try:
+                    catalog = await fetch(endpoint, transport=transport)
+                except Exception as exc:  # noqa: BLE001 - advisory check, never sinks a run
+                    # DiscoveryError is the expected shape; a payload this side
+                    # has never seen could raise anything. The rule for the whole
+                    # module is that a check that merely improves the odds must
+                    # not be able to abort a shipment.
+                    self._selections[role] = Selection(
+                        role=role, provider=endpoint.provider, host=endpoint.host,
+                        requested=endpoint.model, chosen=endpoint.model,
+                        status="unverified", note=f"{type(exc).__name__}: {exc}"[:300],
+                    )
+                    continue
+                self._catalogs[endpoint.host] = catalog
+
+            allow = (
+                settings.vision_model_allow
+                if role == "vision"
+                else settings.summary_model_allow
+            )
+            selection = resolve(
+                role=role, provider=endpoint.provider, host=endpoint.host,
+                requested=endpoint.model, catalog=catalog.models, allow=allow,
+            )
+            self._selections[role] = selection
+            if selection.status == "discovered" and selection.chosen != endpoint.model:
+                self._adopt(role, endpoint.provider, selection.chosen)
+                changed = True
+
+        if changed:
+            # The endpoint carries the model, so adopting one means rebuilding
+            # the clients that captured the old one — the same rule reconfigure
+            # follows, for the same reason.
+            self.client = ExtractionClient(self.settings)
+            self.summary_client = SummaryClient(self.settings)
+        return list(self._selections.values())
+
+    def _adopt(self, role: str, provider: str, model: str) -> None:
+        field = {
+            ("vision", "nvidia"): "nvidia_vision_model",
+            ("vision", "nebius"): "nebius_vision_model",
+            ("summary", "nebius"): "nebius_summary_model",
+        }.get((role, provider))
+        if field:
+            setattr(self.settings, field, model)
 
     # ------------------------------------------------------------------
 
@@ -451,6 +559,23 @@ class Reconciler:
         # has to be chosen per call — a constructor argument would send two
         # concurrent runs' evidence to whichever created it first.
         raw_dir = self.store.dir(shipment_id) / "raw"
+
+        # Confirm the models before spending anything on them. If a host no
+        # longer serves the configured name, refresh_models adopts one it does
+        # and rebuilds the clients, so the run's stamps have to be re-read from
+        # the endpoints rather than left at whatever create_shipment captured.
+        await self.refresh_models()
+        report.run.model = self.client.endpoint.model
+        report.run.vision_provider = self.client.endpoint.provider
+        report.run.summary_model = self.summary_client.endpoint.model
+        report.run.summary_provider = self.summary_client.endpoint.provider
+        vision = self._selections.get("vision")
+        if vision is not None:
+            report.run.model_selection = vision.status
+            report.run.model_note = vision.note or (
+                f"confirmed on {vision.host}" if vision.status == "configured" else ""
+            )
+        self.store.write(report)
 
         async def one(p: PreparedDocument) -> None:
             doc = by_id[p.doc_id]

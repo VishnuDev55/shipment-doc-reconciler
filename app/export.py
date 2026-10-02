@@ -286,8 +286,11 @@ table.prov td {{ padding:4px 10px 4px 0; vertical-align:top; }}
 <code>{esc(report.run.json_schema_mode)}</code></td></tr>
 <tr><td><b>Executive summary (reasoning)</b></td>
 <td><code>{esc(report.run.summary_provider or 'nebius')}</code> · model
-<code>{esc(report.run.summary_model or 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B')}</code>
+<code>{esc(report.run.summary_model or 'not recorded')}</code>
 · status <code>{esc(report.narrative.status)}</code></td></tr>
+<tr><td><b>Model verified against host</b></td>
+<td><code>{esc(report.run.model_selection or 'unverified')}</code>
+{esc(' — ' + report.run.model_note if report.run.model_note else '')}</td></tr>
 </tbody></table>
 <footer>prompt {esc(report.run.prompt_version or PROMPT_VERSION)} ·
 normalizer {esc(report.run.normalizer_version or NORMALIZER_VERSION)} ·

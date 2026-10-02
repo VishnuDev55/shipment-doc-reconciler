@@ -82,6 +82,18 @@ class Settings(BaseSettings):
     # rate. Both providers meter differently and change prices without notice.
     usd_per_mtok: float = Field(default=0.0, alias="USD_PER_MTOK")
 
+    # --- Model discovery ---------------------------------------------------
+    # Ask each host what it actually serves before trusting a configured name.
+    # Off in DEMO_MODE regardless: there is nothing to discover without a key.
+    model_discovery: bool = Field(default=True, alias="MODEL_DISCOVERY")
+    model_discovery_ttl_seconds: int = Field(
+        default=900, alias="MODEL_DISCOVERY_TTL_SECONDS"
+    )
+    # Operator-named models, highest priority — tried before the configured
+    # default and before anything discovered. Comma-separated.
+    vision_model_allow: str = Field(default="", alias="VISION_MODEL_ALLOW")
+    summary_model_allow: str = Field(default="", alias="SUMMARY_MODEL_ALLOW")
+
     @property
     def has_nebius_key(self) -> bool:
         return _usable(self.nebius_api_key)

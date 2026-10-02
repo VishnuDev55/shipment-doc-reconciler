@@ -231,7 +231,7 @@ placeholders. It is also what the hosted instance runs, so a reviewer without ke
 still sees model output — labelled as such on screen.
 
 ```bash
-make test           # 310 tests, ~11s, zero API calls (socket guard, see Tests)
+make test           # 335 tests, ~11s, zero API calls (socket guard, see Tests)
 make probe          # rehearse the demo: prints the verdict table
 make dist           # clean source zip in dist/
 make docker         # single-stage image
@@ -323,6 +323,40 @@ unset the panel prints token counts and declines to invent a price.
 `GET /api/shipments/{id}/raw/{name}` serves those bodies as plain text, and only
 for filenames the report itself listed — a name the report never named is not
 evidence about that run.
+
+### Model discovery
+
+Model names are treated as defaults, not facts. Before a run extracts, the app
+issues `GET /v1/models` on each host (with `?verbose=true` on Nebius, which is
+where the modality comes from) and checks that the configured model is actually
+served. If it is not, the app adopts one that is — preferring the Nemotron
+family, then any other model that takes image input — and says so in the
+transparency panel rather than failing every document silently.
+
+This exists because the assumption already cost the project: the brief specified
+`nvidia/Nemotron-Nano-12B-V2-VL`, which returned **410 Gone** on
+build.nvidia.com and **404** on Token Factory, and that was found by hand, with a
+live key, mid-build.
+
+Rules worth knowing:
+
+| Situation | What happens |
+|---|---|
+| Configured model is listed by the host | Kept. The client is not rebuilt, so no extra probe call. |
+| Configured model is gone | A served model is adopted; `model_selection: "discovered"` and the note land in the report. |
+| No key, host unreachable, odd payload | Nothing changes. `model_selection: "unverified"` with the reason. Discovery is advisory and must never abort a shipment. |
+| `VISION_MODEL_ALLOW` / `SUMMARY_MODEL_ALLOW` set | Those names win over both the default and discovery. |
+| `DEMO_MODE=true` | No discovery call at all. |
+
+Ranking is sorted by preference band then model id, so two runs against the same
+catalog pick the same model. `GET /api/models` reports the current decision and
+`POST /api/models/refresh` re-queries past the TTL.
+
+**Unverified live.** No API key was available while this was written, so the
+discovery *logic* is tested against catalog payloads replayed through a mocked
+transport (`tests/test_discovery.py`) — including both envelope shapes. What
+neither host actually lists today has not been checked. Run `make probe-live` to
+confirm before trusting the outcome.
 
 ### Optional: run vision on Nebius instead
 
@@ -564,7 +598,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-310 passed in ~11s
+335 passed in ~11s
 ```
 
 ~10 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
@@ -627,7 +661,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 310 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 335 unit tests |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
 | Vision extraction, Nebius MiniCPM-V (fallback) | ✅ 9/9 documents, all parsed on attempt 1 |
@@ -726,7 +760,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 310 tests across 11 files (+ conftest.py socket guard)
+tests/                 335 tests across 12 files (+ conftest.py socket guard)
 docs/                  AUDIT.md — evidence-backed findings and the deferred list
 ```
 

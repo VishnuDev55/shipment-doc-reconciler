@@ -309,6 +309,13 @@ class RunInfo(BaseModel):
     # without the reader having to trust the deployment's environment. Zero
     # means not configured, and the panel then shows no cost rather than a guess.
     usd_per_mtok: float = 0.0
+    # Whether the vision model was confirmed against the host's own /models
+    # list: 'configured' (confirmed present), 'discovered' (the configured name
+    # is not served, so a listed model was adopted), 'unverified' (no key, or
+    # the catalog could not be read). A report should never imply a model was
+    # reachable when nothing checked.
+    model_selection: str = "unverified"
+    model_note: str = ""
 
 
 class Summary(BaseModel):

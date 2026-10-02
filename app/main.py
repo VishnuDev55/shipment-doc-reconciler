@@ -108,7 +108,35 @@ def health() -> dict:
             "key_present": bool(summary.api_key.strip()),
             "enabled": settings.enable_summary,
         },
+        # Whether those model names have been confirmed against what each host
+        # actually serves. Reported separately because "configured" and
+        # "reachable" are different claims, and conflating them is how a dead
+        # model turns into a mystery.
+        "models": rec.model_selections(),
     }
+
+
+@app.get("/api/models")
+def models() -> dict:
+    """What this app decided to call, per role, and why."""
+    rec = reconciler()
+    return {
+        "demo_mode": rec.settings.demo_mode,
+        "discovery_enabled": rec.settings.model_discovery,
+        "selections": rec.model_selections(),
+    }
+
+
+@app.post("/api/models/refresh")
+async def refresh_models() -> dict:
+    """Re-query both hosts now, ignoring the TTL.
+
+    Manual because it is the one route here that makes an outbound call on
+    demand; the panel and health read cached state instead.
+    """
+    rec = reconciler()
+    await rec.refresh_models(force=True)
+    return {"selections": rec.model_selections(), "demo_mode": rec.settings.demo_mode}
 
 
 # ---------------------------------------------------------------------------
