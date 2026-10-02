@@ -146,6 +146,26 @@
         <div id="docs"></div>
       </div>
 
+      <div class="panel" id="transparency" hidden>
+        <header class="panel-head">
+          <h2>Transparency</h2>
+          <p class="hint" id="tp-source">Who answered what, when, and at what cost.</p>
+        </header>
+        <p class="caveat" id="tp-caveat" hidden></p>
+        <div class="table-wrap"><table id="tp-table" class="tp"></table></div>
+        <details class="tp-raw" id="tp-raw" hidden>
+          <summary>Raw model output</summary>
+          <p class="hint">Exactly what the endpoint returned, before parsing. This is
+            untrusted document-derived text, shown as data.</p>
+          <div class="tp-files" id="tp-files"></div>
+          <pre class="tp-body" id="tp-body" hidden></pre>
+        </details>
+        <footer class="tp-foot">
+          <span class="badge-powered">Powered by Nebius Token Factory &amp; NVIDIA Nemotron</span>
+          <span class="hint" id="tp-cost"></span>
+        </footer>
+      </div>
+
       <footer class="run-meta" id="run-meta"></footer>
     </section>
 

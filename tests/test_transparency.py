@@ -10,11 +10,15 @@ these, so each one is pinned here rather than merely wired up.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.client import ExtractionClient, ExtractionOutcome, AttemptLog
+from app.config import Settings
+from app.main import app, configure
 from app.models import DocumentReport, Narrative, TokenUsage
 from app.orchestrator import Reconciler, apply_outcome
 
@@ -277,3 +281,61 @@ async def test_summary_usage_is_not_invented_when_the_answer_is_rejected(tmp_pat
     assert report.narrative.status == "failed"
     assert report.narrative.text is None
     assert report.narrative.usage.total == 0
+
+
+# ---------------------------------------------------------------------------
+# the route that hands a body to the browser
+# ---------------------------------------------------------------------------
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture()
+def api(tmp_path):
+    rec = Reconciler(
+        Settings(
+            _env_file=None,
+            demo_mode=True,
+            nvidia_api_key="",
+            nebius_api_key="",
+            runs_dir=tmp_path / "runs",
+            cache_dir=REPO / "fixtures" / "responses",
+        )
+    )
+    configure(rec)
+    with TestClient(app) as client:
+        yield client
+
+
+def one_run(client) -> tuple[str, str]:
+    report = client.get("/api/fixture/shipment_conflict").json()
+    sid = report["shipment_id"]
+    name = client.get(f"/api/shipments/{sid}/report").json()["documents"][0]["raw_files"][0]
+    return sid, name
+
+
+def test_raw_route_serves_a_body_the_report_listed(api):
+    sid, name = one_run(api)
+    res = api.get(f"/api/shipments/{sid}/raw/{name}")
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/plain")
+    assert "doc_type" in res.text
+
+
+def test_raw_route_refuses_a_name_the_report_never_listed(api):
+    sid, _ = one_run(api)
+    assert api.get(f"/api/shipments/{sid}/raw/zzz.txt").status_code == 404
+
+
+def test_raw_route_blocks_traversal(api):
+    sid, _ = one_run(api)
+    for probe in (
+        "..%2Freport.json",
+        "..%2F..%2F..%2Fetc%2Fpasswd",
+        "../report.json",
+    ):
+        assert api.get(f"/api/shipments/{sid}/raw/{probe}").status_code == 404, probe
+
+
+def test_raw_route_404s_for_an_unknown_run(api):
+    assert api.get("/api/shipments/nosuch/raw/anything.txt").status_code == 404

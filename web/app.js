@@ -541,6 +541,7 @@ function renderReport(report) {
   renderNarrative(report);
   renderComparison(report);
   renderDocuments(report);
+  renderTransparency(report);
 
   const run = report.run;
   const meta = $('#run-meta');
@@ -571,6 +572,144 @@ function renderCounts(s) {
     });
     host.appendChild(b);
   });
+}
+
+const SOURCE_WORDS = {
+  live_api: 'live call on this run',
+  cached_live: 'cached model output',
+  cached_authored: 'hand-authored fixture',
+  none: 'no answer',
+};
+
+function renderTransparency(report) {
+  const run = report.run;
+  const docs = report.documents || [];
+  const panel = $('#transparency');
+  panel.hidden = !docs.length;
+  if (!docs.length) return;
+
+  const n = report.narrative || {};
+  const tokens = { prompt: 0, completion: 0, total: 0 };
+  let ms = 0;
+  [
+    ...docs.map((d) => d),
+    { usage: n.usage, timings_ms: n.latency_ms },
+  ].forEach((row) => {
+    const u = row.usage;
+    if (u) {
+      tokens.prompt += u.prompt || 0;
+      tokens.completion += u.completion || 0;
+      tokens.total += u.total || 0;
+    }
+    ms += row.timings_ms || 0;
+  });
+
+  $('#tp-source').textContent =
+    `${run.vision_provider} · ${run.model} · structured output: ${run.json_schema_mode} · ` +
+    `${run.live_calls} live call${run.live_calls === 1 ? '' : 's'} on this run`;
+
+  // The honesty line. Absent for a genuine live run, explicit whenever the
+  // numbers on screen did not come from a call made now.
+  const notes = [];
+  if (run.live_calls === 0) {
+    notes.push('No API call was made on this run — every answer was replayed from the response cache.');
+  }
+  if (run.result_source === 'authored' || docs.some((d) => d.source === 'cached_authored')) {
+    notes.push('At least one value comes from a hand-authored fixture, not from a model.');
+  }
+  const caveat = $('#tp-caveat');
+  caveat.textContent = notes.join(' ');
+  caveat.hidden = !notes.length;
+
+  const table = $('#tp-table');
+  table.innerHTML = '';
+  const thead = el('thead');
+  const head = el('tr');
+  ['Step', 'Provider', 'Model', 'Answer came from', 'Tries', 'Tokens', 'Time'].forEach((t) =>
+    head.appendChild(el('th', null, t))
+  );
+  thead.appendChild(head);
+  table.appendChild(thead);
+
+  const body = el('tbody');
+  const addRow = (step, provider, model, source, tries, usage, timing) => {
+    const tr = el('tr');
+    [
+      step,
+      provider,
+      model,
+      SOURCE_WORDS[source] || source || '—',
+      String(tries),
+      usage && usage.total ? `${usage.prompt}+${usage.completion}` : '—',
+      timing ? `${(timing / 1000).toFixed(1)} s` : '—',
+    ].forEach((v, i) => tr.appendChild(el(i === 0 ? 'th' : 'td', i === 2 ? 'mono' : null, v)));
+    body.appendChild(tr);
+  };
+  docs.forEach((d) =>
+    addRow(d.label, d.provider, d.model, d.source, d.attempts, d.usage, d.timings_ms)
+  );
+  if (n.status && n.status !== 'pending') {
+    addRow(
+      'Executive summary',
+      n.provider || run.summary_provider,
+      n.model || run.summary_model,
+      n.source === 'generated' ? 'live_api' : n.status === 'cached' ? 'cached_live' : n.status,
+      n.usage && n.usage.total ? 1 : 0,
+      n.usage,
+      n.latency_ms
+    );
+  }
+  table.appendChild(body);
+
+  const raws = docs.flatMap((d) => (d.raw_files || []).map((f) => [d, f]));
+  const rawHost = $('#tp-raw');
+  rawHost.hidden = !raws.length;
+  if (raws.length) {
+    const list = rawHost.querySelector('.tp-files');
+    list.textContent = '';
+    raws.forEach(([doc, name]) => {
+      const b = el('button', 'tp-file', doc.label + ' → ' + name);
+      b.type = 'button';
+      b.addEventListener('click', () => showRaw(report.shipment_id, name, b));
+      list.appendChild(b);
+    });
+    $('#tp-body').hidden = true;
+    $('#tp-body').textContent = '';
+  }
+
+  const cost = $('#tp-cost');
+  const secs = `${(ms / 1000).toFixed(1)} s total`;
+  if (tokens.total === 0) {
+    cost.textContent = `${secs} · no tokens spent on this run`;
+  } else if (run.usd_per_mtok > 0) {
+    cost.textContent =
+      `${tokens.total} tokens · ${secs} · ≈$` +
+      ((tokens.total / 1e6) * run.usd_per_mtok).toFixed(5) +
+      ` at $${run.usd_per_mtok}/1M (configured)`;
+  } else {
+    cost.textContent =
+      `${tokens.total} tokens · ${secs} · price not configured, so none is shown` +
+      ' (set USD_PER_MTOK)';
+  }
+}
+
+async function showRaw(shipmentId, name, button) {
+  const pre = $('#tp-body');
+  document.querySelectorAll('.tp-file.on').forEach((b) => b.classList.remove('on'));
+  button.classList.add('on');
+  pre.hidden = false;
+  pre.textContent = 'loading…';
+  try {
+    const res = await fetch(
+      `/api/shipments/${encodeURIComponent(shipmentId)}/raw/${encodeURIComponent(name)}`
+    );
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    // textContent, never innerHTML: this body is text extracted from someone
+    // else's document and must stay data.
+    pre.textContent = await res.text();
+  } catch (err) {
+    pre.textContent = 'could not load: ' + err.message;
+  }
 }
 
 function renderComparison(report) {

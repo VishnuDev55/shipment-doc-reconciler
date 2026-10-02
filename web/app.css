@@ -479,6 +479,67 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .cmp td.val .meta { font-size: .66rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .cmp td.val .w { font-size: .68rem; color: var(--warn); margin-top: .15rem; }
 
+/* ------------------------------------------------- transparency ---- */
+
+/* An audit screen, so: tabular figures, quiet chrome, no decoration that
+   could be mistaken for a verdict. */
+.tp { min-width: 42rem; }
+.tp th, .tp td {
+  padding: .45rem .6rem; text-align: left; vertical-align: top;
+  border-bottom: 1px solid var(--line);
+  font-size: .78rem; font-variant-numeric: tabular-nums;
+}
+.tp thead th {
+  font-size: .66rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-3); border-bottom-color: var(--line-strong); white-space: nowrap;
+}
+.tp tbody th { font-weight: 500; color: var(--ink-2); }
+.tp tbody tr:last-child th, .tp tbody tr:last-child td { border-bottom: none; }
+.tp .mono { font-family: var(--mono); font-size: .72rem; overflow-wrap: anywhere; }
+
+.caveat {
+  margin: .7rem 0 0; padding: .6rem .75rem;
+  font-size: .78rem; line-height: 1.5; color: var(--warn);
+  background: var(--warn-soft);
+  border-left: 3px solid var(--warn); border-radius: var(--radius-sm);
+}
+
+.tp-raw { margin-top: .8rem; }
+.tp-raw summary {
+  cursor: pointer; font-size: .78rem; font-weight: 600; color: var(--ink-2);
+  padding: .2rem 0;
+}
+.tp-raw summary:hover { color: var(--accent); }
+.tp-files { display: flex; flex-wrap: wrap; gap: .35rem; margin: .5rem 0; }
+.tp-file {
+  font: inherit; font-size: .72rem; font-family: var(--mono);
+  padding: .25rem .5rem; cursor: pointer;
+  color: var(--ink-2); background: var(--surface-sunk);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  transition: color var(--motion), border-color var(--motion);
+}
+.tp-file:hover { color: var(--accent); border-color: var(--accent-line); }
+.tp-file.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.tp-body {
+  margin: 0 0 .3rem; padding: .7rem; max-height: 22rem; overflow: auto;
+  font-family: var(--mono); font-size: .72rem; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--surface-sunk); border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.tp-foot {
+  display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
+  margin-top: .85rem; padding-top: .7rem; border-top: 1px solid var(--line);
+}
+.badge-powered {
+  font-size: .68rem; font-weight: 600; letter-spacing: .04em;
+  padding: .28rem .55rem; white-space: nowrap;
+  color: var(--accent); background: var(--accent-soft);
+  border: 1px solid var(--accent-line); border-radius: 999px;
+}
+.tp-foot .hint { flex: 1 1 12rem; min-width: 0; }
+
 /* --------------------------------------------------------- docs ---- */
 
 .doc {

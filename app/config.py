@@ -76,6 +76,12 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = Field(default=180.0, alias="REQUEST_TIMEOUT_SECONDS")
     max_concurrency: int = Field(default=4, alias="MAX_CONCURRENCY")
 
+    # Price per million tokens, used only to annotate the transparency panel.
+    # Zero means "not configured", and the panel then declines to show a cost at
+    # all rather than guess one: a stale rate on an audit screen is worse than no
+    # rate. Both providers meter differently and change prices without notice.
+    usd_per_mtok: float = Field(default=0.0, alias="USD_PER_MTOK")
+
     @property
     def has_nebius_key(self) -> bool:
         return _usable(self.nebius_api_key)

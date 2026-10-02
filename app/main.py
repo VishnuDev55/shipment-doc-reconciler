@@ -11,7 +11,13 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 
 from .config import PROJECT_ROOT, _usable, get_settings
@@ -268,6 +274,29 @@ def get_report(shipment_id: str) -> Report:
     if report is None:
         raise HTTPException(404, "unknown shipment id")
     return report
+
+
+@app.get("/api/shipments/{shipment_id}/raw/{name}", response_class=PlainTextResponse)
+def get_raw(shipment_id: str, name: str) -> PlainTextResponse:
+    """One persisted model body, for the transparency panel.
+
+    The report already lists every legitimate filename, so membership is the
+    check — a filename the report never named is not evidence about this run,
+    whatever path it would resolve to. Containment is re-asserted anyway rather
+    than trusted transitively.
+    """
+    rec = reconciler()
+    report = rec.get(shipment_id)
+    if report is None:
+        raise HTTPException(404, "unknown shipment id")
+    if name not in {f for d in report.documents for f in d.raw_files}:
+        raise HTTPException(404, "no raw response by that name for this run")
+
+    base = (rec.store.dir(shipment_id) / "raw").resolve()
+    target = (base / name).resolve()
+    if not target.is_relative_to(base) or not target.is_file():
+        raise HTTPException(404, "no raw response by that name for this run")
+    return PlainTextResponse(target.read_text(errors="replace"))
 
 
 @app.post("/api/shipments/{shipment_id}/retry")

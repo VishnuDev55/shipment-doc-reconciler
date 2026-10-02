@@ -305,6 +305,10 @@ class RunInfo(BaseModel):
     # values were themselves produced by a model earlier. Conflating the two
     # would let a no-key demo claim "live result" to a judge.
     live_calls: int = 0
+    # Blended price per million tokens, echoed so a report can price itself
+    # without the reader having to trust the deployment's environment. Zero
+    # means not configured, and the panel then shows no cost rather than a guess.
+    usd_per_mtok: float = 0.0
 
 
 class Summary(BaseModel):

@@ -429,6 +429,7 @@ class Reconciler:
                 summary_provider=self.summary_client.endpoint.provider,
                 demo_mode=self.settings.demo_mode,
                 json_schema_mode=self.client.json_mode,  # type: ignore[arg-type]
+                usd_per_mtok=self.settings.usd_per_mtok,
             ),
         )
         self._reports[shipment_id] = report

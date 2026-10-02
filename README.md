@@ -102,6 +102,7 @@ browser  index.html + app.js + app.css (hand-rolled tokens)   no build step
 |    GET  /api/config                 POST /api/config   (GUI Configure)   |
 |    GET  /api/health                 GET  /api/fixtures                   |
 |    GET  /api/shipments              GET  /page/{id}/{path}  (evidence)   |
+|    GET  /api/shipments/{id}/raw/{n} (transparency panel body)             |
 |    GET  /api/fixture/{name}         GET  /                (static UI)    |
 +--------------------------------------------------------------------------+
    |
@@ -230,7 +231,7 @@ placeholders. It is also what the hosted instance runs, so a reviewer without ke
 still sees model output — labelled as such on screen.
 
 ```bash
-make test           # 297 tests, ~10s, zero API calls (socket guard, see Tests)
+make test           # 310 tests, ~11s, zero API calls (socket guard, see Tests)
 make probe          # rehearse the demo: prints the verdict table
 make dist           # clean source zip in dist/
 make docker         # single-stage image
@@ -305,6 +306,23 @@ How it behaves, and what it costs:
 
 With the flag off, `GET /api/config` still reports status but `POST` returns 403
 and the drawer explains where to set keys instead.
+
+### Transparency panel
+
+Every result screen ends with a **Transparency** table: one row per document plus
+one for the summary, naming the provider, the model, whether the answer came from
+a live call or the cache, attempts, tokens and latency. Below it, **Raw model
+output** lists each persisted body from `runs/{id}/raw/` and shows it verbatim.
+
+The panel is built to be unflattering where the facts are. A run that made no
+calls says so in an amber caveat rather than showing cached numbers silently, a
+replayed document reports zero tokens, and a hand-authored fixture is never
+labelled as model output. Cost appears only if you set `USD_PER_MTOK`; with it
+unset the panel prints token counts and declines to invent a price.
+
+`GET /api/shipments/{id}/raw/{name}` serves those bodies as plain text, and only
+for filenames the report itself listed — a name the report never named is not
+evidence about that run.
 
 ### Optional: run vision on Nebius instead
 
@@ -546,7 +564,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-297 passed in ~10s
+310 passed in ~11s
 ```
 
 ~10 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
@@ -609,7 +627,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 297 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 310 unit tests |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
 | Vision extraction, Nebius MiniCPM-V (fallback) | ✅ 9/9 documents, all parsed on attempt 1 |
@@ -708,7 +726,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 297 tests across 10 files (+ conftest.py socket guard)
+tests/                 310 tests across 11 files (+ conftest.py socket guard)
 docs/                  AUDIT.md — evidence-backed findings and the deferred list
 ```
 
