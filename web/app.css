@@ -496,6 +496,21 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
   font-weight: 600;
 }
 
+.page-chip {
+  display: inline-block; margin-top: .3rem; padding: .15rem .4rem;
+  font: inherit; font-size: .66rem; font-weight: 600; cursor: pointer;
+  color: var(--ink-3); background: transparent;
+  border: 1px solid var(--line); border-radius: 999px;
+  transition: color var(--motion), border-color var(--motion);
+}
+.page-chip:hover { color: var(--accent); border-color: var(--accent-line); }
+.lb-evidence {
+  margin: .6rem 0 0; padding: .5rem .75rem; max-width: 42rem;
+  font-size: .8rem; line-height: 1.5; text-align: left;
+  color: var(--ink-2); background: var(--surface);
+  border-left: 3px solid var(--accent); border-radius: var(--radius-sm);
+}
+
 /* ------------------------------------------------------ risk strip ---- */
 
 .risk {

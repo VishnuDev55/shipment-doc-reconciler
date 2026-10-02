@@ -983,8 +983,8 @@ function valueCell(v, comp) {
   }
 
   cell.appendChild(el('div', 'meta',
-    `p${v.page_index} · conf ${v.confidence.toFixed(2)}` +
-    (v.is_outlier ? ' · outlier' : '')));
+    `conf ${(v.confidence ?? 0).toFixed(2)}` + (v.is_outlier ? ' · outlier' : '')));
+  cell.appendChild(pageChip(v, comp));
 
   (v.warnings || []).forEach((w) => cell.appendChild(el('div', 'w', '⚠ ' + w)));
 
@@ -1070,6 +1070,33 @@ async function request(path, init) {
   } catch (err) {
     setStatus('Could not apply that correction: ' + err.message, true);
   }
+}
+
+/**
+ * Jump-to-page chip. The extraction contract carries page_index and the quoted
+ * evidence line, so "show me the page this came from" is answerable exactly.
+ * It carries no coordinates, so nothing is drawn over the image: inventing a
+ * bounding box would be the one kind of confidence this app promises not to fake.
+ */
+function pageChip(v, comp) {
+  const doc = ((state.report && state.report.documents) || [])
+    .find((d) => d.id === v.document_id);
+  const page = doc && (doc.pages || []).find((p) => p.index === v.page_index);
+  if (!page) {
+    return el('div', 'meta', 'page ' + v.page_index);
+  }
+
+  const chip = el('button', 'page-chip', 'page ' + v.page_index + ' →');
+  chip.type = 'button';
+  chip.addEventListener('click', () => {
+    const evidence = ((doc.extraction?.fields || {})[comp.field] || {}).evidence_text || '';
+    lightbox(
+      `/page/${encodeURIComponent(state.shipmentId)}/${page.image_path}`,
+      `${doc.label} — page ${page.index}`,
+      evidence,
+    );
+  });
+  return chip;
 }
 
 function renderNarrative(report) {
@@ -1184,15 +1211,25 @@ async function retryDocument(documentId) {
   setProgress('');
 }
 
-function lightbox(src, caption) {
+function lightbox(src, caption, evidence) {
   const fig = el('figure', 'lightbox');
   const img = el('img');
   img.src = src;
   img.alt = caption;
   fig.appendChild(img);
-  fig.appendChild(el('figcaption', null, caption + ' · click anywhere to close'));
+  fig.appendChild(el('figcaption', null, caption + ' · click anywhere or press Esc to close'));
+  // The quoted source line is the evidence; the image is context for it. Rendered
+  // as text, never as markup -- it came out of someone else's document.
+  if (evidence) fig.appendChild(el('blockquote', 'lb-evidence', '“' + evidence + '”'));
   fig.addEventListener('click', () => fig.remove());
   document.body.appendChild(fig);
+  const closeOnEscape = (event) => {
+    if (event.key === 'Escape') {
+      fig.remove();
+      document.removeEventListener('keydown', closeOnEscape);
+    }
+  };
+  document.addEventListener('keydown', closeOnEscape);
 }
 
 async function copyRunLink() {

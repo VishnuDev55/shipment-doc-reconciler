@@ -405,6 +405,20 @@ UI and in the exported report. `method: "deterministic-v1"` is recorded on the
 report so a score can be traced to the weighting that produced it even after the
 weights change.
 
+### Evidence you can navigate
+
+Every value in the comparison table carries a **page N →** chip. It opens that
+document's page image with the exact line the model quoted as evidence beneath it,
+so a verdict can be checked against the source without hunting through uploads.
+Escape or a click closes it.
+
+**No bounding-box highlight, deliberately.** The extraction contract carries
+`page_index` and `evidence_text` and no coordinates, so there is nothing
+trustworthy to draw a box from. Drawing an approximate one would be inventing
+precision the model never gave, which is the thing this app is built to refuse.
+Boxes need coordinates in the schema; that is a prompt-contract change, and the
+cache caveat under **Model discovery** applies to it unchanged.
+
 ### Corrections a human can make, and undo
 
 Every value in the comparison table has a **Correct** button. Change it and the
