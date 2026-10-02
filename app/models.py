@@ -227,6 +227,20 @@ class Comparison(BaseModel):
 DocStatus = Literal["ok", "partial", "failed", "pending", "running", "cached"]
 
 
+class TokenUsage(BaseModel):
+    """What the provider reported for the calls that actually happened.
+
+    Zeroes are meaningful, not missing: a document served from the cache made no
+    call on this run, so its usage is zero even though the cached values were
+    once produced by a model. The panel must show `source` alongside this, never
+    this alone.
+    """
+
+    prompt: int = 0
+    completion: int = 0
+    total: int = 0
+
+
 class PageRef(BaseModel):
     index: int
     image_path: str
@@ -255,6 +269,15 @@ class DocumentReport(BaseModel):
     doc_type_disagrees: bool = False
     # 'live_api' | 'cached_live' | 'cached_authored' | 'none'
     source: str = "none"
+    # Which provider and model answered this document. RunInfo stamps the
+    # configured defaults; these record what actually served each document, so
+    # a per-document answer cannot be credited to the wrong host.
+    provider: str = ""
+    model: str = ""
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+    # Basenames under runs/{id}/raw/, in call order. Names only, never content:
+    # a raw body is untrusted document-derived text.
+    raw_files: list[str] = Field(default_factory=list)
 
 
 class RunInfo(BaseModel):
@@ -313,6 +336,12 @@ class Narrative(BaseModel):
     # 'generated' = written by a model on this run; 'cached' = reused from a
     # previous run's stored narrative.
     source: str = "none"
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+    latency_ms: int = 0
+    # Set when the text came from a call made on this run, and cleared when it
+    # did not: a cached narrative has no fresh cost, and must not appear to.
+    # Basename under runs/{id}/raw/.
+    raw_file: str | None = None
 
 
 class Report(BaseModel):

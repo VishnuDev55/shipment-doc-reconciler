@@ -110,6 +110,8 @@ class ExtractionOutcome:
     source: str = "none"
     provider: str = ""
     model: str = ""
+    # Basenames of the raw bodies written for this document, in call order.
+    raw_files: list[str] = field(default_factory=list)
 
     @property
     def total_latency_ms(self) -> int:
@@ -309,16 +311,27 @@ class ChatClient:
                   f"mode honoured; relying on prompt only")
         return self.json_mode
 
-    def persist_raw(self, stem: str, raw: str) -> None:
-        """Every raw response goes to disk, including failed ones."""
-        if self.raw_dir is None:
-            return
+    def persist_raw(
+        self, stem: str, raw: str, raw_dir: Path | None = None
+    ) -> str | None:
+        """Every raw response goes to disk, including failed ones.
+
+        ``raw_dir`` overrides the client's own. The server shares one client
+        across every shipment, so a run's raw bodies have to be chosen per call;
+        scripts that build a client per purpose keep using the constructor value.
+        Returns the filename written, or None when nothing was written.
+        """
+        target = raw_dir or self.raw_dir
+        if target is None:
+            return None
+        safe = "".join(c for c in stem if c.isalnum() or c in "-_")
+        name = f"{safe}.txt"
         try:
-            self.raw_dir.mkdir(parents=True, exist_ok=True)
-            safe = "".join(c for c in stem if c.isalnum() or c in "-_")
-            (self.raw_dir / f"{safe}.txt").write_text(raw)
+            target.mkdir(parents=True, exist_ok=True)
+            (target / name).write_text(raw)
         except OSError:
-            pass
+            return None
+        return name
 
 
 class ExtractionClient(ChatClient):
@@ -336,24 +349,43 @@ class ExtractionClient(ChatClient):
         document_id: str,
         pages: list[PageImage],
         declared_doc_type: str | None = None,
+        raw_dir: Path | None = None,
     ) -> ExtractionOutcome:
         async with self._semaphore:
             return await self._extract_locked(
-                document_id=document_id, pages=pages, declared_doc_type=declared_doc_type
+                document_id=document_id,
+                pages=pages,
+                declared_doc_type=declared_doc_type,
+                raw_dir=raw_dir,
             )
 
     async def _extract_locked(
-        self, *, document_id: str, pages: list[PageImage], declared_doc_type: str | None
+        self,
+        *,
+        document_id: str,
+        pages: list[PageImage],
+        declared_doc_type: str | None,
+        raw_dir: Path | None = None,
     ) -> ExtractionOutcome:
         page_hashes = [p.sha256 for p in pages]
         key = cache_key(page_hashes, self.endpoint.model, self.endpoint.provider)
         logs: list[AttemptLog] = []
+        raw_files: list[str] = []
+
+        def keep(stem: str, body: str) -> None:
+            written = self.persist_raw(stem, body, raw_dir=raw_dir)
+            if written:
+                raw_files.append(written)
 
         cached = self.cache.get(key, page_sha256s=page_hashes)
         if cached is not None:
             tier = self.cache.provenance_of(key, page_sha256s=page_hashes)
             entry_source = "cached_live" if tier == "live" else "cached_authored"
             parsed = parse_extraction(json.dumps(cached))
+            # A replayed body is still the model's output — it was captured from
+            # a real call — so it goes on disk too. `source` is what says which
+            # kind of evidence the reader is looking at.
+            keep(f"{document_id}_cache", json.dumps(cached))
             if parsed.ok:
                 return ExtractionOutcome(
                     response=parsed.response,
@@ -368,6 +400,7 @@ class ExtractionClient(ChatClient):
                     source=entry_source,
                     provider=self.endpoint.provider,
                     model=self.endpoint.model,
+                    raw_files=raw_files,
                 )
             if self.settings.demo_mode:
                 return ExtractionOutcome(
@@ -379,6 +412,7 @@ class ExtractionClient(ChatClient):
                     error=f"cached response unparsable: {parsed.error}",
                     json_mode="cache",
                     provider=self.endpoint.provider, model=self.endpoint.model,
+                    raw_files=raw_files,
                 )
 
         if self.settings.demo_mode:
@@ -417,16 +451,17 @@ class ExtractionClient(ChatClient):
                 note = status_note(exc)
                 logs.append(AttemptLog(rung=rung, raw_text="", ok=False, note=note,
                                         latency_ms=int((time.monotonic() - started) * 1000)))
-                self.persist_raw(f"{document_id}_{rung}", f"[transport error] {note}")
+                keep(f"{document_id}_{rung}", f"[transport error] {note}")
                 return ExtractionOutcome(
                     response=None, status="failed", attempts=logs, issues=[note],
                     dropped_fields=[], used_cache=False, used_fallback_schema=False,
                     error=f"transport failed: {note}", json_mode=self.json_mode,
                     provider=self.endpoint.provider, model=self.endpoint.model,
+                    raw_files=raw_files,
                 )
 
             latency = int((time.monotonic() - started) * 1000)
-            self.persist_raw(f"{document_id}_{rung}", raw)
+            keep(f"{document_id}_{rung}", raw)
             parsed: ParseResult = parse_extraction(raw)
             if field_used != "content":
                 parsed.issues.append(f"answer read from '{field_used}' (content was empty)")
@@ -444,6 +479,7 @@ class ExtractionClient(ChatClient):
                     used_cache=False, used_fallback_schema=(rung == "simplified"),
                     json_mode=self.json_mode, source="live_api",
                     provider=self.endpoint.provider, model=self.endpoint.model,
+                    raw_files=raw_files,
                 )
 
             bad_text, bad_reason = raw, parsed.error or "unparsable"
@@ -459,6 +495,7 @@ class ExtractionClient(ChatClient):
             error=f"gave up after {len(logs)} attempts; last error: {bad_reason}",
             json_mode=self.json_mode,
             provider=self.endpoint.provider, model=self.endpoint.model,
+            raw_files=raw_files,
         )
 
     def _store_success(

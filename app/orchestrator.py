@@ -12,6 +12,7 @@ the frontend's 1-second poll sees progress without two writers racing on disk.
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,6 +34,7 @@ from .models import (
     Report,
     RunInfo,
     Summary,
+    TokenUsage,
 )
 from .narrative_cache import NarrativeCache
 from .normalize import normalize_field
@@ -197,6 +199,21 @@ def effective_doc_type(doc: DocumentReport) -> str:
     return doc.declared_doc_type or doc.detected_doc_type or "other"
 
 
+def _sum_usage(attempts: list) -> TokenUsage:
+    """Total tokens reported across the calls that actually happened.
+
+    Summed over attempts rather than taken from the last one, because the ladder
+    really does bill each rung. A cached document contributes zeroes.
+    """
+    prompt = completion = total = 0
+    for attempt in attempts:
+        usage = attempt.usage or {}
+        prompt += int(usage.get("prompt", 0) or 0)
+        completion += int(usage.get("completion", 0) or 0)
+        total += int(usage.get("total", 0) or 0)
+    return TokenUsage(prompt=prompt, completion=completion, total=total)
+
+
 def apply_outcome(target: DocumentReport, res: ExtractionOutcome | Exception) -> None:
     if isinstance(res, Exception):
         target.status = "failed"
@@ -209,6 +226,12 @@ def apply_outcome(target: DocumentReport, res: ExtractionOutcome | Exception) ->
     target.used_cache = res.used_cache
     target.used_fallback_schema = res.used_fallback_schema
     target.source = res.source
+    # Per document, not just per run: the answer has to name the host and model
+    # that produced *this* row.
+    target.provider = res.provider
+    target.model = res.model
+    target.usage = _sum_usage(res.attempts)
+    target.raw_files = list(res.raw_files)
 
     if res.response is None:
         target.status = "failed"
@@ -423,6 +446,10 @@ class Reconciler:
     async def _process(self, shipment_id: str, prepared: list[PreparedDocument]) -> None:
         report = self._reports[shipment_id]
         by_id = {d.id: d for d in report.documents}
+        # One client is shared by every shipment, so the raw-output directory
+        # has to be chosen per call — a constructor argument would send two
+        # concurrent runs' evidence to whichever created it first.
+        raw_dir = self.store.dir(shipment_id) / "raw"
 
         async def one(p: PreparedDocument) -> None:
             doc = by_id[p.doc_id]
@@ -432,6 +459,7 @@ class Reconciler:
                     document_id=p.doc_id,
                     pages=p.pages,
                     declared_doc_type=p.declared_doc_type,
+                    raw_dir=raw_dir,
                 )
             except Exception as exc:  # noqa: BLE001 - one doc must not kill the run
                 res = exc
@@ -496,21 +524,25 @@ class Reconciler:
             self.store.write(report)
             return
 
+        started = time.monotonic()
         try:
-            text, _usage = await self.summary_client.summarize(build_summary_prompt(report))
+            text, usage = await self.summary_client.summarize(build_summary_prompt(report))
         except Exception as exc:  # noqa: BLE001 - summary failure must not sink a run
             narrative.status = "failed"
             narrative.error = f"{type(exc).__name__}: {exc}"[:300]
             narrative.model = endpoint.model
             narrative.provider = endpoint.provider
+            narrative.latency_ms = int((time.monotonic() - started) * 1000)
             self.store.write(report)
             return
 
+        latency_ms = int((time.monotonic() - started) * 1000)
         if not summary_is_plausible(text):
             narrative.status = "failed"
             narrative.error = "model returned implausible summary text (rejected)"
             narrative.model = endpoint.model
             narrative.provider = endpoint.provider
+            narrative.latency_ms = latency_ms
             self.store.write(report)
             return
 
@@ -521,6 +553,12 @@ class Reconciler:
         narrative.source = "generated"
         narrative.generated_at = _now()
         narrative.error = None
+        narrative.latency_ms = latency_ms
+        narrative.usage = TokenUsage(
+            prompt=int((usage or {}).get("prompt", 0) or 0),
+            completion=int((usage or {}).get("completion", 0) or 0),
+            total=int((usage or {}).get("total", 0) or 0),
+        )
         try:
             cache.put(report, model=endpoint.model, provider=endpoint.provider, text=text.strip())
         except OSError:
@@ -556,6 +594,7 @@ class Reconciler:
                 document_id=target.id,
                 pages=pages,
                 declared_doc_type=target.declared_doc_type,
+                raw_dir=self.store.dir(shipment_id) / "raw",
             )
         except Exception as exc:  # noqa: BLE001
             res = exc
