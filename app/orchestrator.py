@@ -60,6 +60,7 @@ from .models import (
 from .narrative_cache import NarrativeCache
 from .normalize import normalize_field
 from .providers import summary_endpoint, vision_endpoint
+from .rules import sanity_checks
 from .store import RunStore, new_shipment_id
 from .summary import build_summary_prompt, summary_is_plausible
 
@@ -679,9 +680,10 @@ class Reconciler:
 
         await asyncio.gather(*(one(p) for p in prepared))
 
-        # Customs exposure first: it is free, instant and derived only from
-        # verdicts the engine already produced, so it stands even if every
-        # model call below fails.
+        # Sanity before risk, so a risk level that ignored the cross-field
+        # findings would be understating. Both are pure functions of the
+        # comparisons above, so re-running them cannot disagree with anything.
+        report.sanity = sanity_checks(report)
         level, reasons = customs_risk(report)
         report.risk = RiskNote(level=level, reasons=reasons)
 

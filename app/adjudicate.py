@@ -249,6 +249,14 @@ def customs_risk(report: Report) -> tuple[str, list[str]]:
         )
         level = _raise(level, "medium")
 
+    # Cross-field findings that clear a physical or commercial bound. Read from
+    # report.sanity, which the orchestrator fills before calling this, so the
+    # risk level never silently ignores them.
+    for finding in getattr(report, "sanity", []):
+        if finding.level == "risk":
+            reasons.append(f"{finding.code.replace('_', ' ')}: {finding.explanation}")
+            level = _raise(level, "medium")
+
     if not reasons:
         reasons.append("no classification-relevant disagreement detected")
     return level, reasons

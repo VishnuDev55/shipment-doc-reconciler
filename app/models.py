@@ -269,6 +269,19 @@ class Adjudication(BaseModel):
     latency_ms: int = 0
 
 
+class SanityFinding(BaseModel):
+    """One cross-field observation the per-field comparisons cannot see.
+
+    Deterministic, and `explanation` quotes both the computed number and the
+    threshold it broke so the finding can be disputed rather than trusted.
+    """
+
+    code: str
+    level: Literal["info", "warn", "risk"] = "warn"
+    fields: list[FieldKey] = Field(default_factory=list)
+    explanation: str = ""
+
+
 class RiskNote(BaseModel):
     """Customs exposure, computed from the engine's own verdicts.
 
@@ -464,6 +477,9 @@ class Report(BaseModel):
     summary: Summary = Field(default_factory=Summary)
     narrative: Narrative = Field(default_factory=Narrative)
     risk: RiskNote = Field(default_factory=RiskNote)
+    # Cross-field sanity, computed after the comparisons and before the risk
+    # strip, so a risk level that ignores them would be understating.
+    sanity: list[SanityFinding] = Field(default_factory=list)
     briefing: Briefing = Field(default_factory=Briefing)
 
 

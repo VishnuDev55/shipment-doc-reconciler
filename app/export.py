@@ -172,6 +172,11 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
         narrative_html = ""
 
     risk = report.risk
+    sanity_html = "".join(
+        f'<div class="sanity {esc(f.level)}"><b>{esc(f.level)}</b>'
+        f'<span>{esc(f.explanation)}</span></div>'
+        for f in report.sanity
+    )
     risk_html = (
         f'<div class="risk {esc(risk.level)}"><b>risk: {esc(risk.level)}</b>'
         f'<span>{esc("; ".join(risk.reasons))}.</span>'
@@ -287,6 +292,12 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
 .risk.high {{ border-left-color:#b3261e; background:#fbeceb; }}
 .risk.medium {{ border-left-color:#8a5a00; background:#fbf3e2; }}
 .risk.low {{ border-left-color:#1a7a43; background:#eaf5ee; }}
+.sanity {{ display:flex; gap:10px; align-items:baseline; margin:5px 0; padding:8px 11px;
+  font-size:12px; border-left:3px solid #8896a5; background:#f4f6f8; }}
+.sanity b {{ text-transform:uppercase; font-size:10px; letter-spacing:.6px; }}
+.sanity.warn {{ border-left-color:#8a5a00; background:#fbf3e2; }}
+.sanity.risk {{ border-left-color:#b3261e; background:#fbeceb; }}
+.sanity.info {{ border-left-color:#5a6672; background:#f2f4f7; }}
 .briefing {{ margin:12px 0; padding:11px 13px; border:1px solid #d7dce2;
   border-left:4px solid #2f6fb5; background:#fbfcfe; font-size:13px; }}
 .briefing pre {{ margin:6px 0 0; white-space:pre-wrap; font-family:inherit; font-size:13px; }}
@@ -301,6 +312,7 @@ table.prov td {{ padding:4px 10px 4px 0; vertical-align:top; }}
  {s.single_source} single-source, {s.absent} absent ·
  {s.documents_ok}/{s.documents_ok + s.documents_failed} documents extracted</div>
 {risk_html}
+{sanity_html}
 {narrative_html}
 {briefing_html}
 <h2>Field comparison</h2>

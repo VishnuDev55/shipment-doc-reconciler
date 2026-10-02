@@ -232,7 +232,7 @@ placeholders. It is also what the hosted instance runs, so a reviewer without ke
 still sees model output — labelled as such on screen.
 
 ```bash
-make test           # 399 tests, ~22s, zero API calls (socket guard, see Tests)
+make test           # 416 tests, ~15s, zero API calls (socket guard, see Tests)
 make probe          # rehearse the demo: prints the verdict table
 make dist           # clean source zip in dist/
 make docker         # single-stage image
@@ -351,6 +351,31 @@ generator unsubscribes in a `finally`.
 The progress line counts documents settled and seconds elapsed, because a
 reasoning vision model takes 30–90 s per document and a bare "Extracting…" reads
 as a hang.
+
+### Cross-field sanity
+
+Each field is reconciled on its own, so a shipment can be perfectly consistent
+field by field and still be impossible. `app/rules.py` checks pairs:
+
+| Rule | Fires when |
+|---|---|
+| `unit_mass_high` | gross weight ÷ count implies more than 2,000 kg per piece |
+| `unit_mass_low` | it implies less than 0.0005 kg per piece — a pallet counted against a carton weight |
+| `unit_price_high` | invoice value ÷ count implies over 250,000 per piece |
+| `value_without_currency` | the value carries no currency code |
+| `hs_code_short` | fewer than the 6 internationally harmonised digits |
+| `bill_of_lading_without_container` | a B/L was read but no document stated equipment |
+| `single_source_fields` | states which fields were never cross-checked, so "unverified" is not mistaken for "agrees" |
+
+All of it is arithmetic in Python over the engine's own canonical keys
+(`weight:12450.000`, `money:USD:48200.00`, `count:48:ea`), which are ours to parse
+because we wrote their format. The model still computes nothing. Every
+explanation quotes both the number it derived and the named bound it broke, so a
+reviewer can disagree with the threshold rather than trust the verdict, and a
+`risk`-level finding raises the customs-risk strip.
+
+Currencies are never converted, so `unit_price_high` compares like for like only —
+the rule states that in its own text.
 
 ### Two readers, when you can afford the doubt
 
@@ -691,7 +716,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-399 passed in ~22s
+416 passed in ~15s
 ```
 
 ~10 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
@@ -754,7 +779,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 399 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 416 unit tests |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
 | Vision extraction, Nebius MiniCPM-V (fallback) | ✅ 9/9 documents, all parsed on attempt 1 |
@@ -853,7 +878,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 399 tests across 16 files (+ conftest.py socket guard)
+tests/                 416 tests across 17 files (+ conftest.py socket guard)
 docs/                  AUDIT.md (findings, evidence) · DEPLOYMENT.md (deploy + health semantics)
 ```
 

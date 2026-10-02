@@ -633,6 +633,7 @@ function renderReport(report) {
   renderDocuments(report);
   renderTransparency(report);
   renderRisk(report);
+  renderSanity(report);
 
   const run = report.run;
   const meta = $('#run-meta');
@@ -837,6 +838,21 @@ function renderRisk(report) {
   // opinion would be the wrong kind of impressive.
   $('#risk-src').textContent = risk.source === 'deterministic'
     ? 'Computed from the verdicts above by rule — no model was asked.' : '';
+}
+
+function renderSanity(report) {
+  const list = $('#sanity');
+  const findings = report.sanity || [];
+  list.hidden = !findings.length;
+  list.textContent = '';
+  findings.forEach((f) => {
+    const li = el('li', 'sanity-' + f.level);
+    li.appendChild(el('span', 'sanity-tag', f.level));
+    // The explanation quotes both the computed number and the threshold, so the
+    // reviewer can disagree with the rule instead of trusting it.
+    li.appendChild(el('span', 'sanity-text', f.explanation));
+    list.appendChild(li);
+  });
 }
 
 function renderBriefing(report) {
