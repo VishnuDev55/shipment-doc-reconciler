@@ -1,0 +1,113 @@
+"""Application settings. Single source of truth for configuration.
+
+Reads .env (gitignored). .env.example is the committed template.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+# Version tags. Bump when behaviour changes so a cached response can never be
+# silently reconciled against an incompatible ruleset.
+PROMPT_VERSION = "extract-v1"
+NORMALIZER_VERSION = "norm-v1"
+COMPARATOR_VERSION = "cmp-v1"
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=PROJECT_ROOT / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    nebius_api_key: str = Field(default="", alias="NEBIUS_API_KEY")
+    nebius_base_url: str = Field(
+        default="https://api.tokenfactory.nebius.com/v1/", alias="NEBIUS_BASE_URL"
+    )
+
+    # NVIDIA build.nvidia.com — hosts the vision model that reads documents.
+    nvidia_api_key: str = Field(default="", alias="NVIDIA_API_KEY")
+    nvidia_base_url: str = Field(
+        default="https://integrate.api.nvidia.com/v1/", alias="NVIDIA_BASE_URL"
+    )
+
+    # Which provider reads the document images. "nvidia" is the default;
+    # "nebius" switches to MiniCPM-V on Token Factory as a fallback if the
+    # NVIDIA key is unavailable or its shared workers stay saturated.
+    vision_provider: str = Field(default="nvidia", alias="VISION_PROVIDER")
+    # Override the model ids without touching code. Empty = provider default.
+    nvidia_vision_model: str = Field(default="", alias="NVIDIA_VISION_MODEL")
+    nebius_vision_model: str = Field(default="", alias="NEBIUS_VISION_MODEL")
+    nebius_summary_model: str = Field(default="", alias="NEBIUS_SUMMARY_MODEL")
+
+    # The optional executive-summary call. Never blocks or fails a shipment.
+    enable_summary: bool = Field(default=True, alias="ENABLE_SUMMARY")
+
+    # Legacy alias still honoured by .env: the vision model for the nebius path.
+    nebius_model: str = Field(default="", alias="NEBIUS_MODEL")
+
+    # Replay extractions from the on-disk response cache instead of calling the
+    # API. Off by default — the app is meant to read real documents. Set
+    # DEMO_MODE=true for the keyless hosted demo, where the bundled cache
+    # replays real captured model output.
+    demo_mode: bool = Field(default=False, alias="DEMO_MODE")
+
+    # Allow the GUI to apply provider keys and demo mode to the running process.
+    # Such a key then serves every visitor, so set this false on a public
+    # deployment and keep using environment secrets there.
+    gui_config_enabled: bool = Field(default=True, alias="GUI_CONFIG_ENABLED")
+
+    runs_dir: Path = Field(default=PROJECT_ROOT / "runs", alias="RUNS_DIR")
+    cache_dir: Path = Field(default=PROJECT_ROOT / "fixtures" / "responses", alias="CACHE_DIR")
+
+    max_documents: int = Field(default=5, alias="MAX_DOCUMENTS")
+    max_pages_per_document: int = Field(default=6, alias="MAX_PAGES_PER_DOCUMENT")
+    max_upload_bytes: int = Field(default=25 * 1024 * 1024, alias="MAX_UPLOAD_BYTES")
+    image_long_edge: int = Field(default=1600, alias="IMAGE_LONG_EDGE")
+    jpeg_quality: int = Field(default=85, alias="JPEG_QUALITY")
+
+    request_timeout_seconds: float = Field(default=180.0, alias="REQUEST_TIMEOUT_SECONDS")
+    max_concurrency: int = Field(default=4, alias="MAX_CONCURRENCY")
+
+    @property
+    def has_nebius_key(self) -> bool:
+        return _usable(self.nebius_api_key)
+
+    @property
+    def has_nvidia_key(self) -> bool:
+        return _usable(self.nvidia_api_key)
+
+    @property
+    def has_api_key(self) -> bool:
+        """Backwards-compatible alias: does the Nebius side work?"""
+        return self.has_nebius_key
+
+    @property
+    def vision_ready(self) -> bool:
+        """Can the configured vision provider actually be called?"""
+        return self.has_nvidia_key if self.vision_provider != "nebius" else self.has_nebius_key
+
+    @property
+    def summary_ready(self) -> bool:
+        return self.enable_summary and self.has_nebius_key
+
+
+def _usable(key: str) -> bool:
+    stripped = (key or "").strip()
+    return bool(stripped) and stripped not in {
+        "your-api-key-here",
+        "paste-your-key-here",
+        "test-key-not-real",
+    }
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

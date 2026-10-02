@@ -1,0 +1,92 @@
+{
+  "generated_by": "scripts/build_fixtures.py",
+  "prompt_version": "extract-v1",
+  "model": "nvidia/Nemotron-Nano-12B-V2-VL",
+  "note": "Fixtures and cached responses are hand-authored synthetic data. They are NOT model output and prove nothing about live API behaviour.",
+  "shipments": {
+    "shipment_clean": {
+      "documents": [
+        {
+          "doc_type": "commercial_invoice",
+          "files": [
+            "invoice_clean.png"
+          ],
+          "pages": 1,
+          "cache_key": "e3468ae4d3dda8d81921670fae179330"
+        },
+        {
+          "doc_type": "packing_list",
+          "files": [
+            "packing_list_clean.png"
+          ],
+          "pages": 1,
+          "cache_key": "803d821c8a085791a83dd7ce38669cf2"
+        },
+        {
+          "doc_type": "bill_of_lading",
+          "files": [
+            "bol_clean.png"
+          ],
+          "pages": 1,
+          "cache_key": "0cbf970c9bef8fc47dc7334fda6aafb4"
+        }
+      ]
+    },
+    "shipment_conflict": {
+      "documents": [
+        {
+          "doc_type": "commercial_invoice",
+          "files": [
+            "invoice_conflict.png"
+          ],
+          "pages": 1,
+          "cache_key": "7074995d01bee245f073c422e16d06a3"
+        },
+        {
+          "doc_type": "packing_list",
+          "files": [
+            "packing_list_conflict.png"
+          ],
+          "pages": 1,
+          "cache_key": "9dee47bd58b9047f9354245805eda002"
+        },
+        {
+          "doc_type": "bill_of_lading",
+          "files": [
+            "bol_conflict.png"
+          ],
+          "pages": 1,
+          "cache_key": "aeafc746feda7e7332bd20deb2a8751c"
+        }
+      ]
+    },
+    "shipment_messy": {
+      "documents": [
+        {
+          "doc_type": "commercial_invoice",
+          "files": [
+            "invoice_messy.png"
+          ],
+          "pages": 1,
+          "cache_key": "0e70411870ab8e3239fae1b0958976e7"
+        },
+        {
+          "doc_type": "packing_list",
+          "files": [
+            "packing_list_messy.pdf"
+          ],
+          "pages": 2,
+          "cache_key": "988b5ad117c5aa3ab11859cadf618f27"
+        },
+        {
+          "doc_type": "bill_of_lading",
+          "files": [
+            "bol_messy.png"
+          ],
+          "pages": 1,
+          "cache_key": "64bbe9448e931fa7dc016bde025c55ae"
+        }
+      ]
+    }
+  }
+}

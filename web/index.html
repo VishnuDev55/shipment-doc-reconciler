@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shipment Doc Reconciler</title>
+<meta name="description" content="Cross-check quantity, gross weight, container number, HS code, consignee and invoice value across the documents in one shipment.">
+<meta name="theme-color" content="#f8f7f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1113" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e6a63'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h9' stroke='%23fff' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="bar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-text">
+      <strong>Shipment Doc Reconciler</strong>
+      <span>value audit across trade documents</span>
+    </span>
+  </div>
+  <div class="bar-status">
+    <span id="mode-chip" class="flag" hidden></span>
+  </div>
+  <div class="bar-actions">
+    <button type="button" id="open-config" class="btn btn-quiet" aria-haspopup="dialog">
+      Configure
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <aside class="rail" aria-label="Connection, sample shipments and recent runs">
+
+    <section class="rail-block">
+      <h2>Connection</h2>
+      <dl id="conn-list" class="conn"></dl>
+    </section>
+
+    <section class="rail-block">
+      <h2>Sample shipments</h2>
+      <div id="fixture-list" class="pickers"></div>
+      <p id="fixtures-note" class="hint" hidden></p>
+    </section>
+
+    <section class="rail-block">
+      <h2>Recent runs</h2>
+      <div id="history" class="runs"></div>
+    </section>
+
+  </aside>
+
+  <main id="main">
+
+    <section class="panel" aria-labelledby="intake-title">
+      <header class="panel-head">
+        <h2 id="intake-title">Documents</h2>
+        <p class="hint">Two to five documents for a single shipment. Type is detected
+          from the page; override it when a scan is ambiguous.</p>
+      </header>
+
+      <div id="key-warning" class="note note-warn warn-row" hidden>
+        <span id="key-warning-text">Live mode needs a vision key before documents can be read.</span>
+        <button type="button" id="warn-config" class="btn btn-quiet">Open Configure</button>
+      </div>
+
+      <div id="dropzone" class="dropzone" role="button" tabindex="0"
+           aria-label="Add documents. Drop files here or press Enter to browse.">
+        <span class="dz-title">Drop invoice, packing list or bill of lading</span>
+        <span class="dz-sub">or click to choose &middot; PDF, JPG, PNG, WEBP, TIFF &middot; up to 5 files</span>
+        <input type="file" id="file-input" multiple
+               accept=".pdf,.jpg,.jpeg,.png,.webp,.tif,.tiff" hidden>
+      </div>
+
+      <ul id="upload-list" class="uploads" hidden></ul>
+
+      <div class="row-actions">
+        <button type="button" id="analyze" class="btn btn-primary" disabled>Analyse shipment</button>
+        <button type="button" id="reset" class="btn btn-quiet" hidden>Clear</button>
+        <span class="spacer"></span>
+        <span id="intake-count" class="hint"></span>
+      </div>
+
+      <p id="error" class="alert" role="alert" hidden></p>
+    </section>
+
+    <section id="empty" class="panel empty" aria-labelledby="empty-title">
+      <span class="empty-mark" aria-hidden="true"></span>
+      <h2 id="empty-title">Nothing reconciled yet</h2>
+      <p>Add documents above, or open one of the bundled sample shipments in the
+        sidebar. Every run is written to disk and stays listed under
+        <strong>Recent runs</strong>, so a result can be reopened later.</p>
+    </section>
+
+    <section id="results" hidden>
+
+      <div class="panel verdict">
+        <div class="verdict-head">
+          <h2 id="verdict-headline" class="verdict-title">Working&hellip;</h2>
+          <div id="counts" class="counts" role="group" aria-label="Field verdicts"></div>
+        </div>
+        <p id="verdict-sub" class="hint" aria-live="polite"></p>
+
+        <div class="row-actions">
+          <a id="export" class="btn btn-primary" href="#" download>Download reconciliation ZIP</a>
+          <button type="button" id="copy-link" class="btn btn-quiet" hidden>Copy link to this run</button>
+          <span class="spacer"></span>
+          <label class="switch">
+            <input type="checkbox" id="show-raw">
+            <span class="switch-track" aria-hidden="true"></span>
+            <span>Verbatim values instead of normalized</span>
+          </label>
+        </div>
+
+        <p id="progress" class="progress" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="panel narrative" id="narrative-card" hidden>
+        <header class="panel-head tight">
+          <h2>Executive summary</h2>
+          <span id="narrative-tag" class="flag flag-ai">AI-generated</span>
+        </header>
+        <p id="narrative-text"></p>
+        <p id="narrative-meta" class="hint"></p>
+      </div>
+
+      <div class="panel">
+        <header class="panel-head">
+          <h2>Field comparison</h2>
+          <p class="hint">A field printed on one document only is never called a
+            conflict — there is nothing to reconcile it against.</p>
+        </header>
+        <div class="table-wrap"><table id="cmp" class="cmp"></table></div>
+        <p id="no-matches" class="hint" hidden>No field matches this filter.</p>
+      </div>
+
+      <div class="panel">
+        <header class="panel-head">
+          <h2>Source documents</h2>
+          <p class="hint">Every value is shown with the line it was read from.</p>
+        </header>
+        <div id="docs"></div>
+      </div>
+
+      <footer class="run-meta" id="run-meta"></footer>
+    </section>
+
+  </main>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true"
+       aria-labelledby="drawer-title" hidden>
+  <header class="drawer-head">
+    <h2 id="drawer-title">Configure</h2>
+    <button type="button" id="close-config" class="btn btn-icon" aria-label="Close configuration">Close</button>
+  </header>
+
+  <div class="drawer-body">
+    <p class="note">Applied to the running container straight away. Keys are held in
+      memory only — never written to disk, never returned to the browser — and are
+      gone when the container restarts. The app runs live; the keyless cached demo
+      is an environment setting (<code>DEMO_MODE=true</code>), not a toggle here.</p>
+
+    <p id="config-locked" class="alert" hidden></p>
+
+    <fieldset class="field">
+      <legend>Vision provider</legend>
+      <div class="segmented" id="provider-seg"></div>
+      <p class="hint">Reads the document images. The summary model stays on Nebius.</p>
+    </fieldset>
+
+    <div class="field">
+      <label class="field-label" for="key-nvidia">
+        NVIDIA API key
+        <span class="key-state" id="key-nvidia-state"></span>
+      </label>
+      <div class="field-row">
+        <input type="password" id="key-nvidia" class="input" autocomplete="off"
+               spellcheck="false" placeholder="nvapi-…">
+        <button type="button" class="btn btn-quiet" data-clear="nvidia_api_key">Clear</button>
+      </div>
+      <p class="hint">Hosted at integrate.api.nvidia.com. Powers document reading when the provider above is NVIDIA.</p>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="key-nebius">
+        Nebius API key
+        <span class="key-state" id="key-nebius-state"></span>
+      </label>
+      <div class="field-row">
+        <input type="password" id="key-nebius" class="input" autocomplete="off"
+               spellcheck="false" placeholder="sk-…">
+        <button type="button" class="btn btn-quiet" data-clear="nebius_api_key">Clear</button>
+      </div>
+      <p class="hint">Hosted at api.tokenfactory.nebius.com. Used for the executive summary and as the vision fallback.</p>
+    </div>
+
+    <label class="switch">
+      <input type="checkbox" id="cfg-summary">
+      <span class="switch-track" aria-hidden="true"></span>
+      <span>Executive summary</span>
+    </label>
+
+    <details class="field advanced">
+      <summary>Model overrides</summary>
+      <p class="hint">Leave blank to use each provider's default. Applied on save.</p>
+      <label class="field-label" for="m-nvidia-vision">NVIDIA vision model</label>
+      <input type="text" id="m-nvidia-vision" class="input" spellcheck="false" placeholder="provider default">
+      <label class="field-label" for="m-nebius-vision">Nebius vision model</label>
+      <input type="text" id="m-nebius-vision" class="input" spellcheck="false" placeholder="provider default">
+      <label class="field-label" for="m-nebius-summary">Nebius summary model</label>
+      <input type="text" id="m-nebius-summary" class="input" spellcheck="false" placeholder="provider default">
+    </details>
+
+    <fieldset class="field">
+      <legend>Appearance</legend>
+      <div class="segmented" id="theme-seg"></div>
+    </fieldset>
+  </div>
+
+  <footer class="drawer-foot">
+    <span id="config-status" class="hint" role="status" aria-live="polite"></span>
+    <span class="spacer"></span>
+    <button type="button" id="cancel-config" class="btn btn-quiet">Cancel</button>
+    <button type="button" id="save-config" class="btn btn-primary">Apply</button>
+  </footer>
+</aside>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

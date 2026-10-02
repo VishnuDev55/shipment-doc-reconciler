@@ -1,0 +1,69 @@
+# Render blueprint — free tier, Docker.
+#
+# Requires a Render account. Push the repo to GitHub first, then in the Render
+# dashboard choose "New > Blueprint" and point it at the repo; Render reads this
+# file. Alternatively: `render.yaml` is honored by `render deploy` too.
+#
+# IMPORTANT: the free tier filesystem is EPHEMERAL and services SLEEP after 15
+# minutes of inactivity. This app uses ./runs as its database, so uploaded
+# documents and their reports disappear on redeploy or restart. That is
+# acceptable for a hackathon demo because:
+#   * the three bundled fixtures replay from the committed cache and need no
+#     writes to work at all (verified: DEMO_MODE never writes to the cache dir),
+#   * any live upload is a throwaway session, not durable state.
+# If you need uploads to survive restarts, either attach a persistent disk
+# (paid) and point RUNS_DIR at it, or run with DEMO_MODE=true and demo the
+# fixtures only.
+#
+# RUNS_DIR points at /tmp because the image runs as an unprivileged user and
+# /app is the only path it owns at build time. /tmp is world-writable, so this
+# works without a volume. Verified locally that nested RUNS_DIR paths are
+# created on demand; NOT verified on a real Render instance.
+#
+# TWO THINGS FROM RENDER'S OWN DOCS THAT MATTER HERE:
+#  1. DEMO_MODE=true is the recommended public setting. Render warns it "may
+#     suspend a Free web service that initiates an uncommonly high volume of
+#     traffic over the public internet", listing "invoking external APIs" as an
+#     example. A live demo calls NVIDIA + Nebius on every upload, so a busy
+#     public URL risks suspension. Demo mode makes no outbound calls at all.
+#  2. Free services spin down after 15 min idle and take ~60s to wake, showing
+#     Render's loading page. Cold-start the URL shortly before judging.
+#
+# Whether `runtime: docker` is permitted on the Free plan is NOT confirmed by
+# Render's free-tier page (it lists Web Service as free-eligible, and Docker is
+# a runtime rather than a service type). If Blueprint creation rejects it, fall
+# back to Native Python: build.command = "pip install -r requirements.txt",
+# start.command = "uvicorn app.main:app --host 0.0.0.0 --port $PORT". The app
+# reads PORT from the environment via that command, so no code change is needed.
+
+services:
+  - type: web
+    name: shipment-doc-reconciler
+    runtime: docker
+    plan: free
+    region: oregon # any free region; change to whichever is closest to you
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: DEMO_MODE
+        value: "true" # no keys required; replays real captured model output
+      - key: RUNS_DIR
+        value: /tmp/shipment-runs # ephemeral on free tier, by design
+      - key: CACHE_DIR
+        value: /app/fixtures/responses
+      - key: ENABLE_SUMMARY
+        value: "true"
+      # The UI's Configure panel writes to the shared process, so on a public
+      # URL one visitor's key would serve everyone else's runs. Off here; keys
+      # come from the dashboard secrets below instead. Leave it unset (true) for
+      # a local docker run, where the panel is the convenient way in.
+      - key: GUI_CONFIG_ENABLED
+        value: "false"
+      # --- For a LIVE demo, set these in the Render dashboard (secret values)
+      # --- and flip DEMO_MODE to "false". Do NOT commit real keys here.
+      # - key: NVIDIA_API_KEY
+      #   sync: false
+      # - key: NEBIUS_API_KEY
+      #   sync: false
+      # - key: VISION_PROVIDER
+      #   value: nvidia

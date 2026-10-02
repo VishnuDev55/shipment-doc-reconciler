@@ -1,0 +1,19 @@
+# Keep secrets and local state out of the build context and the image.
+.env
+*.env.local
+.git
+.gitignore
+runs/
+dist/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+tests/
+Makefile
+PROGRESS.md
+README.md
+.DS_Store
+.vscode/
+.idea/

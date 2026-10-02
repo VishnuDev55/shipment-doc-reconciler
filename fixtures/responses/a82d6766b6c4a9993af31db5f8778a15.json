@@ -1,0 +1,62 @@
+{
+  "cache_key": "a82d6766b6c4a9993af31db5f8778a15",
+  "model": "openbmb/MiniCPM-V-4_5",
+  "prompt_version": "extract-v1",
+  "page_sha256": [
+    "3c8caabb5c106344a005521cfb9794d47c0b5c688e82cc21bc8170014b4e0af9",
+    "416bc4883a5525f72700edc22e19c99ae1fd9b0666b600c2cd7308f07c2b3280"
+  ],
+  "response": {
+    "doc_type": "packing_list",
+    "doc_type_reason": "Header reads PACKING LIST and shows a total measurement.",
+    "fields": {
+      "quantity": {
+        "present": true,
+        "value": "100 cartons",
+        "evidence_text": "100 cartons",
+        "page_index": 2,
+        "confidence": 1.0
+      },
+      "gross_weight": {
+        "present": true,
+        "value": "12,450.00 KGS",
+        "evidence_text": "12,450.00 KGS",
+        "page_index": 2,
+        "confidence": 1.0
+      },
+      "container_number": {
+        "present": true,
+        "value": "MSKU3067322",
+        "evidence_text": "MSKU3067322",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "hs_code": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "consignee_name": {
+        "present": true,
+        "value": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "Nordwind Industrial Supply GmbH",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "invoice_value": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      }
+    }
+  },
+  "raw_text": "{\n  \"doc_type\": \"packing_list\",\n  \"doc_type_reason\": \"Header reads PACKING LIST and shows a total measurement.\",\n  \"fields\": {\n    \"quantity\": {\n      \"present\": true,\n      \"value\": \"100 cartons\",\n      \"evidence_text\": \"100 cartons\",\n      \"page_index\": 2,\n      \"confidence\": 1.0\n    },\n    \"gross_weight\": {\n      \"present\": true,\n      \"value\": \"12,450.00 KGS\",\n      \"evidence_text\": \"12,450.00 KGS\",\n      \"page_index\": 2,\n      \"confidence\": 1.0\n    },\n    \"container_number\": {\n      \"present\": true,\n      \"value\": \"MSKU3067322\",\n      \"evidence_text\": \"MSKU3067322\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"hs_code\": {\n      \"present\": false,\n      \"value\": null,\n      \"evidence_text\": \"\",\n      \"page_index\": 1,\n      \"confidence\": 0.0\n    },\n    \"consignee_name\": {\n      \"present\": true,\n      \"value\": \"Nordwind Industrial Supply GmbH\",\n      \"evidence_text\": \"Nordwind Industrial Supply GmbH\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"invoice_value\": {\n      \"present\": false,\n      \"value\": null,\n      \"evidence_text\": \"\",\n      \"page_index\": 1,\n      \"confidence\": 0.0\n    }\n  }\n}",
+  "_provenance": "live API response",
+  "provider": "nebius",
+  "previous_key": "bc354a826455f061681882fd1a00e6b9",
+  "_migration": "provider-key migration; was bc354a826455f061681882fd1a00e6b9"
+}

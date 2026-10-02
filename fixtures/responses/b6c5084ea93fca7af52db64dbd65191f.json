@@ -1,0 +1,60 @@
+{
+  "cache_key": "b6c5084ea93fca7af52db64dbd65191f",
+  "model": "nvidia/Nemotron-Nano-12B-V2-VL",
+  "prompt_version": "extract-v1",
+  "page_sha256": [
+    "ac56c8895e089ca1d477712169eeffd030b92630417e4dd79746c3cf8d103c74"
+  ],
+  "response": {
+    "doc_type": "bill_of_lading",
+    "doc_type_reason": "Header and layout indicate a bill of lading.",
+    "fields": {
+      "quantity": {
+        "present": true,
+        "value": "100 CARTONS",
+        "evidence_text": "No. of containers or packages 100 CARTONS",
+        "page_index": 1,
+        "confidence": 0.95
+      },
+      "gross_weight": {
+        "present": true,
+        "value": "12,450.00 KGS",
+        "evidence_text": "Gross weight 12,450.00 KGS",
+        "page_index": 1,
+        "confidence": 0.96
+      },
+      "container_number": {
+        "present": true,
+        "value": "MSKU3067322",
+        "evidence_text": "Container no. MSKU3067322",
+        "page_index": 1,
+        "confidence": 0.96
+      },
+      "hs_code": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "consignee_name": {
+        "present": true,
+        "value": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "Consignee Nordwind Industrial Supply GmbH",
+        "page_index": 1,
+        "confidence": 0.97
+      },
+      "invoice_value": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      }
+    }
+  },
+  "_provenance": "HAND-AUTHORED fixture response. Not produced by any model. Seeds DEMO_MODE so the app can be built and shown without a live Nebius API key.",
+  "provider": "nebius",
+  "previous_key": "0cbf970c9bef8fc47dc7334fda6aafb4",
+  "_migration": "provider-key migration; was 0cbf970c9bef8fc47dc7334fda6aafb4"
+}

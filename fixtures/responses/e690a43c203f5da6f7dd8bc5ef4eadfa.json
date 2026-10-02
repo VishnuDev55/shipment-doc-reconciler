@@ -1,0 +1,58 @@
+{
+  "cache_key": "e690a43c203f5da6f7dd8bc5ef4eadfa",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+  "provider": "nvidia",
+  "prompt_version": "extract-v1",
+  "page_sha256": [
+    "83be0a54327bbd73227cc323b11109b5b6ff60d3b52fb2e125114d7a8f1bdf29"
+  ],
+  "response": {
+    "doc_type": "commercial_invoice",
+    "doc_type_reason": "Header reads COMMERCIAL INVOICE and shows a total amount.",
+    "fields": {
+      "quantity": {
+        "present": true,
+        "value": "1,200 pieces",
+        "evidence_text": "Total quantity 1,200 pieces",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "gross_weight": {
+        "present": true,
+        "value": "12.450,00 kg",
+        "evidence_text": "Total gross weight 12.450,00 kg",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "container_number": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "hs_code": {
+        "present": true,
+        "value": "8517.62.0090",
+        "evidence_text": "HS code 8517.62.0090",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "consignee_name": {
+        "present": true,
+        "value": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "Nordwind Industrial Supply GmbH",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "invoice_value": {
+        "present": true,
+        "value": "USD 8,420.00",
+        "evidence_text": "TOTAL AMOUNT F OB NINGBO USD 8,420.00",
+        "page_index": 1,
+        "confidence": 1.0
+      }
+    }
+  },
+  "_provenance": "LIVE API response, captured by scripts/live_compare.py"
+}

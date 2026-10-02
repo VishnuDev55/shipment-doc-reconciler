@@ -1,0 +1,582 @@
+"""Orchestration: uploads -> ingest -> extract -> normalize -> compare -> report.
+
+Concurrency is asyncio.gather over documents; the semaphore lives inside
+NebiusClient. The rule that shapes this module: a 2-of-3 result is useful, a
+500 error is not. A document that fails is marked failed, still rendered, and
+retryable on its own — it never aborts the shipment and never cancels siblings.
+
+The report is held in memory and written out after each document settles, so
+the frontend's 1-second poll sees progress without two writers racing on disk.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .client import (
+    ExtractionClient,
+    ExtractionOutcome,
+    SummaryClient,
+    _key_is_real,
+)
+from .compare import FieldObservation, compare_field
+from .config import Settings, get_settings
+from .fields import FIELD_ORDER, FieldKey
+from .ingest import PageImage, ingest
+from .models import (
+    Comparison,
+    DocumentReport,
+    NormalizedField,
+    PageRef,
+    Report,
+    RunInfo,
+    Summary,
+)
+from .narrative_cache import NarrativeCache
+from .normalize import normalize_field
+from .store import RunStore, new_shipment_id
+from .summary import build_summary_prompt, summary_is_plausible
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+class PreparedDocument:
+    """One upload, ingested and ready to extract."""
+
+    def __init__(
+        self,
+        *,
+        doc_id: str,
+        label: str,
+        filename: str,
+        pages: list[PageImage],
+        page_paths: list[str],
+        declared_doc_type: str | None,
+    ):
+        self.doc_id = doc_id
+        self.label = label
+        self.filename = filename
+        self.pages = pages
+        self.page_paths = page_paths
+        self.declared_doc_type = declared_doc_type
+
+
+# ---------------------------------------------------------------------------
+# Pure report assembly — no I/O, so it is directly testable
+# ---------------------------------------------------------------------------
+
+
+def _observations(docs: list[DocumentReport], key: FieldKey) -> list[FieldObservation]:
+    obs: list[FieldObservation] = []
+    for doc in docs:
+        if doc.extraction is None:
+            continue
+        extracted = doc.extraction.fields.get(key)
+        if extracted is None:
+            continue
+        obs.append(
+            FieldObservation(
+                document_id=doc.id,
+                document_label=doc.label,
+                doc_type=effective_doc_type(doc),
+                extracted=extracted,
+                normalized=doc.normalized.get(key)
+                or NormalizedField(ok=True, canonical=None, compare_key=None),
+            )
+        )
+    return obs
+
+
+def build_comparisons(docs: list[DocumentReport]) -> list[Comparison]:
+    return [compare_field(key, _observations(docs, key)) for key in FIELD_ORDER]
+
+
+def build_summary(docs: list[DocumentReport], comparisons: list[Comparison]) -> Summary:
+    counts = {
+        "consistent": 0,
+        "suspicious": 0,
+        "conflict": 0,
+        "single_source": 0,
+        "absent": 0,
+    }
+    for c in comparisons:
+        counts[c.status] = counts.get(c.status, 0) + 1
+
+    failed = [d for d in docs if d.status == "failed"]
+    ok = [d for d in docs if d.status in ("ok", "cached", "partial")]
+
+    if not docs or all(d.status == "pending" for d in docs):
+        verdict = "empty"
+    elif any(d.status in ("pending", "running") for d in docs):
+        verdict = "running"
+    elif counts["conflict"]:
+        verdict = "conflicts"
+    elif counts["suspicious"] or failed:
+        verdict = "review"
+    else:
+        verdict = "clean"
+
+    return Summary(
+        total_fields=len(comparisons),
+        documents_ok=len(ok),
+        documents_failed=len(failed),
+        verdict=verdict,  # type: ignore[arg-type]
+        **counts,  # type: ignore[arg-type]
+    )
+
+
+def derive_state(docs: list[DocumentReport], summary: Summary) -> str:
+    """Shipment-level state, independent of whether the numbers are trustworthy."""
+    if not docs:
+        return "failed"
+    statuses = {d.status for d in docs}
+    if statuses & {"pending", "running"}:
+        return "running"
+    if statuses == {"failed"}:
+        return "failed"
+    if "failed" in statuses:
+        return "partial"
+    return "done"
+
+
+def refresh_report(report: Report, client: ExtractionClient) -> Report:
+    """Recompute derived fields. Never touches report.narrative, so a failed or
+    absent summary cannot alter a shipment's outcome."""
+    ep = client.endpoint
+    report.comparisons = build_comparisons(report.documents)
+    report.summary = build_summary(report.documents, report.comparisons)
+    report.state = derive_state(report.documents, report.summary)  # type: ignore[assignment]
+    report.run.json_schema_mode = client.json_mode  # type: ignore[assignment]
+    report.run.demo_mode = client.settings.demo_mode
+    report.run.model = ep.model
+    report.run.vision_provider = ep.provider
+    report.run.result_source = result_source(report.documents)  # type: ignore[assignment]
+    report.run.live_calls = sum(1 for d in report.documents if d.source == "live_api")
+    return report
+
+
+def result_source(docs: list[DocumentReport]) -> str:
+    """Provenance of the values in this report, judged per document.
+
+    'live'            every value came from a real model response (this run or
+                      a previously captured one)
+    'authored'        every value came from the hand-written fixture cache
+    'live+authored'   both, so the honest answer is neither of the above
+    'none'            nothing extracted
+
+    A cached *authored* answer is deliberately NOT counted as live: reusing a
+    fixture is not evidence that the model can read the document.
+    """
+    done = [d for d in docs if d.extraction is not None]
+    if not done:
+        return "none"
+    sources = {d.source for d in done}
+    model_backed = bool(sources & {"live_api", "cached_live"})
+    authored = "cached_authored" in sources
+    if model_backed and authored:
+        return "live+authored"
+    if model_backed:
+        return "live"
+    return "authored"
+
+
+def effective_doc_type(doc: DocumentReport) -> str:
+    """The document type the comparison engine should treat this doc as.
+
+    The user's declaration wins over the model's guess. Live-verified: on a page
+    whose heading plainly reads PACKING LIST, the model reported
+    doc_type=commercial_invoice. That guess is kept in `detected_doc_type` as a
+    signal (a mismatch is worth surfacing), but it must not silently change
+    which fields are treated as expected-to-be-present, or a genuinely absent
+    HS code on a packing list starts looking like a problem.
+    """
+    return doc.declared_doc_type or doc.detected_doc_type or "other"
+
+
+def apply_outcome(target: DocumentReport, res: ExtractionOutcome | Exception) -> None:
+    if isinstance(res, Exception):
+        target.status = "failed"
+        target.error = f"{type(res).__name__}: {res}"
+        target.normalized = {}
+        return
+
+    target.attempts = len(res.attempts)
+    target.timings_ms = res.total_latency_ms
+    target.used_cache = res.used_cache
+    target.used_fallback_schema = res.used_fallback_schema
+    target.source = res.source
+
+    if res.response is None:
+        target.status = "failed"
+        target.error = res.error or "extraction failed"
+        target.normalized = {}
+        return
+
+    target.extraction = res.response
+    target.detected_doc_type = res.response.doc_type
+    if target.declared_doc_type and res.response.doc_type != target.declared_doc_type:
+        # Recorded, not fatal: the declaration still governs comparison.
+        target.doc_type_disagrees = True
+    target.normalized = {
+        key: normalize_field(key, res.response.fields[key])
+        for key in FIELD_ORDER
+        if key in res.response.fields
+    }
+    target.status = "partial" if res.dropped_fields else ("cached" if res.used_cache else "ok")
+    # Issues are diagnostics, not a failure. Surface them only where they
+    # explain a partial result, so a clean run does not look alarming.
+    target.error = "; ".join(res.issues[:4]) if res.dropped_fields else None
+
+
+def load_pages(run_dir: Path, doc: DocumentReport) -> list[PageImage]:
+    """Re-read persisted page JPEGs so a retry needs no fresh upload."""
+    pages: list[PageImage] = []
+    for ref in doc.pages:
+        path = run_dir / ref.image_path
+        if path.is_file():
+            pages.append(
+                PageImage(
+                    index=ref.index,
+                    jpeg=path.read_bytes(),
+                    sha256=ref.sha256,
+                    width=ref.width,
+                    height=ref.height,
+                )
+            )
+    return pages
+
+
+def short_label(filename: str, index: int) -> str:
+    name = Path(filename).name
+    stem = name[:32] + "…" if len(name) > 35 else name
+    return stem or f"document {index}"
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator
+# ---------------------------------------------------------------------------
+
+
+class Reconciler:
+    def __init__(self, settings: Settings | None = None, store: RunStore | None = None):
+        self.settings = settings or get_settings()
+        self.store = store or RunStore(self.settings.runs_dir)
+        self.client = ExtractionClient(self.settings)
+        self.summary_client = SummaryClient(self.settings)
+        self._reports: dict[str, Report] = {}
+        self._tasks: dict[str, asyncio.Task] = {}
+
+    # Settings the GUI may change on a running process. Anything path- or
+    # limit-shaped stays env-only: re-reading runs_dir mid-run would strand a
+    # shipment's evidence between two directories.
+    CONFIGURABLE = frozenset(
+        {
+            "nvidia_api_key",
+            "nebius_api_key",
+            "vision_provider",
+            "nvidia_vision_model",
+            "nebius_vision_model",
+            "nebius_summary_model",
+            "demo_mode",
+            "enable_summary",
+        }
+    )
+
+    def reconfigure(self, updates: dict[str, object]) -> None:
+        """Apply runtime overrides and rebuild the clients that captured the old ones.
+
+        Rebuilding is not optional. The endpoint (which carries the key),
+        ``json_mode`` and the capability probe are all resolved in
+        ``ChatClient.__init__``, so mutating settings alone would leave live
+        calls using the previous key.
+        """
+        unknown = set(updates) - self.CONFIGURABLE
+        if unknown:
+            raise ValueError(
+                "not configurable at runtime: " + ", ".join(sorted(unknown))
+            )
+
+        for name, value in updates.items():
+            setattr(self.settings, name, value)
+
+        # An in-flight shipment looks its client up per document, so it may
+        # straddle both configurations. Each run already stamps the model and
+        # demo_mode it used, so no report is ever mislabelled after the fact.
+        self.client = ExtractionClient(self.settings)
+        self.summary_client = SummaryClient(self.settings)
+
+    # ------------------------------------------------------------------
+
+    async def create_shipment(
+        self, uploads: list[tuple[str, str | None, bytes]]
+    ) -> tuple[str, Report]:
+        """uploads: (filename, declared_doc_type_or_None, bytes), max 5."""
+        if not uploads:
+            raise ValueError("no documents supplied")
+        if len(uploads) > self.settings.max_documents:
+            raise ValueError(
+                f"at most {self.settings.max_documents} documents per shipment "
+                f"(got {len(uploads)})"
+            )
+
+        shipment_id = new_shipment_id()
+        self.store.create(shipment_id)
+
+        prepared: list[PreparedDocument] = []
+        rejected: list[tuple[str, str, str, str | None]] = []
+
+        for i, (filename, declared, data) in enumerate(uploads, start=1):
+            doc_id = f"doc{i}"
+            label = short_label(filename, i)
+            if len(data) > self.settings.max_upload_bytes:
+                rejected.append((label, filename, "file exceeds the size limit", declared))
+                continue
+            self.store.save_upload(shipment_id, filename, data)
+            try:
+                pages = ingest(
+                    filename,
+                    data,
+                    long_edge=self.settings.image_long_edge,
+                    quality=self.settings.jpeg_quality,
+                    max_pages=self.settings.max_pages_per_document,
+                )
+            except ValueError as exc:
+                rejected.append((label, filename, str(exc), declared))
+                continue
+
+            page_paths = self.store.save_pages(shipment_id, doc_id, pages)
+            prepared.append(
+                PreparedDocument(
+                    doc_id=doc_id,
+                    label=label,
+                    filename=filename,
+                    pages=pages,
+                    page_paths=page_paths,
+                    declared_doc_type=declared,
+                )
+            )
+
+        documents = [
+            DocumentReport(
+                id=p.doc_id,
+                label=p.label,
+                filename=p.filename,
+                declared_doc_type=p.declared_doc_type,  # type: ignore[arg-type]
+                status="pending",
+                pages=[
+                    PageRef(
+                        index=pg.index,
+                        image_path=path,
+                        sha256=pg.sha256,
+                        width=pg.width,
+                        height=pg.height,
+                    )
+                    for pg, path in zip(p.pages, p.page_paths)
+                ],
+            )
+            for p in prepared
+        ]
+        # A file we could not even ingest still gets a row, so the user sees
+        # which upload was rejected and why rather than a silent drop.
+        for label, filename, err, declared in rejected:
+            documents.append(
+                DocumentReport(
+                    id=f"bad{len(documents) + 1}",
+                    label=label,
+                    filename=filename,
+                    declared_doc_type=declared,  # type: ignore[arg-type]
+                    status="failed",
+                    error=err,
+                )
+            )
+
+        report = Report(
+            shipment_id=shipment_id,
+            created_at=_now(),
+            updated_at=_now(),
+            documents=documents,
+            run=RunInfo(
+                model=self.client.endpoint.model,
+                vision_provider=self.client.endpoint.provider,
+                summary_model=self.summary_client.endpoint.model,
+                summary_provider=self.summary_client.endpoint.provider,
+                demo_mode=self.settings.demo_mode,
+                json_schema_mode=self.client.json_mode,  # type: ignore[arg-type]
+            ),
+        )
+        self._reports[shipment_id] = report
+        refresh_report(report, self.client)
+        self.store.write(report)
+
+        if prepared:
+            self._tasks[shipment_id] = asyncio.create_task(
+                self._process(shipment_id, prepared)
+            )
+        return shipment_id, report
+
+    # ------------------------------------------------------------------
+
+    async def _process(self, shipment_id: str, prepared: list[PreparedDocument]) -> None:
+        report = self._reports[shipment_id]
+        by_id = {d.id: d for d in report.documents}
+
+        async def one(p: PreparedDocument) -> None:
+            doc = by_id[p.doc_id]
+            doc.status = "running"
+            try:
+                res: ExtractionOutcome | Exception = await self.client.extract_document(
+                    document_id=p.doc_id,
+                    pages=p.pages,
+                    declared_doc_type=p.declared_doc_type,
+                )
+            except Exception as exc:  # noqa: BLE001 - one doc must not kill the run
+                res = exc
+            apply_outcome(doc, res)
+            # Publish progress immediately: with three documents the user
+            # watching the poll sees each row land as it finishes.
+            refresh_report(report, self.client)
+            self.store.write(report)
+
+        await asyncio.gather(*(one(p) for p in prepared))
+        await self._write_summary(report)
+        self._tasks.pop(shipment_id, None)
+
+    # ------------------------------------------------------------------
+    # Optional AI summary. Never allowed to affect state or verdict.
+    # ------------------------------------------------------------------
+
+    async def _write_summary(self, report: Report) -> None:
+        settings = self.settings
+        narrative = report.narrative
+
+        if not settings.enable_summary:
+            narrative.status = "skipped"
+            narrative.error = "disabled via ENABLE_SUMMARY"
+            self.store.write(report)
+            return
+        if not report.comparisons or report.summary.total_fields == 0:
+            narrative.status = "skipped"
+            narrative.error = "nothing to summarise"
+            self.store.write(report)
+            return
+
+        cache = NarrativeCache(settings)
+        endpoint = self.summary_client.endpoint
+
+        cached = cache.get(report, endpoint.model)
+        if cached is not None:
+            # A hand-written narrative is a demo prop, not model output. Only
+            # replay it when we are actually in DEMO_MODE; in live mode we
+            # regenerate so the UI never claims a model wrote our fixture text.
+            if cached["authored"] and not settings.demo_mode:
+                pass
+            else:
+                narrative.status = "cached"
+                narrative.text = cached["text"]
+                narrative.model = cached["model"] or endpoint.model
+                narrative.provider = cached["provider"] or endpoint.provider
+                narrative.source = "authored" if cached["authored"] else "cached"
+                narrative.generated_at = report.updated_at
+                self.store.write(report)
+                return
+
+        if settings.demo_mode:
+            narrative.status = "skipped"
+            narrative.error = "DEMO_MODE: no cached narrative for these verdicts"
+            self.store.write(report)
+            return
+
+        if not _key_is_real(endpoint.api_key):
+            narrative.status = "skipped"
+            narrative.error = f"{endpoint.provider.upper()}_API_KEY not set"
+            self.store.write(report)
+            return
+
+        try:
+            text, _usage = await self.summary_client.summarize(build_summary_prompt(report))
+        except Exception as exc:  # noqa: BLE001 - summary failure must not sink a run
+            narrative.status = "failed"
+            narrative.error = f"{type(exc).__name__}: {exc}"[:300]
+            narrative.model = endpoint.model
+            narrative.provider = endpoint.provider
+            self.store.write(report)
+            return
+
+        if not summary_is_plausible(text):
+            narrative.status = "failed"
+            narrative.error = "model returned implausible summary text (rejected)"
+            narrative.model = endpoint.model
+            narrative.provider = endpoint.provider
+            self.store.write(report)
+            return
+
+        narrative.status = "ok"
+        narrative.text = text.strip()
+        narrative.model = endpoint.model
+        narrative.provider = endpoint.provider
+        narrative.source = "generated"
+        narrative.generated_at = _now()
+        narrative.error = None
+        try:
+            cache.put(report, model=endpoint.model, provider=endpoint.provider, text=text.strip())
+        except OSError:
+            pass
+        self.store.write(report)
+
+    # ------------------------------------------------------------------
+
+    async def retry_document(self, shipment_id: str, document_id: str) -> Report | None:
+        """Retry one document. Siblings are untouched."""
+        report = self.get(shipment_id)
+        if report is None:
+            return None
+        target = next((d for d in report.documents if d.id == document_id), None)
+        if target is None:
+            return None
+
+        pages = load_pages(self.store.dir(shipment_id), target)
+        if not pages:
+            target.error = (
+                "page images are no longer on disk; re-upload this document"
+            )
+            self.store.write(report)
+            return report
+
+        target.status = "running"
+        target.error = None
+        refresh_report(report, self.client)
+        self.store.write(report)
+
+        try:
+            res: ExtractionOutcome | Exception = await self.client.extract_document(
+                document_id=target.id,
+                pages=pages,
+                declared_doc_type=target.declared_doc_type,
+            )
+        except Exception as exc:  # noqa: BLE001
+            res = exc
+
+        apply_outcome(target, res)
+        refresh_report(report, self.client)
+        self.store.write(report)
+        return report
+
+    # ------------------------------------------------------------------
+
+    def get(self, shipment_id: str) -> Report | None:
+        """Prefer the in-memory copy so a poll never observes a torn write."""
+        return self._reports.get(shipment_id) or self.store.read(shipment_id)
+
+    def is_running(self, shipment_id: str) -> bool:
+        task = self._tasks.get(shipment_id)
+        return bool(task and not task.done())
+
+    async def wait(self, shipment_id: str, timeout: float = 300.0) -> None:
+        """Await an in-flight run. Used by tests and the fixture self-check."""
+        task = self._tasks.get(shipment_id)
+        if task:
+            await asyncio.wait_for(task, timeout=timeout)
