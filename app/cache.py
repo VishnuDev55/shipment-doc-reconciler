@@ -120,6 +120,23 @@ class ResponseCache:
             return "none"
         return "authored" if self.is_authored(payload) else "live"
 
+    def prompt_version_of(
+        self, key: str, *, page_sha256s: list[str] | None = None
+    ) -> str:
+        """Which extraction contract produced the entry we would serve.
+
+        A cache entry written under an older prompt may predate fields that
+        exist now. Reading it lets the report say "these fields were not
+        extracted at capture time" instead of showing them as absent and
+        implying the document did not state them.
+        """
+        payload = self._load(self.path(key)) if self.path(key).is_file() else None
+        if payload is None and page_sha256s:
+            payload = self._find_authored(page_sha256s)
+        if not isinstance(payload, dict):
+            return ""
+        return str(payload.get("prompt_version") or "")
+
     def put(
         self,
         key: str,

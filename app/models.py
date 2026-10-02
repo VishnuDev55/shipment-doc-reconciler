@@ -95,6 +95,14 @@ class ExtractionResponse(BaseModel):
     @field_validator("fields")
     @classmethod
     def _all_keys_present(cls, v: dict[FieldKey, ExtractedField]) -> dict:
+        """Every key must be on the object that reaches this point.
+
+        Not a guard against schema growth: app/parse.py fills absent keys as
+        `present: false` and reports unknown ones before validation runs, which
+        is why cached responses written under an earlier contract still parse
+        (pinned in tests/test_parse.py). This exists so that any path building an
+        ExtractionResponse directly cannot silently omit a field.
+        """
         missing = set(FIELD_ORDER) - set(v)
         if missing:
             raise ValueError(f"missing field keys: {sorted(missing)}")

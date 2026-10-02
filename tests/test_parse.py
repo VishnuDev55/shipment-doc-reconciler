@@ -7,6 +7,8 @@ import json
 import pytest
 
 from app.fields import FIELD_ORDER
+from app.models import DocumentReport
+from app.normalize import normalize_field
 from app.parse import first_balanced_object, parse_extraction
 
 
@@ -208,3 +210,84 @@ def test_parse_never_raises_on_binary_noise():
     for junk in ["\x00\x01\x02", "{" * 500, '"unterminated', "[[[", "null", "42"]:
         res = parse_extraction(junk)
         assert isinstance(res.needs_retry, bool)
+
+
+# ---------------------------------------------------------------------------
+# contract evolution: adding a field must not invalidate what was already captured
+# ---------------------------------------------------------------------------
+
+
+def _only(one_field: dict) -> str:
+    return json.dumps({"doc_type": "commercial_invoice", "fields": one_field})
+
+
+WEIGHT = {
+    "gross_weight": {
+        "present": True, "value": "12,450.00 KGS",
+        "evidence_text": "TOTAL GROSS WT 12,450.00 KGS", "page_index": 1,
+        "confidence": 0.95,
+    }
+}
+
+
+def test_a_response_missing_newer_keys_still_parses():
+    """A capture written before a field existed is legitimate history, not a
+    malformed answer. Rejecting it would mean adding a field breaks every
+    cached response and, with them, the keyless demo."""
+    res = parse_extraction(_only(WEIGHT))
+    assert res.ok, res.error
+    fields = res.response.fields
+    assert fields["gross_weight"].present is True
+    for key in FIELD_ORDER:
+        if key != "gross_weight":
+            assert fields[key].present is False
+            assert fields[key].value is None
+
+
+def test_absent_keys_are_filled_as_not_stated_rather_than_guessed():
+    """The filled-in fields must be indistinguishable from "the document did not
+    print it" and never carry an invented value."""
+    res = parse_extraction(_only(WEIGHT))
+    filled = res.response.fields["container_number"]
+    assert filled.present is False and filled.value is None
+    assert filled.evidence_text == ""
+
+
+def test_extra_keys_are_ignored_and_reported_not_silently_accepted():
+    """A model inventing a field name is a contract slip worth surfacing.
+
+    The repair layer drops it and says so, rather than passing it through to a
+    schema that would reject the whole document over one stray key.
+    """
+    payload = _only({**WEIGHT, "not_a_field": {"present": True, "value": "x"}})
+    res = parse_extraction(payload)
+    assert res.ok
+    assert "not_a_field" not in res.response.fields
+    assert any("not_a_field" in issue for issue in res.issues), res.issues
+
+
+def test_the_validator_still_refuses_a_directly_built_partial_response():
+    """Parse repairs; the model itself does not. Anything constructing an
+    ExtractionResponse directly must account for every key."""
+    from pydantic import ValidationError
+
+    from app.models import ExtractionResponse
+
+    with pytest.raises(ValidationError, match="missing field keys"):
+        ExtractionResponse(doc_type="commercial_invoice", fields={
+            "gross_weight": {
+                "present": True, "value": "1 kg", "evidence_text": "x",
+                "page_index": 1, "confidence": 1.0,
+            }
+        })
+
+
+def test_normalizers_run_over_the_filled_contract():
+    res = parse_extraction(_only(WEIGHT))
+    doc = DocumentReport(id="d1", label="Invoice", filename="inv.png")
+    doc.extraction = res.response
+    doc.normalized = {
+        key: normalize_field(key, res.response.fields[key]) for key in FIELD_ORDER
+    }
+    assert doc.normalized["gross_weight"].compare_key == "weight:12450.000"
+    assert doc.normalized["hs_code"].compare_key is None
