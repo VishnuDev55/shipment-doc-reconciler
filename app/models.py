@@ -300,6 +300,43 @@ class Briefing(BaseModel):
     latency_ms: int = 0
 
 
+class FieldDivergence(BaseModel):
+    """One field the two readers did not agree on.
+
+    Presence is tracked separately from value: a field one model left blank and
+    the other filled in is a coverage disagreement, which is a different problem
+    from two transcriptions of the same line.
+    """
+
+    field: FieldKey
+    primary_present: bool = False
+    secondary_present: bool = False
+    primary_canonical: str | None = None
+    secondary_canonical: str | None = None
+    primary_compare_key: str | None = None
+    secondary_compare_key: str | None = None
+
+
+class ConsensusResult(BaseModel):
+    """The second reader's report on the same pages.
+
+    Advisory. It marks fields for human review and has no path to changing a
+    comparison status — two models agreeing is not proof, and two disagreeing is
+    not a verdict either.
+    """
+
+    status: Literal["pending", "ok", "skipped", "failed", "cached"] = "pending"
+    provider: str = ""
+    model: str = ""
+    # 'generated' | 'cached_live' | 'cached_authored' | 'none'
+    source: str = "none"
+    divergences: list[FieldDivergence] = Field(default_factory=list)
+    summary: str = ""
+    error: str | None = None
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+    latency_ms: int = 0
+
+
 class PageRef(BaseModel):
     index: int
     image_path: str
@@ -337,6 +374,8 @@ class DocumentReport(BaseModel):
     # Basenames under runs/{id}/raw/, in call order. Names only, never content:
     # a raw body is untrusted document-derived text.
     raw_files: list[str] = Field(default_factory=list)
+    # Set only when a second provider was asked to read the same pages.
+    consensus: ConsensusResult | None = None
 
 
 class RunInfo(BaseModel):

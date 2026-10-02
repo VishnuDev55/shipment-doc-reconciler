@@ -232,7 +232,7 @@ placeholders. It is also what the hosted instance runs, so a reviewer without ke
 still sees model output — labelled as such on screen.
 
 ```bash
-make test           # 378 tests, ~18s, zero API calls (socket guard, see Tests)
+make test           # 391 tests, ~22s, zero API calls (socket guard, see Tests)
 make probe          # rehearse the demo: prints the verdict table
 make dist           # clean source zip in dist/
 make docker         # single-stage image
@@ -343,6 +343,32 @@ generator unsubscribes in a `finally`.
 The progress line counts documents settled and seconds elapsed, because a
 reasoning vision model takes 30–90 s per document and a bare "Extracting…" reads
 as a hang.
+
+### Two readers, when you can afford the doubt
+
+Set `CONSENSUS=true` and every page is also read by the *other* provider — NVIDIA
+if the run is on Nebius, and vice versa, or pin it with `CONSENSUS_PROVIDER`. The
+two answers are compared in deterministic Python on `compare_key`, and a field
+they disagree on is marked **needs review** in amber, showing both transcriptions.
+A second row per document appears in the transparency panel naming the second
+model.
+
+What it deliberately does not do:
+
+- **It does not tie-break.** Two readers agreeing is not proof, and two
+  disagreeing is not a verdict. The primary extraction is still what the report is
+  built from; `tests/test_consensus.py` snapshots every comparison with and
+  without consensus and asserts they are identical.
+- **It does not compare spellings.** "NORDWIND IMPORT GmbH" and "Nordwind Import
+  GmbH & Co" agree, because comparing on `compare_key` rather than `canonical`
+  keeps the normalizer authoritative.
+- **It keeps coverage separate from correctness.** A field one reader left blank
+  is a coverage disagreement, not a transcription error, and is flagged as such.
+
+Off by default because it roughly doubles token spend. The shipped cache holds a
+captured NVIDIA response *and* a captured Nebius response for all nine fixture
+documents, so consensus can be demonstrated offline against genuine transcriptions
+from both hosts rather than invented ones.
 
 ### Model discovery
 
@@ -648,7 +674,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-378 passed in ~18s
+391 passed in ~22s
 ```
 
 ~10 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
@@ -711,7 +737,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 378 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 391 unit tests |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
 | Vision extraction, Nebius MiniCPM-V (fallback) | ✅ 9/9 documents, all parsed on attempt 1 |
@@ -810,7 +836,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 378 tests across 14 files (+ conftest.py socket guard)
+tests/                 391 tests across 15 files (+ conftest.py socket guard)
 docs/                  AUDIT.md — evidence-backed findings and the deferred list
 ```
 

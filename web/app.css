@@ -502,6 +502,12 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
 }
 .adj-failed { margin-top: .35rem; font-size: .7rem; color: var(--ink-3); font-style: italic; }
 
+/* Two readers disagreed. Amber rather than red: the field is unresolved, not wrong. */
+.diverge {
+  margin-top: .35rem; padding-left: .5rem; font-size: .72rem; line-height: 1.45;
+  color: var(--warn); border-left: 2px solid var(--warn);
+}
+
 .briefing-text {
   margin: 0; padding: .75rem .85rem; white-space: pre-wrap; overflow-wrap: anywhere;
   font-family: var(--font); font-size: .85rem; line-height: 1.6;

@@ -716,10 +716,15 @@ function renderTransparency(report) {
     notes.push(`'${run.model}' was not confirmed against the host's model list${
       run.model_note ? ': ' + run.model_note : ''}.`);
   }
+  const splitReads = docs.reduce(
+    (n, d) => n + ((d.consensus && d.consensus.divergences) ? d.consensus.divergences.length : 0), 0);
+  if (splitReads) {
+    notes.push(`${splitReads} field reading(s) disagreed between the two providers and are ` +
+      'marked "needs review". Two readers agreeing is not proof either.');
+  }
   const caveat = $('#tp-caveat');
   caveat.textContent = notes.join(' ');
   caveat.hidden = !notes.length;
-
   const table = $('#tp-table');
   table.innerHTML = '';
   const thead = el('thead');
@@ -744,9 +749,14 @@ function renderTransparency(report) {
     ].forEach((v, i) => tr.appendChild(el(i === 0 ? 'th' : 'td', i === 2 ? 'mono' : null, v)));
     body.appendChild(tr);
   };
-  docs.forEach((d) =>
-    addRow(d.label, d.provider, d.model, d.source, d.attempts, d.usage, d.timings_ms)
-  );
+  docs.forEach((d) => {
+    addRow(d.label, d.provider, d.model, d.source, d.attempts, d.usage, d.timings_ms);
+    const c = d.consensus;
+    if (c && c.status !== 'pending') {
+      addRow('second reader · ' + d.label, c.provider, c.model,
+        c.source || c.status, 1, c.usage, c.latency_ms);
+    }
+  });
   if (n.status && n.status !== 'pending') {
     addRow(
       'Executive summary',
@@ -842,7 +852,21 @@ function renderBriefing(report) {
     (b.usage && b.usage.total ? ` · ${b.usage.total} tokens` : '');
 }
 
+/** Field key -> per-document second-reader disagreements. */
+function consensusByFieldMap(report) {
+  const out = {};
+  (report.documents || []).forEach((doc) => {
+    const c = doc.consensus;
+    if (!c || !c.divergences || !c.divergences.length) return;
+    c.divergences.forEach((div) => {
+      (out[div.field] = out[div.field] || []).push({ label: doc.label, div });
+    });
+  });
+  return out;
+}
+
 function renderComparison(report) {
+  const consensusByField = consensusByFieldMap(report);
   const table = $('#cmp');
   table.innerHTML = '';
 
@@ -886,6 +910,16 @@ function renderComparison(report) {
       reasonCell.appendChild(el('div', 'adj-failed',
         (adj.status === 'failed' ? 'Second opinion unavailable: ' : 'No second opinion asked: ')
         + (adj.error || adj.status)));
+    }
+    const split = (consensusByField[comp.field] || []);
+    if (split.length) {
+      // A disagreement between readers is a prompt to look, not a verdict: both
+      // transcriptions are shown and the human decides.
+      const text = split.map((s) =>
+        `${s.label}: ${s.div.primary_canonical || 'not read'} vs ` +
+        `${s.div.secondary_canonical || 'not read'}`).join('; ');
+      reasonCell.appendChild(el('div', 'diverge',
+        `Needs review — the second reader disagreed (${text}).`));
     }
     tr.appendChild(reasonCell);
 

@@ -39,6 +39,7 @@ from .client import (
     _key_is_real,
 )
 from .compare import FieldObservation, compare_field
+from .consensus import divergences_between, summarize
 from .config import Settings, get_settings
 from .discovery import Catalog, Selection, fetch, resolve
 from .fields import FIELD_ORDER, FieldKey
@@ -46,6 +47,7 @@ from .ingest import PageImage, ingest
 from .models import (
     Adjudication,
     Comparison,
+    ConsensusResult,
     DocumentReport,
     NormalizedField,
     PageRef,
@@ -328,6 +330,10 @@ class Reconciler:
         # Shipment id -> live SSE listeners. Populated by the report store's
         # on_write hook, so every existing settle point publishes for free.
         self._listeners: dict[str, set[asyncio.Queue]] = {}
+        # One client per secondary provider, built lazily: constructing one runs
+        # a capability probe, so a fresh client per document would double the
+        # spend consensus is already paying for.
+        self._consensus_clients: dict[str, ExtractionClient] = {}
         self.store.on_write = self._publish
 
     # ------------------------------------------------------------------
@@ -660,6 +666,12 @@ class Reconciler:
             except Exception as exc:  # noqa: BLE001 - one doc must not kill the run
                 res = exc
             apply_outcome(doc, res)
+            if (
+                self.settings.consensus
+                and not isinstance(res, Exception)
+                and doc.extraction is not None
+            ):
+                await self._run_consensus(doc, p.pages, raw_dir)
             # Publish progress immediately: with three documents the user
             # watching the poll sees each row land as it finishes.
             refresh_report(report, self.client)
@@ -926,6 +938,88 @@ class Reconciler:
         briefing.source = "generated"
         briefing.error = None
         cache.put(signature, model=endpoint.model, provider=endpoint.provider, raw=raw)
+
+    # ------------------------------------------------------------------
+    # Optional second reader
+    # ------------------------------------------------------------------
+
+    def _consensus_provider(self) -> str:
+        configured = self.settings.consensus_provider
+        if configured in ("nvidia", "nebius"):
+            return configured
+        return "nebius" if self.client.endpoint.provider == "nvidia" else "nvidia"
+
+    def _consensus_client(self, provider: str) -> ExtractionClient:
+        client = self._consensus_clients.get(provider)
+        if client is None:
+            flipped = self.settings.model_copy(
+                update={
+                    "vision_provider": provider,
+                    # Blank the per-provider overrides so flipping the host uses
+                    # that host's own default rather than a model name carried
+                    # over from the other one.
+                    "nvidia_vision_model": self.settings.nvidia_vision_model
+                    if provider == "nvidia" else "",
+                    "nebius_vision_model": self.settings.nebius_vision_model
+                    if provider == "nebius" else "",
+                }
+            )
+            client = ExtractionClient(flipped)
+            self._consensus_clients[provider] = client
+        return client
+
+    async def _run_consensus(
+        self, doc: DocumentReport, pages: list[PageImage], raw_dir: Path
+    ) -> None:
+        """Have the other provider read the same pages, then compare by rule.
+
+        The comparison is `compare_key` equality in app/consensus.py — no model
+        judges the outcome. A divergence is a review marker on the field, and
+        agreement is not proof either: the primary extraction stays the one the
+        report is built from.
+        """
+        provider = self._consensus_provider()
+        result = ConsensusResult(provider=provider, status="pending")
+        doc.consensus = result
+
+        client = self._consensus_client(provider)
+        if not self.settings.demo_mode and not _key_is_real(client.endpoint.api_key):
+            result.status = "skipped"
+            result.model = client.endpoint.model
+            result.error = f"{client.endpoint.provider.upper()}_API_KEY not set"
+            return
+
+        try:
+            outcome = await client.extract_document(
+                document_id=f"{doc.id}_alt",
+                pages=pages,
+                declared_doc_type=doc.declared_doc_type,
+                raw_dir=raw_dir,
+            )
+        except Exception as exc:  # noqa: BLE001 - a second reader is optional
+            result.status = "failed"
+            result.model = client.endpoint.model
+            result.error = f"{type(exc).__name__}: {exc}"[:300]
+            return
+
+        result.provider = outcome.provider or provider
+        result.model = outcome.model
+        result.source = outcome.source
+        result.usage = _sum_usage(outcome.attempts)
+        result.latency_ms = outcome.total_latency_ms
+
+        if outcome.response is None:
+            result.status = "failed"
+            result.error = outcome.error or "second reader returned nothing usable"
+            return
+
+        secondary = DocumentReport(
+            id=f"{doc.id}_alt", label=doc.label, filename=doc.filename
+        )
+        apply_outcome(secondary, outcome)
+        result.divergences = divergences_between(doc, secondary)
+        result.summary = summarize(result.divergences)
+        result.status = "cached" if outcome.used_cache else "ok"
 
     # ------------------------------------------------------------------
 

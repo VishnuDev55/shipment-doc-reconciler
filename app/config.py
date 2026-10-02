@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     enable_adjudication: bool = Field(default=True, alias="ENABLE_ADJUDICATION")
     enable_briefing: bool = Field(default=True, alias="ENABLE_BRIEFING")
 
+    # Read every page with a second provider and flag the fields the two did not
+    # agree on. Off by default because it doubles the token spend of a run, and
+    # the result is a review marker rather than a better answer.
+    consensus: bool = Field(default=False, alias="CONSENSUS")
+    # 'nvidia' | 'nebius' | blank for "whichever the primary run is not".
+    consensus_provider: str = Field(default="", alias="CONSENSUS_PROVIDER")
+
     runs_dir: Path = Field(default=PROJECT_ROOT / "runs", alias="RUNS_DIR")
     cache_dir: Path = Field(default=PROJECT_ROOT / "fixtures" / "responses", alias="CACHE_DIR")
 
