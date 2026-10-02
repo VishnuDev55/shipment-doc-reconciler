@@ -5,6 +5,10 @@ invoice, packing list, bill of lading) as scans or phone photos, and the app
 extracts six shipment-level fields from each, normalizes them deterministically,
 and flags where the documents disagree — with the source line quoted as evidence.
 
+**Engineering audit:** [`docs/AUDIT.md`](docs/AUDIT.md) records what was verified,
+what is broken, and what is deferred, with `file:line` evidence for every claim.
+Read it before trusting anything below the quick start.
+
 ## How this meets the two hackathon requirements
 
 Built for the **Nebius × NVIDIA Global AI Hackathon**. Both requirements are met,
@@ -87,7 +91,7 @@ call is needed to say which document is probably wrong:
 Single Python process. The filesystem is the database. No frontend build step.
 
 ```
-browser  index.html + app.js + app.css (Pico.css)        no build step
+browser  index.html + app.js + app.css (hand-rolled tokens)   no build step
    |
    |  upload 2-5 docs          1s poll of report.json
    v
@@ -95,6 +99,10 @@ browser  index.html + app.js + app.css (Pico.css)        no build step
 |  FastAPI  app/main.py                                                    |
 |    POST /api/shipments              GET  /api/shipments/{id}/report      |
 |    POST /api/shipments/{id}/retry   GET  /api/shipments/{id}/export (zip)|
+|    GET  /api/config                 POST /api/config   (GUI Configure)   |
+|    GET  /api/health                 GET  /api/fixtures                   |
+|    GET  /api/shipments              GET  /page/{id}/{path}  (evidence)   |
+|    GET  /api/fixture/{name}         GET  /                (static UI)    |
 +--------------------------------------------------------------------------+
    |
    v
@@ -204,8 +212,12 @@ endpoint also reported 1,920 of those prompt tokens as cached.
 
 ```bash
 make setup          # pip install -r requirements.txt
-make dev            # http://localhost:8000 — live; paste keys into Configure
+make dev            # http://localhost:8000 — DEMO_MODE, replays the captured cache
 ```
+
+For live mode locally, either put the keys in `.env` and `make run`, or start
+with `make dev` and paste them into **Configure** in the UI — see
+[Configuring keys from the UI](#configuring-keys-from-the-ui).
 
 Then click **Clean**, **Conflicts** or **Messy formats** — those are real document
 images pushed through exactly the pipeline an upload uses, so live mode will spend
@@ -218,7 +230,7 @@ placeholders. It is also what the hosted instance runs, so a reviewer without ke
 still sees model output — labelled as such on screen.
 
 ```bash
-make test           # 286 tests, ~15s, zero API calls (both providers blocked)
+make test           # 297 tests, ~10s, zero API calls (socket guard, see Tests)
 make probe          # rehearse the demo: prints the verdict table
 make dist           # clean source zip in dist/
 make docker         # single-stage image
@@ -266,6 +278,33 @@ make probe-diff     # live extractions diffed against the authored cache
 verification. It runs the capability probe on each endpoint, performs one real
 vision extraction, and generates one real summary from a fixture report —
 printing the actual response, usage and any error body.
+
+### Configuring keys from the UI
+
+**Configure** in the header opens a drawer that applies settings to the running
+process — vision provider, `NVIDIA_API_KEY`, `NEBIUS_API_KEY`, the summary
+toggle, and per-role model overrides — without a restart or a redeploy.
+
+How it behaves, and what it costs:
+
+- **Server memory only.** A key pasted into the drawer is never written to disk
+  and never leaves the process. It is gone on restart, and `.env` still wins at
+  boot.
+- **Keys are write-only over HTTP.** `GET /api/config` returns
+  `nvapi…1234`-style masks (first 5, last 4); `POST /api/config` treats an
+  echoed mask as "unchanged" rather than storing it, and a 400 response reports
+  only that a value was rejected, never what it was.
+- **Applying rebuilds the clients.** `Reconciler.reconfigure` replaces the
+  extraction and summary clients, because a `ChatClient` fixes its endpoint,
+  structured-output mode and probe state at construction. Leaving demo mode
+  without that rebuild would keep replaying the cache while claiming to be live.
+- **Configuration is process-global, not per-user.** There is no session and no
+  auth, so the last person to save a key sets it for everyone sharing that
+  instance. Set `GUI_CONFIG_ENABLED=false` on anything public; `render.yaml`
+  does exactly that, which is why the hosted demo is env-driven.
+
+With the flag off, `GET /api/config` still reports status but `POST` returns 403
+and the drawer explains where to set keys instead.
 
 ### Optional: run vision on Nebius instead
 
@@ -507,19 +546,33 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-268 passed in ~15s
+297 passed in ~10s
 ```
 
-~15 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
+~10 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
 `test_client` deliberately re-run the **real** image/PDF ingestion path
 (~128 ms per page, ~730 ms for the 2-page PDF) rather than stubbing it, so they
 prove the pipeline end to end instead of proving a mock. No single test exceeds
 2 s. If it ever gets much slower, suspect a network timeout, not the math.
 
-The suite is verified to pass with **both providers unreachable** — a socket
-guard raises if anything connects to `api.tokenfactory.nebius.com`,
-`api.studio.nebius.com`, `integrate.api.nvidia.com`, `build.nvidia.com` or
-`api.nvidia.com`. It cannot make a live call or spend either key by accident.
+### The offline guarantee is enforced, not documented
+
+`tests/conftest.py` patches `socket.connect`, `connect_ex`,
+`create_connection`, `getaddrinfo` and `gethostbyname` for the whole session.
+Anything that is not loopback raises `AssertionError` naming the target. That
+covers every provider host at once — `api.tokenfactory.nebius.com`,
+`integrate.api.nvidia.com` and any future one — instead of relying on a list of
+names to remember.
+
+Loopback stays open because `TestClient` reaches the app through httpx's
+in-process `ASGITransport`, which never opens a socket;
+`test_offline_guard.py` pins both halves of that, including a test that builds a
+**live-mode** `ChatClient` with a key that passes the placeholder check and
+asserts the call dies on the wall rather than reaching the provider.
+
+Before this existed the guarantee was convention only: tests stayed offline
+because each one passed `demo_mode=True` or injected a fake client, so a single
+new test in the wrong shape could have spent real credits in CI.
 
 | File | Covers |
 |---|---|
@@ -529,17 +582,14 @@ guard raises if anything connects to `api.tokenfactory.nebius.com`,
 | `test_client.py` | payload shape, probe, ladder call counts, backoff, cache |
 | `test_pipeline.py` | all three fixtures end to end through DEMO_MODE |
 | `test_api.py` | real HTTP against the FastAPI app, ZIP contents, traversal |
+| `test_config.py` | runtime Configure: masking, client rebuild, 400/403 refusals |
 | `test_live_fixtures.py` | captured **live** responses; transcription and confidence quirks pinned |
 | `test_providers.py` | two-provider routing, cache isolation, reasoning fields, summary safety |
+| `test_offline_guard.py` | the socket guard itself: remote refused, loopback allowed |
 
 Zero API calls in the whole suite. `test_client.py` and `test_providers.py` use
 fake transports, so they pin the exact `response_format` payload each provider
 receives without a key.
-
-This is **proven**, not asserted: the suite is re-run with a socket guard that
-raises if anything connects to `api.tokenfactory.nebius.com`,
-`api.studio.nebius.com`, `integrate.api.nvidia.com`, `build.nvidia.com` or
-`api.nvidia.com`. It still passes, so it cannot spend either key.
 
 ---
 
@@ -548,9 +598,18 @@ raises if anything connects to `api.tokenfactory.nebius.com`,
 **Both providers have been called live and both work.** What is verified, and
 what is not:
 
+The live rows below rest on the captured responses and raw bodies committed
+under `fixtures/live_responses/`, which is why they can be checked without a
+key. They were **not re-run during the October 2026 audit**, because no API key
+was available; nothing on this list has been re-verified against a live endpoint
+since. Model availability on both hosts changes without notice —
+`nvidia/nemotron-nano-12b-v2-vl` is on this list precisely because it went 410
+Gone mid-project — so treat every ✅ as "true as of the capture, re-run
+`make probe-live` to confirm".
+
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 268 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 297 unit tests |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
 | Vision extraction, Nebius MiniCPM-V (fallback) | ✅ 9/9 documents, all parsed on attempt 1 |
@@ -649,7 +708,8 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 268 tests across 8 files
+tests/                 297 tests across 10 files (+ conftest.py socket guard)
+docs/                  AUDIT.md — evidence-backed findings and the deferred list
 ```
 
 The three-layer cache is deliberate. Each fixture document has a **NVIDIA** live

@@ -362,14 +362,16 @@ SUBMISSION.md      this file
 PROGRESS.md        running log: what was verified, every bug found, open items
 VIDEO_SCRIPT.md    shot-by-shot plan for the <=3 min demo
 LICENSE            MIT
-Dockerfile         single-stage, python:3.11-slim, no apt-get (audited; not yet built)
+Dockerfile         single-stage, python:3.11-slim, no apt-get (built and run)
 render.yaml        Render Blueprint, free tier, DEMO_MODE=true
 .env.example       both keys, with signup URLs and comments
 Makefile           setup / dev / test / probe / probe-live / dist
 app/               FastAPI, clients, normalizers, comparison engine, export
-tests/             268 tests, ~15s, zero live API calls (proven)
+tests/             297 tests, ~10s, zero live API calls (enforced by a socket
+                   guard in tests/conftest.py, itself under test)
 fixtures/          9 synthetic documents + 3-layer response cache
 scripts/           fixture builder, demo self-check, live probes, migration
+docs/              AUDIT.md — what was verified, what is broken, what is deferred
 ```
 
 `DEMO_MODE` defaults to **false**, so the app calls the live providers; keys come

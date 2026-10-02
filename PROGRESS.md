@@ -40,14 +40,14 @@ Legend: ✅ done here · ⚠️ needs you · ❌ blocked
 | 3 | Both calls happen at **runtime** on the running app | ✅ code / ⚠️ hosted instance | Implemented as runtime calls; each verified live. **Cannot claim the hosted demo makes live calls** — see honesty note below |
 | 3b | Honest about DEMO_MODE replaying captured output | ✅ | `RunInfo.result_source` + `live_calls`; UI and exported HTML both state it. A cached *authored* value can never be reported as live |
 | 4 | **Working hosted demo URL** | ⚠️ **needs you** | Cannot deploy: no Render/Railway/HF account or token in this sandbox. `Dockerfile` + `render.yaml` are ready; steps in README §"Demo / deployment status" |
-| 5 | **Public GitHub repo** | ⚠️ **needs you** | No git credentials here. Repo is `git init`-ed and staged (119 files, verified secret-free). Needs your GitHub username + repo name + auth |
+| 5 | **Public GitHub repo** | ⚠️ **needs you** | No git credentials here. The delivered folder had **no `.git` at all**; it was initialized locally on 2026-10-02 and committed (121 files, secret-scanned). Needs your GitHub username + repo name + auth |
 | 6 | SUBMISSION.md (description, pain point, how it works, track, newly-created statement) | ✅ | `SUBMISSION.md` — all six parts present |
 | 6b | Track named explicitly | ✅ | **Best Apps and Agents**, with reasoning for why it still fits the two-provider build |
 | 6c | "Newly created during the submission period" stated | ✅ | SUBMISSION.md §"Newly created during the submission period" |
 | 7 | Platform feedback, specific not generic | ✅ | SUBMISSION.md §"Feedback on the Nebius and NVIDIA platforms" — 7 items, each with the actual error text |
 | 8 | VIDEO_SCRIPT.md, ≤3 min, covers how both providers were used | ✅ | `VIDEO_SCRIPT.md` — 8 shots, timings from **measured** latency, real captured summary text, honesty checklist |
 | 9 | `docker build` verified | ⚠️ **needs you** | No docker/podman binary or daemon in this sandbox. Dockerfile audited statically (see below) and the app runs under its exact `CMD` locally — but the build itself has never executed |
-| 10 | Tests green, zero live calls in CI | ✅ | 268 passed; **proven** by re-running with both providers' hostnames blocked at the socket layer |
+| 10 | Tests green, zero live calls in CI | ✅ | 297 passed; **enforced in-repo** by the socket guard in `tests/conftest.py` (blocks every non-loopback connect and resolution), itself covered by `test_offline_guard.py`. The delivered repo had no mechanism behind this claim |
 | 11 | No API key committed or packaged | ✅ | Scanned all 119 tracked files and every zip entry for both key values and any assigned `*_API_KEY=` line: none |
 
 ### Two things I want to be precise about, not optimistic
@@ -304,7 +304,7 @@ model.
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 268 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 297 unit tests |
 | Pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction on NVIDIA | ✅ 9/9 documents; 11 calls, all rung 1 |
 | Vision extraction on Nebius (fallback) | ✅ 9/9 documents, attempt 1 |
@@ -314,7 +314,7 @@ model.
 | Cross-page `page_index` | ✅ correct on live output |
 | Extraction determinism | ✅ two independent calls byte-identical |
 | Pricing / context / rate limits | ✅ live `?verbose=true` (Nebius) |
-| Automated suite makes zero live calls | ✅ **proven** — both providers blocked at the socket layer, 268 pass |
+| Automated suite makes zero live calls | ✅ **enforced** — `tests/conftest.py` refuses every non-loopback socket, 297 pass |
 | **`nvidia/nemotron-nano-12b-v2-vl`** | ❌ **410 Gone (NVIDIA), 404 (Nebius)** |
 | `docker build` | ⚠️ never run — no Docker daemon in this sandbox |
 | Judge scenario (no keys at all) | ✅ replay fires, arbitration works, provenance labelled honestly |
@@ -414,3 +414,54 @@ bundle, and legacy `docs.nebius.com/ai-studio/models` (404).
   bound a module to a name the tests then called.
 - **Two providers rather than one** — forced by the model being unavailable; see
   REMAINING GAP.
+
+---
+
+## Audit — 2026-10-02
+
+Full findings with `file:line` evidence in **[`docs/AUDIT.md`](docs/AUDIT.md)**.
+Read-only audit of the delivered repo, then Phase 0 fixes only; no feature work.
+
+**Confirmed good, left alone.** The model still never does arithmetic;
+tolerances are still frozen constants (`app/compare/__init__.py:25-36`);
+provenance is still versioned; path traversal, ZIP handling and key masking all
+checked out.
+
+**Fixed.**
+
+- **The offline guarantee was documented as enforced but was not.** There was no
+  `conftest.py` and `tests/__init__.py` was empty. `tests/conftest.py` now
+  refuses every non-loopback connect, `create_connection`, `getaddrinfo` and
+  `gethostbyname` for the session; loopback stays open because `TestClient`
+  reaches the app through an in-process `ASGITransport`. `test_offline_guard.py`
+  keeps the wall itself under test, including a **live-mode** `ChatClient` built
+  with a key that passes the placeholder check — that call now dies on the socket
+  wall instead of reaching the provider. 286 existing tests pass untouched, 11
+  added, **297 total**.
+- **Every test count in the docs was wrong**, and README contradicted itself
+  (286 in one place, 268 in three). `make dev` was described as live while
+  `Makefile:27` pins `DEMO_MODE=true`. Corrected across README/SUBMISSION/PROGRESS.
+- **`make lint` could not run on a fresh clone** — `pyflakes` was invoked but
+  never declared. Declared; lint reports 0 findings.
+- **The repo had no `.git` at all**, despite `PROGRESS.md:43` recording it as
+  initialized and staged. Initialized; baseline commit first so every later
+  change is a reviewable diff. No remote added and nothing pushed.
+
+**Found, not yet fixed** (deliberately deferred to keep this phase reviewable):
+
+- `runs/{id}/raw/` is always empty — the client is built without `raw_dir`
+  (`app/orchestrator.py:268`), and per-attempt token/usage data is collected then
+  discarded (`app/orchestrator.py:207-208`, `:500`). This is the prerequisite for
+  any honest transparency panel.
+- `POST /api/config` is unauthenticated and mutates process-global settings; the
+  default is open (`app/config.py:65`). `render.yaml` mitigates, local does not.
+- Uploads are buffered fully into RAM before the size check
+  (`app/main.py:246-249`); rasterization and file IO block the event loop; the
+  background task has no done-callback, so a late failure hangs the run at
+  `running` forever.
+- No CORS, security headers, rate limiting, `HEALTHCHECK`, or lockfile.
+
+**Standing honesty note:** no API key was available during this audit, so nothing
+on the "verified live" tables has been re-run since the original captures. Those
+claims rest on the committed artifacts in `fixtures/live_responses/`, and
+`README.md` now says so.
