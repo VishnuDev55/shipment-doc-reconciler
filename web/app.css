@@ -489,6 +489,13 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
 }
 .risk-level { font-weight: 700; text-transform: uppercase; letter-spacing: .05em; font-size: .7rem; }
 .risk-src { flex-basis: 100%; color: var(--ink-3); font-size: .7rem; }
+.contrib { flex-basis: 100%; margin: .35rem 0 0; padding-left: 1.1rem; font-size: .72rem; }
+.contrib li {
+  display: flex; flex-wrap: wrap; gap: .35rem; align-items: baseline;
+  margin: .15rem 0; color: var(--ink-2);
+}
+.contrib b { color: var(--accent); font-variant-numeric: tabular-nums; }
+.contrib code { font-family: var(--mono); font-size: .68rem; }
 .risk[data-level="high"]   { border-left-color: var(--bad);   background: var(--bad-soft); }
 .risk[data-level="high"] .risk-level { color: var(--bad); }
 .risk[data-level="medium"] { border-left-color: var(--warn);  background: var(--warn-soft); }

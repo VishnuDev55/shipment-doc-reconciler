@@ -282,18 +282,39 @@ class SanityFinding(BaseModel):
     explanation: str = ""
 
 
+class RiskContribution(BaseModel):
+    """The points one rule added, and why.
+
+    A score nobody can decompose is a vibe. Every point in `RiskNote.score`
+    traces to one of these.
+    """
+
+    code: str
+    points: int
+    detail: str
+    fields: list[FieldKey] = Field(default_factory=list)
+
+
 class RiskNote(BaseModel):
     """Customs exposure, computed from the engine's own verdicts.
 
     `source` is pinned to "deterministic" because a customs-risk statement an
-    auditor cannot trace to a rule is worse than none, and every input here is
-    already a deterministic comparison result. No arithmetic, no currency
+    auditor cannot trace to a rule is worth less than none, and every input here
+    is already a deterministic comparison result. No arithmetic, no currency
     conversion, no invented severity.
+
+    `level` is derived from `score` rather than decided separately, so the strip
+    and the number can never disagree about the same shipment.
     """
 
     level: Literal["low", "medium", "high"] = "low"
     reasons: list[str] = Field(default_factory=list)
     source: str = "deterministic"
+    score: int = 0
+    contributions: list[RiskContribution] = Field(default_factory=list)
+    high_at: int = 55
+    medium_at: int = 25
+    method: str = "deterministic-v1"
 
 
 class Briefing(BaseModel):

@@ -232,7 +232,7 @@ placeholders. It is also what the hosted instance runs, so a reviewer without ke
 still sees model output — labelled as such on screen.
 
 ```bash
-make test           # 416 tests, ~15s, zero API calls (socket guard, see Tests)
+make test           # 431 tests, ~15s, zero API calls (socket guard, see Tests)
 make probe          # rehearse the demo: prints the verdict table
 make dist           # clean source zip in dist/
 make docker         # single-stage image
@@ -376,6 +376,32 @@ reviewer can disagree with the threshold rather than trust the verdict, and a
 
 Currencies are never converted, so `unit_price_high` compares like for like only —
 the rule states that in its own text.
+
+### Risk score: 0–100, with the arithmetic shown
+
+The customs-risk strip is a number **and** its breakdown. `app/scoring.py` awards
+points per rule — a conflicting HS code or container number is 60 and clears the
+high band on its own, a weight conflict is 40 and lands in the middle, an
+unreadable document is 35, each un-cross-checked field 5 — then reads the band off
+the total (`≥55` high, `≥25` medium). The level is *derived from* the score rather
+than decided alongside it, so the strip and the number cannot disagree;
+`customs_risk()` is a thin view over the same function for that reason.
+
+Three properties the tests pin down:
+
+- **Capped and accounted.** `score == sum(contributions)` below 100, and the cap
+  is the only thing that can break that equality above it — asserted both ways.
+- **Volume cannot impersonate severity.** Caps (15 for coverage, 60 for sanity
+  findings, scaled rather than dropped) mean five lightly-checked fields never
+  outscore one bad HS code.
+- **`customs_risk` is a view, not a second implementation.** Two places deciding
+  severity is exactly how a score and a strip start disagreeing about one
+  shipment.
+
+Every point is shown next to the rule code and the value that triggered it, in the
+UI and in the exported report. `method: "deterministic-v1"` is recorded on the
+report so a score can be traced to the weighting that produced it even after the
+weights change.
 
 ### Two readers, when you can afford the doubt
 
@@ -716,7 +742,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-416 passed in ~15s
+431 passed in ~15s
 ```
 
 ~10 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
@@ -779,7 +805,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 416 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 431 unit tests |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
 | Vision extraction, Nebius MiniCPM-V (fallback) | ✅ 9/9 documents, all parsed on attempt 1 |
@@ -878,7 +904,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 416 tests across 17 files (+ conftest.py socket guard)
+tests/                 431 tests across 18 files (+ conftest.py socket guard)
 docs/                  AUDIT.md (findings, evidence) · DEPLOYMENT.md (deploy + health semantics)
 ```
 

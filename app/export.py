@@ -172,16 +172,24 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
         narrative_html = ""
 
     risk = report.risk
+    contributions_html = "".join(
+        f'<li><b>+{c.points}</b> <code>{esc(c.code)}</code> — {esc(c.detail)}</li>'
+        for c in risk.contributions
+    )
+    risk_html = (
+        f'<div class="risk {esc(risk.level)}"><b>risk: {esc(risk.level)}'
+        f' ({risk.score}/100)</b>'
+        f'<span>{esc("; ".join(risk.reasons))}.</span>'
+        f'<ul class="contrib">{contributions_html}</ul>'
+        '<em>Scored by rule from the verdicts above — no model was asked. '
+        f'{risk.score} points, band boundaries at {risk.medium_at} and '
+        f'{risk.high_at}.</em></div>'
+        if risk.reasons else ""
+    )
     sanity_html = "".join(
         f'<div class="sanity {esc(f.level)}"><b>{esc(f.level)}</b>'
         f'<span>{esc(f.explanation)}</span></div>'
         for f in report.sanity
-    )
-    risk_html = (
-        f'<div class="risk {esc(risk.level)}"><b>risk: {esc(risk.level)}</b>'
-        f'<span>{esc("; ".join(risk.reasons))}.</span>'
-        '<em>Computed from the verdicts by rule — no model was asked.</em></div>'
-        if risk.reasons else ""
     )
 
     b = report.briefing
@@ -289,6 +297,10 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
   padding:9px 11px; font-size:12px; border-left:4px solid #8896a5; background:#f2f4f7; }}
 .risk b {{ text-transform:uppercase; font-size:10px; letter-spacing:.6px; }}
 .risk em {{ flex-basis:100%; font-size:10px; color:var(--muted); }}
+.contrib {{ flex-basis:100%; margin:4px 0 0; padding-left:18px; font-size:11px; }}
+.contrib li {{ margin:2px 0; }}
+.contrib b {{ color:#1a4d7a; font-variant-numeric:tabular-nums; }}
+.contrib code {{ font-size:10px; }}
 .risk.high {{ border-left-color:#b3261e; background:#fbeceb; }}
 .risk.medium {{ border-left-color:#8a5a00; background:#fbf3e2; }}
 .risk.low {{ border-left-color:#1a7a43; background:#eaf5ee; }}

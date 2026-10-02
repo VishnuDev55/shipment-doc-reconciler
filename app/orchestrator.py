@@ -22,7 +22,6 @@ from .adjudicate import (
     apply_verdict,
     briefing_signature,
     build_briefing_prompt,
-    customs_risk,
     draft_is_usable,
     has_discrepancies,
     needs_adjudication,
@@ -52,7 +51,6 @@ from .models import (
     NormalizedField,
     PageRef,
     Report,
-    RiskNote,
     RunInfo,
     Summary,
     TokenUsage,
@@ -61,6 +59,7 @@ from .narrative_cache import NarrativeCache
 from .normalize import normalize_field
 from .providers import summary_endpoint, vision_endpoint
 from .rules import sanity_checks
+from .scoring import score_report
 from .store import RunStore, new_shipment_id
 from .summary import build_summary_prompt, summary_is_plausible
 
@@ -683,9 +682,10 @@ class Reconciler:
         # Sanity before risk, so a risk level that ignored the cross-field
         # findings would be understating. Both are pure functions of the
         # comparisons above, so re-running them cannot disagree with anything.
+        # The RiskNote carries the score and its contributions, and the level is
+        # read off the score.
         report.sanity = sanity_checks(report)
-        level, reasons = customs_risk(report)
-        report.risk = RiskNote(level=level, reasons=reasons)
+        report.risk = score_report(report)
 
         await self._adjudicate(report)
         await self._write_briefing(report)

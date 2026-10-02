@@ -196,75 +196,22 @@ def apply_verdict(target: Adjudication, verdict: dict, *, model: str, provider: 
 
 
 # ---------------------------------------------------------------------------
-# Customs risk: deterministic, and labelled as such
+# Customs risk
 # ---------------------------------------------------------------------------
-
-_HS_REASONS = {
-    "conflict": "declared HS codes disagree across documents",
-    "suspicious": "HS codes differ in a way that may be a transcription error",
-    "absent": "no document states an HS code; classification cannot be verified",
-}
-_CONTAINER_REASONS = {
-    "conflict": "container numbers disagree, and at least one fails ISO 6346",
-    "suspicious": "container number is present but not confirmable",
-}
 
 
 def customs_risk(report: Report) -> tuple[str, list[str]]:
-    """(level, reasons). Pure Python over the engine's own verdicts.
+    """(level, reasons), delegated to the scoring engine.
 
-    Deliberately not a model output: a customs-risk statement that an auditor
-    cannot trace to a rule is worse than none, and every input here is already
-    decided deterministically. No arithmetic, no currency conversion, no
-    invented severity — a level is the maximum severity over matched rules.
+    Kept as a name because callers think in levels and reasons, not points. It is
+    a view over `app.scoring.score_report`, not a second implementation: two
+    places deciding severity is how a strip and a score start disagreeing about
+    the same shipment.
     """
-    by_field = {c.field: c for c in report.comparisons}
-    reasons: list[str] = []
-    level = "low"
+    from .scoring import score_report
 
-    hs = by_field.get("hs_code")
-    if hs is not None and hs.status in _HS_REASONS:
-        reasons.append(_HS_REASONS[hs.status])
-        level = "high" if hs.status in ("conflict", "absent") else _raise(level, "medium")
-
-    container = by_field.get("container_number")
-    if container is not None and container.status in _CONTAINER_REASONS:
-        reasons.append(_CONTAINER_REASONS[container.status])
-        level = "high" if container.status == "conflict" else _raise(level, "medium")
-
-    value = by_field.get("invoice_value")
-    if value is not None and value.status == "conflict":
-        reasons.append("invoice value disagrees; declared value is a customs input")
-        level = "high"
-
-    weight = by_field.get("gross_weight")
-    if weight is not None and weight.status == "conflict":
-        reasons.append("gross weight disagrees; affects freight and declaration")
-        level = _raise(level, "medium")
-
-    failed = [d for d in report.documents if d.status == "failed"]
-    if failed:
-        reasons.append(
-            f"{len(failed)} document(s) could not be read, so coverage is incomplete"
-        )
-        level = _raise(level, "medium")
-
-    # Cross-field findings that clear a physical or commercial bound. Read from
-    # report.sanity, which the orchestrator fills before calling this, so the
-    # risk level never silently ignores them.
-    for finding in getattr(report, "sanity", []):
-        if finding.level == "risk":
-            reasons.append(f"{finding.code.replace('_', ' ')}: {finding.explanation}")
-            level = _raise(level, "medium")
-
-    if not reasons:
-        reasons.append("no classification-relevant disagreement detected")
-    return level, reasons
-
-
-def _raise(current: str, candidate: str) -> str:
-    order = {"low": 0, "medium": 1, "high": 2}
-    return candidate if order[candidate] > order[current] else current
+    note = score_report(report)
+    return note.level, note.reasons
 
 
 # ---------------------------------------------------------------------------

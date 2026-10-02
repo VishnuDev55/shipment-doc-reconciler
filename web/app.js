@@ -832,12 +832,29 @@ function renderRisk(report) {
   }
   box.hidden = false;
   box.dataset.level = risk.level;
-  $('#risk-level').textContent = 'Customs risk: ' + risk.level;
+  $('#risk-level').textContent =
+    risk.score ? `Customs risk: ${risk.level} · ${risk.score}/100` : `Customs risk: ${risk.level}`;
   $('#risk-reasons').textContent = risk.reasons.join('; ') + '.';
+
+  // The number is useless without the arithmetic behind it, so every
+  // contribution is listed with the points it added.
+  const list = $('#risk-contrib');
+  list.textContent = '';
+  (risk.contributions || []).forEach((c) => {
+    const li = el('li');
+    li.appendChild(el('b', null, '+' + c.points));
+    li.appendChild(el('code', null, c.code.replace(/_/g, ' ')));
+    li.appendChild(el('span', null, ' — ' + c.detail));
+    list.appendChild(li);
+  });
+  list.hidden = !list.children.length;
+
   // Say where the number came from. A risk statement that reads like a model
   // opinion would be the wrong kind of impressive.
   $('#risk-src').textContent = risk.source === 'deterministic'
-    ? 'Computed from the verdicts above by rule — no model was asked.' : '';
+    ? 'Scored by rule from the verdicts above — no model was asked. Bands at '
+      + risk.medium_at + ' and ' + risk.high_at + ' points.'
+    : '';
 }
 
 function renderSanity(report) {

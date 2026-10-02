@@ -30,12 +30,14 @@ from app.adjudicate import customs_risk
 REPO = Path(__file__).resolve().parents[1]
 
 
-def stated(field: str, docs: list[tuple[str, str, str]]) -> Comparison:
+def stated(field: str, docs: list[tuple[str, str, str]], status: str | None = None) -> Comparison:
     """docs: (document_id, document_label, compare_key) — canonical mirrors key.
 
     majority_compare_key is counted, not taken from the first entry, otherwise
     this helper would not model what the comparator actually produces and the
-    rules would be tested against a fiction.
+    rules would be tested against a fiction. `status` is derived from agreement
+    unless given, because the real engine also reports single_source and absent,
+    which no amount of value-pluralising can produce.
     """
     values = [
         ComparisonValue(
@@ -49,7 +51,7 @@ def stated(field: str, docs: list[tuple[str, str, str]]) -> Comparison:
     majority = counted.most_common(1)[0][0]
     return Comparison(
         field=field, label=FIELD_LABEL[field], kind=FIELD_KIND[field],
-        status="consistent" if len(counted) == 1 else "conflict",
+        status=status or ("consistent" if len(counted) == 1 else "conflict"),
         reason="test fixture", values=values, majority_compare_key=majority,
     )
 
