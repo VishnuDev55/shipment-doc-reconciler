@@ -475,6 +475,39 @@ captured NVIDIA response *and* a captured Nebius response for all nine fixture
 documents, so consensus can be demonstrated offline against genuine transcriptions
 from both hosts rather than invented ones.
 
+**Verified against the live NVIDIA host on 2026-10-02.** `GET /v1/models` on
+`integrate.api.nvidia.com` returns 81 models as `{"object":"list","data":[...]}`,
+each row carrying only `id`, `object`, `created` and `owned_by` — **no modality
+field at all**, and `/v1/models/{id}` returns the same four. So on NVIDIA, image
+capability can only be inferred from the model name; `Selection.inferred` records
+that, and a report can never present an inference as a host declaration.
+`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` was confirmed present in that
+catalog, so the default model is verified live and `model_selection` reports
+`configured`.
+
+**Still unverified: Nebius.** No Token Factory key was available, so its
+`?verbose=true` modality handling is tested against replayed payloads only. Run
+`make probe-live` with a Nebius key to confirm.
+
+### Extracting live
+
+A real single-document call on 2026-10-02, through the shipped pipeline, on
+`fixtures/images/invoice_conflict.png`:
+
+| | |
+|---|---|
+| Capability probe | `honours strict` → `json_schema` mode on NVIDIA, decided by the probe, not assumed |
+| Result | `status: ok`, `source: live_api`, parsed on ladder rung 1 — no correction, no simplification |
+| Tokens | 3,145 prompt + 1,057 completion = **4,202** |
+| Model latency | **35.1 s** for the call; ~190 s wall including the probe |
+| Raw body | 965 bytes written to `runs/{id}/raw/doc1_initial.txt` |
+| Fields | 100 CARTONS → `100 cartons`; 12,450.00 KGS → `12450.000 kg`; 8517.62.00 → `85.17.62 (+2 national digits)`; USD 8,420.00 → `8,420.00 USD` |
+
+Every value above is what the app recorded about its own call, which is the point
+of section **Transparency**. The 30–90 s figure elsewhere in this README is now a
+measured fact from this run rather than a remembered one, and the ~190 s wall for
+the first document is why discovery and the probe are cached per process.
+
 ### Model discovery
 
 Model names are treated as defaults, not facts. Before a run extracts, the app
@@ -503,11 +536,10 @@ Ranking is sorted by preference band then model id, so two runs against the same
 catalog pick the same model. `GET /api/models` reports the current decision and
 `POST /api/models/refresh` re-queries past the TTL.
 
-**Unverified live.** No API key was available while this was written, so the
-discovery *logic* is tested against catalog payloads replayed through a mocked
-transport (`tests/test_discovery.py`) — including both envelope shapes. What
-neither host actually lists today has not been checked. Run `make probe-live` to
-confirm before trusting the outcome.
+**What the real hosts publish** is now recorded above, under **Verified against
+the live NVIDIA host** — including the fact that NVIDIA publishes no modality at
+all, which is why `Selection.inferred` exists. Only the Nebius side remains
+unverified, for want of a Token Factory key; `make probe-live` closes that gap.
 
 ### The adjudicator: a second opinion, never a second decision
 

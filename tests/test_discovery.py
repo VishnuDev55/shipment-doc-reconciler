@@ -61,13 +61,63 @@ def handler(body, status: int = 200, capture: list | None = None):
 
 
 def test_parses_nvidias_models_envelope():
-    rows = parse_catalog(
-        {"models": [{"id": "a", "type": "text_to_text"},
-                    {"id": "b", "type": "image_text_to_text"}]}
-    )
-    assert [m.id for m in rows] == ["a", "b"]
-    assert not rows[0].accepts_images
-    assert rows[1].accepts_images, "NVIDIA signals vision through `type`, not `modality`"
+    """The real payload, captured from integrate.api.nvidia.com on 2026-10-02.
+
+    81 rows, each only {id, object, created, owned_by}: NVIDIA publishes no
+    modality at all, and /v1/models/{id} returns the same four fields. So on
+    this host image capability can only be inferred from the name, and the test
+    says so rather than pretending the host declared it.
+    """
+    rows = parse_catalog({"object": "list", "data": [
+        {"id": "meta/llama-3.2-11b-vision-instruct", "object": "model",
+         "created": 735790403, "owned_by": "meta"},
+        {"id": "adept/fuyu-8b", "object": "model", "created": 735790403,
+         "owned_by": "adept"},
+    ]})
+    assert [m.id for m in rows] == ["meta/llama-3.2-11b-vision-instruct", "adept/fuyu-8b"]
+    assert all(not m.declares_modality for m in rows)
+    assert rows[0].accepts_images, "matched on 'vision' in the name"
+    assert not rows[1].accepts_images
+
+
+def test_the_legacy_models_wrapper_is_still_parsed():
+    """Not what NVIDIA returns today, but cheap to keep accepting."""
+    rows = parse_catalog({"models": [{"id": "a", "type": "image_text_to_text"}]})
+    assert rows[0].accepts_images and rows[0].declares_modality
+
+
+def test_embedding_models_are_not_picked_as_chat_vision_fallbacks():
+    """A '-vl' embedding model really is vision-language, and really is useless
+    as a chat completion endpoint."""
+    rows = parse_catalog({"data": [
+        {"id": "nvidia/llama-nemotron-embed-vl-1b-v2"},
+        {"id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"},
+    ]})
+    assert [m.accepts_images for m in rows] == [False, True]
+    assert pick(rows, "vision").id.startswith("nvidia/nemotron-3-nano-omni")
+
+
+def test_a_declared_capability_beats_an_inferred_one():
+    """Ordering must never let a confident guess outrank what a host stated."""
+    rows = parse_catalog({"data": [
+        {"id": "nvidia/Nemotron-VL-Huge", "modality": "text->text"},
+        {"id": "openbmb/MiniCPM-V-4_5", "modality": "text+image->text"},
+    ]})
+    assert pick(rows, "vision").id == "openbmb/MiniCPM-V-4_5"
+
+
+def test_inference_is_recorded_on_the_selection_so_it_cannot_impersonate_a_declaration():
+    rows = parse_catalog({"data": [
+        {"id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"}]})
+    chosen = resolve(role="vision", provider="nvidia", host=NVIDIA_HOST,
+                     requested="gone", catalog=rows)
+    assert chosen.status == "discovered" and chosen.inferred is True
+    assert "inferred" in chosen.note and "no modality metadata" in chosen.note
+
+    declared = resolve(role="vision", provider="nebius", host=NEBIUS_HOST,
+                       requested="gone",
+                       catalog=parse_catalog({"data": [{"id": "m", "modality": "text+image->text"}]}))
+    assert declared.inferred is False
 
 
 def test_parses_openai_data_envelope_with_modality():
@@ -145,7 +195,7 @@ def test_a_host_with_no_vision_model_is_reported_not_invented():
                 requested="gone", catalog=text_only)
     assert s.status == "unverified"
     assert s.chosen == "gone", "must not silently run on a text-only model"
-    assert "no model that accepts images" in s.note
+    assert "no model identifiable as able to accept images" in s.note
 
 
 # ---------------------------------------------------------------------------

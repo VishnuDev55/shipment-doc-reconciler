@@ -37,15 +37,41 @@ class ModelInfo:
     object: str = "model"
 
     @property
+    def declares_modality(self) -> bool:
+        return bool(self.modality)
+
+    @property
     def accepts_images(self) -> bool:
-        # Nebius reports "text+image->text"; NVIDIA's /v1/models uses "type".
-        # Matching on the presence of "image" before the arrow covers both.
-        left = self.modality.split("->", 1)[0].lower() if self.modality else ""
-        return "image" in left or "vision" in self.modality.lower()
+        if self.modality:
+            left = self.modality.split("->", 1)[0].lower()
+            return "image" in left or "vision" in self.modality.lower()
+        return looks_visionary(self.id)
 
     def speaks_text(self) -> bool:
+        if not self.modality:
+            # With no declared contract, assume a chat model answers in text:
+            # every OpenAI-compatible host here does.
+            return True
         right = self.modality.split("->", 1)[1].lower() if "->" in self.modality else ""
         return (not right) or "text" in right
+
+
+# Checked against the live NVIDIA host on 2026-10-02: GET /v1/models returns only
+# {id, object, created, owned_by} for all 81 models, and /v1/models/{id} returns
+# the same four fields. NVIDIA publishes no modality at all, so on that host image
+# capability can only be inferred from the name -- which is why Selection records
+# `inferred` rather than letting an inference read as a host declaration.
+_VISION_TOKENS = ("vl", "vision", "omni", "vit", "image", "multimodal")
+# A "-vl" in an embedding model is genuinely vision-language, and picking it as a
+# chat fallback would produce garbage completions rather than an error.
+_NOT_CHAT = ("embed", "retriever", "guard", "rerank", "asr", "tts", "whisper")
+
+
+def looks_visionary(model_id: str) -> bool:
+    lowered = model_id.lower()
+    if any(token in lowered for token in _NOT_CHAT):
+        return False
+    return any(token in lowered for token in _VISION_TOKENS)
 
 
 @dataclass
@@ -75,14 +101,21 @@ class Selection:
     status: str
     note: str = ""
     available: tuple[str, ...] = ()
+    # True when image capability was guessed from the model name because the host
+    # publishes no modality metadata. Without this flag an inference would read
+    # as though the host had confirmed it.
+    inferred: bool = False
 
 
 def parse_catalog(payload: object) -> list[ModelInfo]:
-    """Accept both envelope shapes these hosts actually return.
+    """Accept the envelope shapes these hosts actually return.
 
-    NVIDIA wraps in {"models": [...]}, the OpenAI-compatible Nebius in
-    {"data": [...]}. Reading only one would make the other look like a host
-    with zero models, and "zero models" would silently keep a dead default.
+    Checked live against NVIDIA on 2026-10-02: it returns {"object": "list",
+    "data": [...]} with only id/object/created/owned_by per row -- it does not use
+    a "models" key after all, and publishes no modality. Nebius uses the same
+    "data" envelope and adds "modality" when asked with ?verbose=true. Reading
+    only one shape would make the other look like a host with zero models, and
+    "zero models" would silently keep a dead default.
     """
     if isinstance(payload, dict):
         rows = payload.get("models") or payload.get("data") or []
@@ -123,14 +156,17 @@ def _score(model: ModelInfo, patterns: tuple[str, ...]) -> int:
 def pick(models: list[ModelInfo], role: Role) -> ModelInfo | None:
     """Rank what the host serves and take the best, deterministically.
 
-    Sorted by preference band then id, so two runs on the same catalog choose the
-    same model; a set-iteration order would make the choice unrepeatable.
+    A declared capability always beats an inferred one; the preference band only
+    breaks ties within each group. Sorted by (inferred, band, id), so two runs on
+    one catalog choose the same model -- iteration order would not.
     """
     eligible = [m for m in models if (m.accepts_images if role == "vision" else m.speaks_text())]
     if not eligible:
         return None
     patterns = _VISION_PREFERRED if role == "vision" else _SUMMARY_PREFERRED
-    return sorted(eligible, key=lambda m: (_score(m, patterns), m.id))[0]
+    return sorted(
+        eligible, key=lambda m: (not m.declares_modality, _score(m, patterns), m.id)
+    )[0]
 
 
 def resolve(
@@ -149,7 +185,8 @@ def resolve(
     """
     available = tuple(m.id for m in catalog)
     allowed = [a.strip() for a in (allow or "").split(",") if a.strip()]
-    present = {m.id for m in catalog}
+    by_id = {m.id: m for m in catalog}
+    present = set(by_id)
 
     for candidate in allowed:
         if candidate in present:
@@ -157,12 +194,14 @@ def resolve(
                 role=role, provider=provider, host=host, requested=requested,
                 chosen=candidate, status="configured",
                 note="selected from MODEL_ALLOW list" if candidate != requested else "",
+                inferred=not by_id[candidate].declares_modality,
             )
 
     if requested in present:
         return Selection(
             role=role, provider=provider, host=host, requested=requested,
             chosen=requested, status="configured", available=available,
+            inferred=not by_id[requested].declares_modality,
         )
 
     best = pick(catalog, role)
@@ -170,14 +209,19 @@ def resolve(
         return Selection(
             role=role, provider=provider, host=host, requested=requested,
             chosen=requested, status="unverified", available=available,
-            note=(f"'{requested}' is not listed by {host}, and {host} reports no "
-                  f"model that accepts {'images' if role == 'vision' else 'text output'}"),
+            note=(f"'{requested}' is not listed by {host}, and {host} offers no "
+                  f"model identifiable as able to accept "
+                  f"{'images' if role == 'vision' else 'text output'}"),
         )
 
     return Selection(
         role=role, provider=provider, host=host, requested=requested,
         chosen=best.id, status="discovered", available=available,
-        note=f"'{requested}' is not served by {host}; using '{best.id}'",
+        note=(f"'{requested}' is not served by {host}; using '{best.id}'"
+              + (" (image capability inferred from the model name — this host "
+                 "publishes no modality metadata)" if not best.declares_modality
+                 else "")),
+        inferred=not best.declares_modality,
     )
 
 
