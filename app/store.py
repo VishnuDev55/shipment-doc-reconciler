@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,6 +32,9 @@ class RunStore:
     def __init__(self, root: Path):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        # Set by the reconciler to fan report changes out to SSE listeners.
+        # Optional by design: scripts and tests write runs without a server.
+        self.on_write: Callable[[Report], None] | None = None
 
     def dir(self, shipment_id: str) -> Path:
         return self.root / shipment_id
@@ -53,6 +57,11 @@ class RunStore:
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(report.model_dump_json(indent=2))
         tmp.replace(path)
+        if self.on_write is not None:
+            # Every mutation of a report already funnels through here, so this is
+            # the one place a progress listener can hook without touching the
+            # dozen call sites that settle a run.
+            self.on_write(report)
         return path
 
     def read(self, shipment_id: str) -> Report | None:

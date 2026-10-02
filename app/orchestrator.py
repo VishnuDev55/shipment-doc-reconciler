@@ -325,6 +325,48 @@ class Reconciler:
         # configured model alone.
         self._catalogs: dict[str, Catalog] = {}
         self._selections: dict[str, Selection] = {}
+        # Shipment id -> live SSE listeners. Populated by the report store's
+        # on_write hook, so every existing settle point publishes for free.
+        self._listeners: dict[str, set[asyncio.Queue]] = {}
+        self.store.on_write = self._publish
+
+    # ------------------------------------------------------------------
+    # Progress fan-out
+    # ------------------------------------------------------------------
+
+    def _publish(self, report: Report) -> None:
+        """Hand a settled report to any live listeners.
+
+        Drop-oldest rather than block: a stalled client must never be able to
+        stall the run that is producing it.
+        """
+        for queue in tuple(self._listeners.get(report.shipment_id, ())):
+            try:
+                queue.put_nowait(report)
+            except asyncio.QueueFull:
+                try:
+                    queue.get_nowait()
+                    queue.put_nowait(report)
+                except (asyncio.QueueEmpty, asyncio.QueueFull):
+                    pass
+
+    def subscribe(self, shipment_id: str) -> asyncio.Queue:
+        queue: asyncio.Queue = asyncio.Queue(maxsize=8)
+        self._listeners.setdefault(shipment_id, set()).add(queue)
+        # Replay current state at once: a client arriving mid-run should see the
+        # same picture an immediate poll would.
+        current = self._reports.get(shipment_id) or self.store.read(shipment_id)
+        if current is not None:
+            queue.put_nowait(current)
+        return queue
+
+    def unsubscribe(self, shipment_id: str, queue: asyncio.Queue) -> None:
+        bucket = self._listeners.get(shipment_id)
+        if not bucket:
+            return
+        bucket.discard(queue)
+        if not bucket:
+            self._listeners.pop(shipment_id, None)
 
     # Settings the GUI may change on a running process. Anything path- or
     # limit-shaped stays env-only: re-reading runs_dir mid-run would strand a

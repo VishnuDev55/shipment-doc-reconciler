@@ -93,7 +93,7 @@ Single Python process. The filesystem is the database. No frontend build step.
 ```
 browser  index.html + app.js + app.css (hand-rolled tokens)   no build step
    |
-   |  upload 2-5 docs          1s poll of report.json
+   |  upload 2-5 docs     SSE progress (1s poll as fallback)
    v
 +--------------------------------------------------------------------------+
 |  FastAPI  app/main.py                                                    |
@@ -103,6 +103,7 @@ browser  index.html + app.js + app.css (hand-rolled tokens)   no build step
 |    GET  /api/health                 GET  /api/fixtures                   |
 |    GET  /api/shipments              GET  /page/{id}/{path}  (evidence)   |
 |    GET  /api/shipments/{id}/raw/{n} (transparency panel body)             |
+|    GET  /api/shipments/{id}/events  (SSE progress; poll is the fallback)  |
 |    GET  /api/fixture/{name}         GET  /                (static UI)    |
 +--------------------------------------------------------------------------+
    |
@@ -231,7 +232,7 @@ placeholders. It is also what the hosted instance runs, so a reviewer without ke
 still sees model output — labelled as such on screen.
 
 ```bash
-make test           # 368 tests, ~12s, zero API calls (socket guard, see Tests)
+make test           # 378 tests, ~18s, zero API calls (socket guard, see Tests)
 make probe          # rehearse the demo: prints the verdict table
 make dist           # clean source zip in dist/
 make docker         # single-stage image
@@ -323,6 +324,25 @@ unset the panel prints token counts and declines to invent a price.
 `GET /api/shipments/{id}/raw/{name}` serves those bodies as plain text, and only
 for filenames the report itself listed — a name the report never named is not
 evidence about that run.
+
+### Progress: pushed, with a poll behind it
+
+`GET /api/shipments/{id}/events` streams the report each time it settles. Every
+mutation already funnels through `RunStore.write`, so that one hook is the fan-out
+point — no second write path to keep in sync. The stream carries the same
+document an immediate poll would, including a replay on subscribe, so a client
+that joins mid-run sees the full picture rather than waiting for the next change.
+
+The browser keeps the 1-second poll running until the first stream event proves
+the channel is alive, then drops it. If `EventSource` is unavailable, the route
+is blocked, or the stream errors, the interval is still there and the UI behaves
+exactly as it always did. A stalled or disconnected client cannot slow a run
+down: each listener is a bounded queue that drops its oldest frame, and the
+generator unsubscribes in a `finally`.
+
+The progress line counts documents settled and seconds elapsed, because a
+reasoning vision model takes 30–90 s per document and a bare "Extracting…" reads
+as a hang.
 
 ### Model discovery
 
@@ -628,7 +648,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-368 passed in ~12s
+378 passed in ~18s
 ```
 
 ~10 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
@@ -691,7 +711,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 368 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 378 unit tests |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
 | Vision extraction, Nebius MiniCPM-V (fallback) | ✅ 9/9 documents, all parsed on attempt 1 |
@@ -790,7 +810,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 368 tests across 13 files (+ conftest.py socket guard)
+tests/                 378 tests across 14 files (+ conftest.py socket guard)
 docs/                  AUDIT.md — evidence-backed findings and the deferred list
 ```
 

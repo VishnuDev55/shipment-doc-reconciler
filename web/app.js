@@ -64,6 +64,9 @@ const state = {
   declared: [],
   shipmentId: null,
   pollTimer: null,
+  stream: null,
+  elapsedTimer: null,
+  startedAt: null,
   showRaw: false,
   filter: null,
   report: null,
@@ -362,7 +365,7 @@ function renderUploads() {
 function wireButtons() {
   $('#analyze').addEventListener('click', uploadAndAnalyse);
   $('#reset').addEventListener('click', () => {
-    stopPolling();
+    stopWatching();
     state.files = []; state.declared = []; state.shipmentId = null; state.report = null;
     renderUploads();
     loadHistory();
@@ -444,8 +447,7 @@ async function openRun(shipmentId) {
     renderReport(report);
     loadHistory();
     if (report.state === 'running') {
-      setProgress('Extracting…');
-      state.pollTimer = setInterval(poll, 1000);
+      watchRun(shipmentId);
     } else {
       setProgress('');
     }
@@ -459,10 +461,8 @@ function beginRun(shipmentId) {
   state.report = null;
   state.filter = null;
   showResults();
-  setProgress('Extracting…');
   renderRunning();
-  poll();
-  state.pollTimer = setInterval(poll, 1000);
+  watchRun(shipmentId);
 }
 
 function showResults() {
@@ -477,20 +477,108 @@ async function poll() {
   if (!state.shipmentId) return;
   try {
     const report = await getJSON(`/api/shipments/${state.shipmentId}/report`);
-    state.report = report;
-    renderReport(report);
-    if (report.state !== 'running') {
-      stopPolling();
-      setProgress('');
-      loadHistory();
-    }
+    applyReport(report);
   } catch (err) {
     setProgress('Still working — the last poll failed: ' + err.message);
   }
 }
 
+function applyReport(report) {
+  state.report = report;
+  renderReport(report);
+  if (report.state !== 'running') {
+    stopWatching();
+    setProgress('');
+    loadHistory();
+  }
+}
+
+/**
+ * Follow a run: SSE pushes each settle, with the 1s poll kept as the fallback.
+ *
+ * The poll starts immediately and is dropped only once a stream event proves
+ * the channel is alive. If EventSource is missing, the route is blocked, or the
+ * stream errors mid-run, the interval is still there and the UI behaves exactly
+ * as it did before — degradation, not a frozen spinner.
+ */
+function watchRun(shipmentId) {
+  stopWatching();
+  setProgress('Extracting…');
+  state.startedAt = Date.now();
+  state.elapsedTimer = setInterval(tickElapsed, 1000);
+  startPollFallback();
+  poll();
+
+  if (typeof EventSource === 'undefined') return;
+  let source;
+  try {
+    source = new EventSource(
+      `/api/shipments/${encodeURIComponent(shipmentId)}/events`
+    );
+  } catch (err) {
+    return;  // polling carries on
+  }
+  state.stream = source;
+
+  source.addEventListener('report', (e) => {
+    let report;
+    try {
+      report = JSON.parse(e.data);
+    } catch (err) {
+      return;
+    }
+    if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+    applyReport(report);
+  });
+  source.addEventListener('done', () => closeStream());
+  source.onerror = () => {
+    closeStream();
+    startPollFallback();
+  };
+}
+
+function startPollFallback() {
+  if (!state.pollTimer) state.pollTimer = setInterval(poll, 1000);
+}
+
+/**
+ * A ticking progress line. A reasoning VLM takes 30-90 s per document, so
+ * "Extracting…" alone reads as a hang; this says how far along it actually is.
+ */
+function tickElapsed() {
+  const box = $('#progress');
+  if (!state.startedAt || box.hidden) return;
+  if (box.textContent.startsWith('Still working')) return;  // leave errors visible
+  const report = state.report;
+  const secs = Math.round((Date.now() - state.startedAt) / 1000);
+  if (!report) {
+    box.textContent = `Extracting — ${secs} s elapsed`;
+    return;
+  }
+  const settled = report.documents.filter(
+    (d) => d.status !== 'pending' && d.status !== 'running'
+  ).length;
+  box.textContent =
+    `Extracting — ${settled}/${report.documents.length} documents settled · ` +
+    `${secs} s elapsed`;
+}
+
+function closeStream() {
+  if (state.stream) {
+    state.stream.close();
+    state.stream = null;
+  }
+}
+
 function stopPolling() {
   if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+}
+
+function stopWatching() {
+  stopPolling();
+  closeStream();
+  if (state.elapsedTimer) { clearInterval(state.elapsedTimer); state.elapsedTimer = null; }
+  state.startedAt = null;
 }
 
 function renderRunning() {
