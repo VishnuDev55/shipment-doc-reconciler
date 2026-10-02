@@ -1,9 +1,14 @@
 """Model discovery, tested against catalogs rather than live hosts.
 
-No API key exists on this machine, so every test here feeds a catalog through
-httpx.MockTransport. That verifies the decision logic and the request shape; it
-does not verify what NVIDIA and Nebius actually list today. See
-docs/AUDIT.md R9 — the live half of this is unverified by construction.
+Every test here feeds a catalog through httpx.MockTransport, so the suite stays
+offline. The catalogs are the payload shapes captured live on 2026-10-02 from
+integrate.api.nvidia.com and api.tokenfactory.nebius.com, not invented ones: an
+earlier version of this file asserted a top-level "modality" key that neither
+host returns, and passed while the real code found nothing.
+
+What MockTransport cannot check is whether a host still answers at all. The
+live sweeps that establish the captured shapes are recorded in docs/AUDIT.md
+and PROGRESS.md with their dates.
 """
 
 from __future__ import annotations
@@ -80,10 +85,44 @@ def test_parses_nvidias_models_envelope():
     assert not rows[1].accepts_images
 
 
-def test_the_legacy_models_wrapper_is_still_parsed():
-    """Not what NVIDIA returns today, but cheap to keep accepting."""
-    rows = parse_catalog({"models": [{"id": "a", "type": "image_text_to_text"}]})
+def test_nebius_declares_modality_under_architecture():
+    """A real Token Factory row, captured with ?verbose=true on 2026-10-02.
+
+    The modality string is at architecture.modality. Reading the flat key alone
+    made every one of Nebius' 25 models look undeclared, which is how a host
+    that states its capabilities ended up decided by a name guess.
+    """
+    rows = parse_catalog({"object": "list", "data": [
+        {"id": "openbmb/MiniCPM-V-4_5", "name": "openbmb/MiniCPM-V-4_5",
+         "created": 1780272000, "context_length": 32000,
+         "architecture": {"modality": "text+image->text", "tokenizer": "Other"},
+         "quantization": "fp16", "object": "model", "owned_by": "system",
+         "supported_features": ["json_mode", "structured_outputs"]},
+        {"id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+         "architecture": {"modality": "text->text", "tokenizer": "Other"},
+         "object": "model"},
+    ]})
+    assert rows[0].declares_modality and rows[0].accepts_images
+    assert rows[1].declares_modality and not rows[1].accepts_images
+
+
+def test_a_declared_modality_still_works_flat():
+    """The flat key is tried first: a host that puts it there keeps working."""
+    rows = parse_catalog({"data": [{"id": "a", "modality": "text+image->text"}]})
     assert rows[0].accepts_images and rows[0].declares_modality
+
+
+def test_an_embedding_model_is_eligible_for_neither_role():
+    """`text->embedding` is a real Nebius row type, not a hypothetical: Qwen3-
+    Embedding-8B sits in the same catalog as the chat models, and answering a
+    shipment query with a 4096-d vector would be a silent wrong answer."""
+    rows = parse_catalog({"data": [
+        {"id": "Qwen/Qwen3-Embedding-8B",
+         "architecture": {"modality": "text->embedding"}},
+        {"id": "zai-org/GLM-5.2", "architecture": {"modality": "text->text"}},
+    ]})
+    assert pick(rows, "vision") is None
+    assert pick(rows, "summary").id == "zai-org/GLM-5.2"
 
 
 def test_embedding_models_are_not_picked_as_chat_vision_fallbacks():
@@ -100,8 +139,8 @@ def test_embedding_models_are_not_picked_as_chat_vision_fallbacks():
 def test_a_declared_capability_beats_an_inferred_one():
     """Ordering must never let a confident guess outrank what a host stated."""
     rows = parse_catalog({"data": [
-        {"id": "nvidia/Nemotron-VL-Huge", "modality": "text->text"},
-        {"id": "openbmb/MiniCPM-V-4_5", "modality": "text+image->text"},
+        {"id": "nvidia/Nemotron-VL-Huge", "architecture": {"modality": "text->text"}},
+        {"id": "openbmb/MiniCPM-V-4_5", "architecture": {"modality": "text+image->text"}},
     ]})
     assert pick(rows, "vision").id == "openbmb/MiniCPM-V-4_5"
 
@@ -116,14 +155,16 @@ def test_inference_is_recorded_on_the_selection_so_it_cannot_impersonate_a_decla
 
     declared = resolve(role="vision", provider="nebius", host=NEBIUS_HOST,
                        requested="gone",
-                       catalog=parse_catalog({"data": [{"id": "m", "modality": "text+image->text"}]}))
+                       catalog=parse_catalog({"data": [{"id": "m",
+                                            "architecture": {"modality": "text+image->text"}}]}))
     assert declared.inferred is False
 
 
-def test_parses_openai_data_envelope_with_modality():
+def test_a_text_only_model_is_never_mistaken_for_vision():
     rows = parse_catalog(
-        {"data": [{"id": "openbmb/MiniCPM-V-4_5", "modality": "text+image->text"},
-                  {"id": "meta-llama/Llama-3.3-70B-Instruct", "modality": "text->text"}]}
+        {"data": [{"id": "openbmb/MiniCPM-V-4_5", "architecture": {"modality": "text+image->text"}},
+                  {"id": "meta-llama/Llama-3.3-70B-Instruct",
+                   "architecture": {"modality": "text->text"}}]}
     )
     assert rows[0].accepts_images
     assert not rows[1].accepts_images
@@ -206,7 +247,9 @@ def test_a_host_with_no_vision_model_is_reported_not_invented():
 @pytest.mark.asyncio
 async def test_fetch_sends_the_key_and_reads_the_catalog():
     seen: list[httpx.Request] = []
-    transport = handler({"models": [{"id": CONFIGURED_VISION, "type": "image_text"}]},
+    transport = handler({"object": "list",
+                         "data": [{"id": CONFIGURED_VISION, "object": "model",
+                                   "created": 735790403, "owned_by": "nvidia"}]},
                         capture=seen)
     catalog = await fetch(nvidia_endpoint(), transport=transport)
 
@@ -221,13 +264,13 @@ async def test_only_nebius_is_asked_for_verbose_modality():
     reason the vision filter works there."""
     seen: list[httpx.Request] = []
     await fetch(nebius_endpoint(),
-                transport=handler({"data": [{"id": "x", "modality": "text+image->text"}]},
+                transport=handler({"data": [{"id": "x", "architecture": {"modality": "text+image->text"}}]},
                                   capture=seen))
     assert seen[0].url.params["verbose"] == "true"
 
     seen.clear()
     await fetch(nvidia_endpoint(),
-                transport=handler({"models": [{"id": "x"}]}, capture=seen))
+                transport=handler({"data": [{"id": "x"}]}, capture=seen))
     assert "verbose" not in seen[0].url.params
 
 
@@ -287,9 +330,10 @@ async def test_discovery_adopts_a_served_model_and_rebuilds_the_client(tmp_path)
     rec = Reconciler(live_settings(tmp_path))
     before = rec.client.endpoint.model
     transport = two_host_transport(
-        {"models": [{"id": "nvidia/replaced-vision-9b", "type": "image_text_to_text"}]},
+        {"data": [{"id": "nvidia/replaced-vision-9b",
+                        "architecture": {"modality": "text+image->text"}}]},
         {"data": [{"id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
-                   "modality": "text->text"}]},
+                   "architecture": {"modality": "text->text"}}]},
     )
 
     await rec.refresh_models(transport=transport)
@@ -308,9 +352,9 @@ async def test_a_confirmed_model_leaves_the_client_alone(tmp_path):
     rec = Reconciler(live_settings(tmp_path))
     client_before = rec.client
     transport = two_host_transport(
-        {"models": [{"id": CONFIGURED_VISION, "type": "image_text_to_text"}]},
+        {"data": [{"id": CONFIGURED_VISION, "architecture": {"modality": "text+image->text"}}]},
         {"data": [{"id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
-                   "modality": "text->text"}]},
+                   "architecture": {"modality": "text->text"}}]},
     )
 
     await rec.refresh_models(transport=transport)
@@ -341,7 +385,7 @@ async def test_demo_mode_makes_no_discovery_call_at_all(tmp_path):
 
     def _h(request: httpx.Request) -> httpx.Response:
         calls.append(str(request.url))
-        return httpx.Response(200, json={"models": []})
+        return httpx.Response(200, json={"data": []})
 
     await rec.refresh_models(transport=httpx.MockTransport(_h))
     assert calls == []
@@ -355,7 +399,7 @@ async def test_a_missing_key_is_recorded_as_unverified_without_a_call(tmp_path):
 
     def _h(request: httpx.Request) -> httpx.Response:
         calls.append(str(request.url))
-        return httpx.Response(200, json={"models": []})
+        return httpx.Response(200, json={"data": []})
 
     await rec.refresh_models(transport=httpx.MockTransport(_h))
 
@@ -371,9 +415,9 @@ async def test_the_catalog_is_reused_until_the_ttl_expires(tmp_path):
     def _h(request: httpx.Request) -> httpx.Response:
         hits.append(request.url.host)
         body = ({"data": [{"id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
-                           "modality": "text->text"}]}
+                           "architecture": {"modality": "text->text"}}]}
                 if NEBIUS_HOST in request.url.host else
-               {"models": [{"id": CONFIGURED_VISION, "type": "image_text"}]})
+               {"data": [{"id": CONFIGURED_VISION}]})
         return httpx.Response(200, json=body)
 
     transport = httpx.MockTransport(_h)

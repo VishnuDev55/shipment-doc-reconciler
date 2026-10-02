@@ -107,18 +107,33 @@ class Selection:
     inferred: bool = False
 
 
+def _row_modality(row: dict) -> str:
+    """Read the modality string wherever this host actually puts it.
+
+    Measured live on 2026-10-02: Token Factory with ?verbose=true reports it at
+    architecture.modality, not at the row's top level. Reading only the flat
+    location made all 25 of its models look undeclared, which downgraded a host
+    that *states* a capability to a name guess that then decided nothing. The
+    flat key is still tried first so a host that puts it there keeps working.
+    """
+    architecture = row.get("architecture")
+    nested = architecture.get("modality") if isinstance(architecture, dict) else None
+    return str(row.get("modality") or nested or "")
+
+
 def parse_catalog(payload: object) -> list[ModelInfo]:
     """Accept the envelope shapes these hosts actually return.
 
     Checked live against NVIDIA on 2026-10-02: it returns {"object": "list",
     "data": [...]} with only id/object/created/owned_by per row -- it does not use
-    a "models" key after all, and publishes no modality. Nebius uses the same
-    "data" envelope and adds "modality" when asked with ?verbose=true. Reading
-    only one shape would make the other look like a host with zero models, and
+    a "models" key after all, and publishes no modality at any depth, so there
+    image capability can only be inferred from the name. Nebius uses the same
+    "data" envelope and, with ?verbose=true, does declare modality. Reading only
+    one shape would make the other look like a host with zero models, and
     "zero models" would silently keep a dead default.
     """
     if isinstance(payload, dict):
-        rows = payload.get("models") or payload.get("data") or []
+        rows = payload.get("data") or payload.get("models") or []
     elif isinstance(payload, list):
         rows = payload
     else:
@@ -130,10 +145,7 @@ def parse_catalog(payload: object) -> list[ModelInfo]:
         ident = row.get("id") or row.get("name")
         if not ident:
             continue
-        modality = row.get("modality") or row.get("type") or row.get("supported_content") or ""
-        if isinstance(modality, list):
-            modality = "+".join(str(m) for m in modality)
-        out.append(ModelInfo(id=str(ident), modality=str(modality),
+        out.append(ModelInfo(id=str(ident), modality=_row_modality(row),
                              object=str(row.get("object", "model"))))
     return out
 
