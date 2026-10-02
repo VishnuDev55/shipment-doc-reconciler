@@ -139,6 +139,12 @@ on. Needs a token, or the default flipped to off with an explicit local opt-in.
 whole access-control story for a public demo."* That is honest, and it is not
 enough for anything long-lived.
 
+**Addressed 2026-10-02:** `CONFIG_TOKEN` gates both config endpoints on a
+constant-time compared `X-Config-Token` header, and the drawer prompts for it
+without persisting it. Left blank by default, so local single-user use is
+unchanged — forcing a secret on a laptop buys nothing. A public deployment should
+still prefer `GUI_CONFIG_ENABLED=false`.
+
 ### R2 — uploads are fully buffered before the size check · P1
 ```
 app/main.py:246   data = await upload.read()
@@ -238,7 +244,7 @@ availability on both hosts changes without notice, and
 | 4 | Baseline commit + conventional history | P0 | **done** — local only; no remote authorized |
 | 5 | `docs/AUDIT.md` | P0 | **this file** |
 | 6 | Keep `raw_dir` + per-attempt usage/latency; drop `_usage` discard | P0 | **done** — `tests/test_transparency.py`, panel in `web/` |
-| 7 | Auth or default-off for `POST /api/config` | P0 | R1 |
+| 7 | Auth or default-off for `POST /api/config` | P0 | **done** — `CONFIG_TOKEN` gates GET and POST; see `tests/test_config_token.py` |
 | 8 | Done-callback and exception logging on the background task | P1 | B4 |
 | 9 | Model discovery instead of hardcoded literals | P1 | **done** — `app/discovery.py`; logic verified against replayed catalogs, **unverified live** (no key). Export's duplicate literal removed |
 | 10 | Nebius adjudicator for the 70-89 band and low-confidence cases | P1 | **done** — `app/adjudicate.py`; opinion cannot change a verdict, asserted by `tests/test_adjudicate.py`. Deterministic customs-risk strip and a guarded draft email added alongside. **Unverified live** (no key) |

@@ -232,7 +232,7 @@ placeholders. It is also what the hosted instance runs, so a reviewer without ke
 still sees model output — labelled as such on screen.
 
 ```bash
-make test           # 391 tests, ~22s, zero API calls (socket guard, see Tests)
+make test           # 399 tests, ~22s, zero API calls (socket guard, see Tests)
 make probe          # rehearse the demo: prints the verdict table
 make dist           # clean source zip in dist/
 make docker         # single-stage image
@@ -304,9 +304,17 @@ How it behaves, and what it costs:
   auth, so the last person to save a key sets it for everyone sharing that
   instance. Set `GUI_CONFIG_ENABLED=false` on anything public; `render.yaml`
   does exactly that, which is why the hosted demo is env-driven.
+- **`CONFIG_TOKEN` closes that gap when you need config to stay available.** Set
+  it and both `/api/config` endpoints require a matching `X-Config-Token` header;
+  the drawer prompts for it and keeps it in memory for the tab, never in
+  storage. Comparison is constant-time, and an unauthenticated `POST` returns 401
+  without applying anything. Left blank, behaviour is unchanged for local use —
+  which is correct on a laptop and wrong on a shared host.
 
 With the flag off, `GET /api/config` still reports status but `POST` returns 403
-and the drawer explains where to set keys instead.
+and the drawer explains where to set keys instead. A locked deployment answers
+403 before it asks for a token, because on a locked deployment the fix is an
+environment variable rather than a field to fill in.
 
 ### Transparency panel
 
@@ -683,7 +691,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-391 passed in ~22s
+399 passed in ~22s
 ```
 
 ~10 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
@@ -746,7 +754,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 391 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 399 unit tests |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
 | Vision extraction, Nebius MiniCPM-V (fallback) | ✅ 9/9 documents, all parsed on attempt 1 |
@@ -845,7 +853,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 391 tests across 15 files (+ conftest.py socket guard)
+tests/                 399 tests across 16 files (+ conftest.py socket guard)
 docs/                  AUDIT.md (findings, evidence) · DEPLOYMENT.md (deploy + health semantics)
 ```
 

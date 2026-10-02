@@ -209,6 +209,15 @@
 
     <p id="config-locked" class="alert" hidden></p>
 
+    <div class="field" id="token-field" hidden>
+      <label for="cfg-token">Config token</label>
+      <input id="cfg-token" class="input" type="password" autocomplete="off"
+             spellcheck="false" placeholder="required by this deployment">
+      <p class="hint">This instance set <code>CONFIG_TOKEN</code>, because the
+        Configure drawer changes the keys every visitor shares. Held in memory for
+        this tab only — never saved to storage or sent anywhere but this server.</p>
+    </div>
+
     <fieldset class="field">
       <legend>Vision provider</legend>
       <div class="segmented" id="provider-seg"></div>

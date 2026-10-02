@@ -64,6 +64,15 @@ class Settings(BaseSettings):
     # deployment and keep using environment secrets there.
     gui_config_enabled: bool = Field(default=True, alias="GUI_CONFIG_ENABLED")
 
+    # Optional shared secret for the two config endpoints. The Configure drawer
+    # writes provider keys into this process and there are no user sessions, so
+    # without a token anyone who can reach the port can set the key everyone
+    # uses. Blank means "local single-user use, no token" -- which is right on a
+    # laptop and wrong on a shared host. Prefer GUI_CONFIG_ENABLED=false for a
+    # public deployment; use a token when you want remote configuration to stay
+    # possible but closed.
+    config_token: str = Field(default="", alias="CONFIG_TOKEN")
+
     # A model's opinion on comparisons the deterministic engine called
     # ambiguous, and a draft email describing the discrepancies. Both are
     # additive: neither can change a status, a verdict or a shipment state.

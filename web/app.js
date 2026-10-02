@@ -72,6 +72,7 @@ const state = {
   report: null,
   health: null,
   config: null,
+  configToken: '',
   clearedKeys: new Set(),
 };
 
@@ -1095,15 +1096,44 @@ async function copyRunLink() {
 
 function wireDrawer() {
   buildSegmented($('#provider-seg'), PROVIDERS, 'nvidia', (v) => { state.formProvider = v; });
+  const token = $('#cfg-token');
+  token.addEventListener('input', () => {
+    // Memory only, for this tab. Saving a config token to localStorage would
+    // put the thing that guards your API keys where any script on the origin
+    // can read it.
+    state.configToken = token.value;
+    openDrawer();
+  });
+}
+
+function configHeaders(extra = {}) {
+  const headers = { ...extra };
+  if (state.configToken) headers['X-Config-Token'] = state.configToken;
+  return headers;
 }
 
 async function openDrawer() {
+  let config;
   try {
-    state.config = await getJSON('/api/config');
+    const res = await fetch('/api/config', { headers: configHeaders() });
+    if (res.status === 401) {
+      // Keep the drawer open and show the field: this is the one case where
+      // refusing the request has to invite the user to fix it.
+      $('#token-field').hidden = false;
+      setStatus('This instance requires a config token.', true);
+      $('#drawer').hidden = false;
+      $('#scrim').hidden = false;
+      $('#cfg-token').focus();
+      return;
+    }
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || ('HTTP ' + res.status));
+    config = await res.json();
   } catch (err) {
     showError('Could not read the current configuration: ' + err.message);
     return;
   }
+  state.config = config;
+  $('#token-field').hidden = !config.token_required && !state.configToken;
   state.clearedKeys.clear();
   populateDrawer(state.config);
   $('#drawer').hidden = false;
@@ -1202,7 +1232,7 @@ async function saveConfig() {
   try {
     const res = await fetch('/api/config', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: configHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(updates),
     });
     const body = await res.json().catch(() => ({}));

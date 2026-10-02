@@ -8,10 +8,11 @@ every second — no websockets, no job queue.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -160,10 +161,25 @@ def _mask(key: str) -> str:
     return f"{key[:5]}{MASK_MARK}{key[-4:]}"
 
 
+def _require_config_token(request: Request) -> None:
+    """Reject unless the shared secret matches, when one is configured.
+
+    Constant-time comparison: this is a secret, and an endpoint whose check can
+    be timed is an endpoint that can be searched a character at a time.
+    """
+    expected = reconciler().settings.config_token.strip()
+    if not expected:
+        return
+    supplied = request.headers.get("x-config-token", "")
+    if not hmac.compare_digest(supplied, expected):
+        raise HTTPException(401, "a valid X-Config-Token header is required for this deployment")
+
+
 def config_view() -> dict:
     s = reconciler().settings
     return {
         "editable": s.gui_config_enabled,
+        "token_required": bool(s.config_token.strip()),
         "demo_mode": s.demo_mode,
         "enable_summary": s.enable_summary,
         "vision_provider": s.vision_provider,
@@ -180,18 +196,19 @@ def config_view() -> dict:
 
 
 @app.get("/api/config")
-def get_config() -> dict:
+def get_config(request: Request) -> dict:
     """Runtime configuration, keys masked.
 
     A key is never returned in full: on a public deployment a readable config
     endpoint would turn "anyone can open the page" into "anyone can read your
     provider key".
     """
+    _require_config_token(request)
     return config_view()
 
 
 @app.post("/api/config")
-def set_config(body: ConfigUpdate) -> dict:
+def set_config(request: Request, body: ConfigUpdate) -> dict:
     rec = reconciler()
     if not rec.settings.gui_config_enabled:
         raise HTTPException(
@@ -200,6 +217,9 @@ def set_config(body: ConfigUpdate) -> dict:
             "(GUI_CONFIG_ENABLED=false). Set NVIDIA_API_KEY / NEBIUS_API_KEY as "
             "environment variables instead.",
         )
+    # Checked after the disabled test so the more useful message wins: an
+    # operator who sees 401 on a locked deployment goes to the wrong setting.
+    _require_config_token(request)
 
     updates = body.model_dump(exclude_unset=True, exclude_none=True)
 
