@@ -11,20 +11,38 @@ DocType = Literal["commercial_invoice", "packing_list", "bill_of_lading", "other
 FieldKey = Literal[
     "quantity",
     "gross_weight",
+    "net_weight",
     "container_number",
     "hs_code",
     "consignee_name",
     "invoice_value",
+    "incoterms",
+    "po_number",
+    "country_of_origin",
 ]
-FieldKind = Literal["count", "weight", "container_number", "hs_code", "party_name", "money"]
+FieldKind = Literal[
+    "count",
+    "weight",
+    "container_number",
+    "hs_code",
+    "party_name",
+    "money",
+    "incoterm",
+    "reference",
+    "country",
+]
 
 FIELD_ORDER: tuple[FieldKey, ...] = (
     "quantity",
     "gross_weight",
+    "net_weight",
     "container_number",
     "hs_code",
     "consignee_name",
     "invoice_value",
+    "incoterms",
+    "po_number",
+    "country_of_origin",
 )
 
 DOC_TYPES: tuple[DocType, ...] = (
@@ -37,10 +55,14 @@ DOC_TYPES: tuple[DocType, ...] = (
 FIELD_KIND: dict[FieldKey, FieldKind] = {
     "quantity": "count",
     "gross_weight": "weight",
+    "net_weight": "weight",
     "container_number": "container_number",
     "hs_code": "hs_code",
     "consignee_name": "party_name",
     "invoice_value": "money",
+    "incoterms": "incoterm",
+    "po_number": "reference",
+    "country_of_origin": "country",
 }
 
 FIELD_LABEL: dict[FieldKey, str] = {
@@ -50,14 +72,25 @@ FIELD_LABEL: dict[FieldKey, str] = {
     "hs_code": "HS code",
     "consignee_name": "Consignee",
     "invoice_value": "Invoice value",
+    "net_weight": "Net weight",
+    "incoterms": "Incoterms",
+    "po_number": "PO number",
+    "country_of_origin": "Country of origin",
 }
 
 # Fields that SHOULD be present on each document type. A field missing from a
 # document where it is not expected is normal and never rendered as a problem.
 EXPECTED: dict[DocType, frozenset[FieldKey]] = {
-    "commercial_invoice": frozenset({"quantity", "consignee_name", "hs_code", "invoice_value"}),
-    "packing_list": frozenset({"quantity", "gross_weight", "consignee_name"}),
-    "bill_of_lading": frozenset({"quantity", "gross_weight", "container_number", "consignee_name"}),
+    "commercial_invoice": frozenset({
+        "quantity", "consignee_name", "hs_code", "invoice_value", "incoterms",
+        "po_number", "country_of_origin",
+    }),
+    "packing_list": frozenset({
+        "quantity", "gross_weight", "net_weight", "consignee_name", "country_of_origin",
+    }),
+    "bill_of_lading": frozenset({
+        "quantity", "gross_weight", "net_weight", "container_number", "consignee_name",
+    }),
     "other": frozenset(),
 }
 
@@ -70,6 +103,10 @@ TYPICALLY_IN: dict[FieldKey, str] = {
     "hs_code": "invoice",
     "consignee_name": "all documents",
     "invoice_value": "invoice",
+    "net_weight": "packing list, bill of lading",
+    "incoterms": "invoice",
+    "po_number": "invoice, purchase order references on any document",
+    "country_of_origin": "invoice, packing list, certificate of origin",
 }
 
 # Surface-form hints sent to the model in the user prompt. These tell it what
@@ -105,5 +142,25 @@ SURFACE_HINTS: dict[FieldKey, str] = {
         "Look for TOTAL, TOTAL AMOUNT, GRAND TOTAL, TOTAL DUE, SAY ... ONLY. Return "
         "the final total invoice amount including the currency as printed "
         "(e.g. 'USD 8,420.00', '12.500,00 EUR')."
+    ),
+    "net_weight": (
+        "Look for NET WEIGHT, NET WT, N.W., NETTO. Return the TOTAL net weight for "
+        "the whole shipment, never a per-carton figure and never the gross weight. "
+        "Copy the unit exactly as printed."
+    ),
+    "incoterms": (
+        "Look for INCOTERMS, INCO TERMS, TERMS OF DELIVERY, and a three-letter code "
+        "followed by a place (e.g. 'CIF HAMBURG', 'FCA SHANGHAI'). Return the code "
+        "and the place exactly as printed."
+    ),
+    "po_number": (
+        "Look for PO NO., PURCHASE ORDER, ORDER NO., CUSTOMER ORDER REF. Return the "
+        "reference exactly as printed. Do not return an invoice number as a PO "
+        "number."
+    ),
+    "country_of_origin": (
+        "Look for COUNTRY OF ORIGIN, ORIGIN, MADE IN, PAYS D'ORIGINE. Return the "
+        "country as printed (e.g. 'GERMANY', 'DE', 'Made in Germany'). Do not "
+        "confuse the shipment destination with the goods' origin."
     ),
 }

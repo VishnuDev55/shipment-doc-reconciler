@@ -31,6 +31,12 @@ POINTS = {
     "weight_conflict": 40,
     "quantity_conflict": 35,
     "party_conflict": 30,
+    # Origin and terms are declared on the customs entry, so a disagreement in
+    # either is a classification problem, not a paperwork nit.
+    "origin_conflict": 60,
+    "incoterms_conflict": 35,
+    "net_weight_conflict": 40,
+    "po_conflict": 10,
     "unreadable_document": 35,
     "single_source_field": 5,
     "sanity_risk": 30,
@@ -85,6 +91,10 @@ def _awards(report: Report) -> list[_Award]:
 
     for field, code in (("invoice_value", "value_conflict"),
                         ("gross_weight", "weight_conflict"),
+                        ("net_weight", "net_weight_conflict"),
+                        ("country_of_origin", "origin_conflict"),
+                        ("incoterms", "incoterms_conflict"),
+                        ("po_number", "po_conflict"),
                         ("quantity", "quantity_conflict"),
                         ("consignee_name", "party_conflict")):
         comp = got.get(field)

@@ -324,6 +324,11 @@ COMPARATORS = {
     "party_name": _compare_party,
     "container_number": _compare_container,
     "hs_code": _compare_exact,
+    # Categorical identifiers: exact on the normalized key. No fuzzy band --
+    # two PO numbers being "90% similar" means they are different orders.
+    "incoterm": _compare_exact,
+    "reference": _compare_exact,
+    "country": _compare_exact,
 }
 
 

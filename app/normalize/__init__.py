@@ -15,6 +15,11 @@ from __future__ import annotations
 
 from ..fields import FIELD_KIND, FIELD_ORDER, FieldKey
 from ..models import ExtractedField, NormalizedField
+from .categorical import (
+    normalize_country,
+    normalize_incoterm,
+    normalize_reference,
+)
 from .container import normalize_container
 from .hs_code import normalize_hs_code
 from .money import normalize_money
@@ -27,6 +32,8 @@ __all__ = [
     "normalize_field",
     "normalize_hs_code",
     "normalize_money",
+    "normalize_incoterm",
+    "normalize_country",
     "normalize_party",
     "normalize_quantity",
     "normalize_weight",
@@ -52,6 +59,12 @@ def normalize_field(key: FieldKey, extracted: ExtractedField) -> NormalizedField
         res = normalize_party(text)
     elif kind == "money":
         res = normalize_money(text)
+    elif kind == "incoterm":
+        res = normalize_incoterm(text)
+    elif kind == "reference":
+        res = normalize_reference(text)
+    elif kind == "country":
+        res = normalize_country(text)
     else:  # pragma: no cover - FIELD_KIND is exhaustive
         raise ValueError(f"unknown field kind {kind!r}")
 
