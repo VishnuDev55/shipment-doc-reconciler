@@ -61,7 +61,7 @@ docker:
 # never named here. Keep it in sync with the submission requirements -- a
 # missing LICENSE or SUBMISSION.md is a hard-requirement failure, not a
 # cosmetic omission.
-DIST_FILES = app web fixtures scripts tests \
+DIST_FILES = app web fixtures scripts tests docs \
              requirements.txt Dockerfile Makefile render.yaml \
              README.md PROGRESS.md SUBMISSION.md VIDEO_SCRIPT.md LICENSE \
              .env.example .gitignore .dockerignore pytest.ini
