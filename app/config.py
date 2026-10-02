@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     # deployment and keep using environment secrets there.
     gui_config_enabled: bool = Field(default=True, alias="GUI_CONFIG_ENABLED")
 
+    # A model's opinion on comparisons the deterministic engine called
+    # ambiguous, and a draft email describing the discrepancies. Both are
+    # additive: neither can change a status, a verdict or a shipment state.
+    enable_adjudication: bool = Field(default=True, alias="ENABLE_ADJUDICATION")
+    enable_briefing: bool = Field(default=True, alias="ENABLE_BRIEFING")
+
     runs_dir: Path = Field(default=PROJECT_ROOT / "runs", alias="RUNS_DIR")
     cache_dir: Path = Field(default=PROJECT_ROOT / "fixtures" / "responses", alias="CACHE_DIR")
 

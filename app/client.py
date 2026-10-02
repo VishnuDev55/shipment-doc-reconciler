@@ -561,6 +561,26 @@ class SummaryClient(ChatClient):
                 return text, total
         return text, total
 
+    async def judge(
+        self, system: str, prompt: str, *, max_tokens: int = 700, temperature: float = 0.0
+    ) -> tuple[str, dict[str, int]]:
+        """One model reply, as raw text, for callers that parse their own shape.
+
+        Separate from summarize() on purpose: adjudication has a JSON contract
+        and a draft email has a prose one, and neither should inherit the
+        summary's plausibility guard by accident.
+        """
+        raw, _used, usage = await self.transport_call(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            response_format=None,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return raw, usage or {}
+
 
 def _best_sentence_slice(text: str) -> str:
     """Trim chain-of-thought preamble down to the trailing prose answer."""

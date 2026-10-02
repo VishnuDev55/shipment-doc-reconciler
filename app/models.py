@@ -218,6 +218,10 @@ class Comparison(BaseModel):
     reason: str
     values: list[ComparisonValue] = Field(default_factory=list)
     majority_compare_key: str | None = None
+    # Advisory only. `status` and `reason` come out of deterministic code and
+    # this field can never rewrite them; it records what a model would have
+    # said, for the human who has to decide.
+    adjudication: Adjudication | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +243,61 @@ class TokenUsage(BaseModel):
     prompt: int = 0
     completion: int = 0
     total: int = 0
+
+
+class Adjudication(BaseModel):
+    """A model's opinion on a comparison the engine called ambiguous.
+
+    Additive and advisory by construction: it sits beside `Comparison.status`
+    and has no path to changing it. Skipping or failing is a normal outcome and
+    must never alter the shipment's state or verdict — the same rule the
+    narrative follows, for the same reason.
+    """
+
+    status: Literal["pending", "ok", "failed", "skipped", "cached"] = "pending"
+    # true / false / null-as-abstention. Kept tri-state because a model that
+    # declines to answer is informative; one that guessed is not.
+    same: bool | None = None
+    confidence: float = 0.0
+    rationale: str = ""
+    model: str = ""
+    provider: str = ""
+    # 'generated' | 'cached' | 'none'
+    source: str = "none"
+    error: str | None = None
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+    latency_ms: int = 0
+
+
+class RiskNote(BaseModel):
+    """Customs exposure, computed from the engine's own verdicts.
+
+    `source` is pinned to "deterministic" because a customs-risk statement an
+    auditor cannot trace to a rule is worse than none, and every input here is
+    already a deterministic comparison result. No arithmetic, no currency
+    conversion, no invented severity.
+    """
+
+    level: Literal["low", "medium", "high"] = "low"
+    reasons: list[str] = Field(default_factory=list)
+    source: str = "deterministic"
+
+
+class Briefing(BaseModel):
+    """Draft discrepancy email for the supplier, written from verdicts only.
+
+    A restatement of decided facts, so it can be omitted entirely without
+    weakening the report. Like the narrative it can never change a state.
+    """
+
+    status: Literal["pending", "ok", "failed", "skipped", "cached"] = "pending"
+    text: str | None = None
+    model: str = ""
+    provider: str = ""
+    source: str = "none"
+    error: str | None = None
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+    latency_ms: int = 0
 
 
 class PageRef(BaseModel):
@@ -365,6 +424,8 @@ class Report(BaseModel):
     comparisons: list[Comparison] = Field(default_factory=list)
     summary: Summary = Field(default_factory=Summary)
     narrative: Narrative = Field(default_factory=Narrative)
+    risk: RiskNote = Field(default_factory=RiskNote)
+    briefing: Briefing = Field(default_factory=Briefing)
 
 
 # ---------------------------------------------------------------------------

@@ -171,6 +171,25 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
     else:
         narrative_html = ""
 
+    risk = report.risk
+    risk_html = (
+        f'<div class="risk {esc(risk.level)}"><b>risk: {esc(risk.level)}</b>'
+        f'<span>{esc("; ".join(risk.reasons))}.</span>'
+        '<em>Computed from the verdicts by rule — no model was asked.</em></div>'
+        if risk.reasons else ""
+    )
+
+    b = report.briefing
+    briefing_html = (
+        '<div class="briefing"><div class="nhead"><span class="ntag">Draft '
+        'discrepancy email</span><span class="nsrc">'
+        f'{esc(b.provider)} · <code>{esc(b.model)}</code> · {esc(b.source)}</span></div>'
+        f'<pre>{esc(b.text)}</pre>'
+        '<div class="nfoot">Written from the verdicts above. Verify every figure '
+        'against the documents before sending.</div></div>'
+        if b.status == "ok" and b.text else ""
+    )
+
     src = getattr(report.run, "result_source", "authored")
     live_calls = getattr(report.run, "live_calls", 0)
     model = esc(report.run.model)
@@ -255,12 +274,22 @@ footer {{ margin-top:26px; padding-top:12px; border-top:1px solid var(--line);
 code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; }}
 .narrative {{ background:#f7f9fc; border:1px solid #cfe0f5; border-left:4px solid #2f6fb5;
   border-radius:6px; padding:10px 14px; margin:0 0 18px; }}
-.narrative .nhead {{ display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-bottom:6px; }}
-.narrative .ntag {{ font-size:11px; font-weight:700; color:#1a4d7a; text-transform:uppercase;
+.nhead {{ display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-bottom:6px; }}
+.ntag {{ font-size:11px; font-weight:700; color:#1a4d7a; text-transform:uppercase;
   letter-spacing:.4px; }}
-.narrative .nsrc {{ font-size:10px; color:var(--muted); }}
+.nsrc {{ font-size:10px; color:var(--muted); }}
 .narrative p {{ margin:0; font-size:14px; line-height:1.5; }}
-.narrative .nfoot {{ margin-top:6px; font-size:10px; color:var(--muted); font-style:italic; }}
+.nfoot {{ margin-top:6px; font-size:10px; color:var(--muted); font-style:italic; }}
+.risk {{ display:flex; gap:10px; flex-wrap:wrap; align-items:baseline; margin:10px 0;
+  padding:9px 11px; font-size:12px; border-left:4px solid #8896a5; background:#f2f4f7; }}
+.risk b {{ text-transform:uppercase; font-size:10px; letter-spacing:.6px; }}
+.risk em {{ flex-basis:100%; font-size:10px; color:var(--muted); }}
+.risk.high {{ border-left-color:#b3261e; background:#fbeceb; }}
+.risk.medium {{ border-left-color:#8a5a00; background:#fbf3e2; }}
+.risk.low {{ border-left-color:#1a7a43; background:#eaf5ee; }}
+.briefing {{ margin:12px 0; padding:11px 13px; border:1px solid #d7dce2;
+  border-left:4px solid #2f6fb5; background:#fbfcfe; font-size:13px; }}
+.briefing pre {{ margin:6px 0 0; white-space:pre-wrap; font-family:inherit; font-size:13px; }}
 table.prov {{ border-collapse:collapse; font-size:12px; margin-bottom:8px; }}
 table.prov td {{ padding:4px 10px 4px 0; vertical-align:top; }}
 </style></head><body>
@@ -271,7 +300,9 @@ table.prov td {{ padding:4px 10px 4px 0; vertical-align:top; }}
  &nbsp;·&nbsp; {s.conflict} conflict(s), {s.suspicious} suspicious, {s.consistent} consistent,
  {s.single_source} single-source, {s.absent} absent ·
  {s.documents_ok}/{s.documents_ok + s.documents_failed} documents extracted</div>
+{risk_html}
 {narrative_html}
+{briefing_html}
 <h2>Field comparison</h2>
 <table class="cmp"><thead><tr><th>Field</th><th>Status</th><th>Why</th>
 {''.join(f'<th>{esc(d.label)}</th>' for d in report.documents)}</tr></thead>

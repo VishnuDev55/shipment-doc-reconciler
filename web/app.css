@@ -479,6 +479,36 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .cmp td.val .meta { font-size: .66rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .cmp td.val .w { font-size: .68rem; color: var(--warn); margin-top: .15rem; }
 
+/* ------------------------------------------------------ risk strip ---- */
+
+.risk {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem;
+  margin: .7rem 0 0; padding: .55rem .7rem; font-size: .78rem;
+  border-left: 3px solid var(--line-strong); background: var(--surface-sunk);
+  border-radius: var(--radius-sm);
+}
+.risk-level { font-weight: 700; text-transform: uppercase; letter-spacing: .05em; font-size: .7rem; }
+.risk-src { flex-basis: 100%; color: var(--ink-3); font-size: .7rem; }
+.risk[data-level="high"]   { border-left-color: var(--bad);   background: var(--bad-soft); }
+.risk[data-level="high"] .risk-level { color: var(--bad); }
+.risk[data-level="medium"] { border-left-color: var(--warn);  background: var(--warn-soft); }
+.risk[data-level="medium"] .risk-level { color: var(--warn); }
+.risk[data-level="low"] .risk-level { color: var(--ok); }
+
+/* An opinion, kept visually subordinate to the verdict it comments on. */
+.adj {
+  margin-top: .35rem; padding-left: .5rem; font-size: .72rem; line-height: 1.45;
+  color: var(--ink-2); border-left: 2px solid var(--accent-line);
+}
+.adj-failed { margin-top: .35rem; font-size: .7rem; color: var(--ink-3); font-style: italic; }
+
+.briefing-text {
+  margin: 0; padding: .75rem .85rem; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: var(--font); font-size: .85rem; line-height: 1.6;
+  background: var(--surface-sunk); border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
 /* ------------------------------------------------- transparency ---- */
 
 /* An audit screen, so: tabular figures, quiet chrome, no decoration that

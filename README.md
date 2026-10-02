@@ -231,7 +231,7 @@ placeholders. It is also what the hosted instance runs, so a reviewer without ke
 still sees model output — labelled as such on screen.
 
 ```bash
-make test           # 335 tests, ~11s, zero API calls (socket guard, see Tests)
+make test           # 368 tests, ~12s, zero API calls (socket guard, see Tests)
 make probe          # rehearse the demo: prints the verdict table
 make dist           # clean source zip in dist/
 make docker         # single-stage image
@@ -357,6 +357,36 @@ discovery *logic* is tested against catalog payloads replayed through a mocked
 transport (`tests/test_discovery.py`) — including both envelope shapes. What
 neither host actually lists today has not been checked. Run `make probe-live` to
 confirm before trusting the outcome.
+
+### The adjudicator: a second opinion, never a second decision
+
+Two of the six fields are genuinely interpretive — whether "ACME Freight Ltd" and
+"Acme Freight Limited" are the same party, and whether "12 pallets" and "144
+cartons" describe the same shipment. Everything else is arithmetic or a check
+digit. So on exactly those two cases, and only when the deterministic engine
+already said `suspicious`, the app asks a Nebius Nemotron model what it thinks.
+
+**The verdict does not move.** The opinion is stored beside the comparison as
+`adjudication` and rendered under the engine's own reason, labelled
+"advisory, not applied". A model that confidently disagrees with a tolerance band
+or an ISO 6346 result changes nothing — there is no code path that lets it.
+`tests/test_adjudicate.py` asserts this by snapshotting every decided field
+before and after.
+
+Also added:
+
+- **A customs-risk strip**, computed by rule from the verdicts already produced.
+  It is explicitly *not* a model output and says so on screen: `source:
+  "deterministic"`. A disagreement in HS code or container number is `high`;
+  weight and unreadable documents are `medium`.
+- **A draft discrepancy email**, written from the verdicts, guarded against
+  scaffolding and chain-of-thought, cached per verdict set, and labelled a draft
+  that must be checked before sending.
+
+Every part of this is optional and failure-safe. Disabled by flag, skipped in
+`DEMO_MODE` (an authored "opinion" replayed as model output would be a fabricated
+result, so none are shipped), skipped without a key, and a transport failure
+records `failed` with the tokens it still spent rather than sinking the run.
 
 ### Optional: run vision on Nebius instead
 
@@ -598,7 +628,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-335 passed in ~11s
+368 passed in ~12s
 ```
 
 ~10 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
@@ -661,7 +691,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 335 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 368 unit tests |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
 | Vision extraction, Nebius MiniCPM-V (fallback) | ✅ 9/9 documents, all parsed on attempt 1 |
@@ -760,7 +790,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 335 tests across 12 files (+ conftest.py socket guard)
+tests/                 368 tests across 13 files (+ conftest.py socket guard)
 docs/                  AUDIT.md — evidence-backed findings and the deferred list
 ```
 

@@ -105,6 +105,12 @@
         </div>
         <p id="verdict-sub" class="hint" aria-live="polite"></p>
 
+        <p class="risk" id="risk" hidden>
+          <span class="risk-level" id="risk-level"></span>
+          <span id="risk-reasons"></span>
+          <span class="risk-src" id="risk-src"></span>
+        </p>
+
         <div class="row-actions">
           <a id="export" class="btn btn-primary" href="#" download>Download reconciliation ZIP</a>
           <button type="button" id="copy-link" class="btn btn-quiet" hidden>Copy link to this run</button>
@@ -126,6 +132,20 @@
         </header>
         <p id="narrative-text"></p>
         <p id="narrative-meta" class="hint"></p>
+      </div>
+
+      <div class="panel narrative" id="briefing-card" hidden>
+        <header class="panel-head tight">
+          <h2>Draft discrepancy email</h2>
+          <span id="briefing-tag" class="flag flag-ai">AI draft</span>
+        </header>
+        <p class="caveat" id="briefing-warn">
+          A draft written from the verdicts below. Verify every figure against the
+          documents before sending; nothing here was checked against a carrier or
+          a tariff schedule.
+        </p>
+        <pre class="briefing-text" id="briefing-text"></pre>
+        <p id="briefing-meta" class="hint"></p>
       </div>
 
       <div class="panel">

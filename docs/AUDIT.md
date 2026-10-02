@@ -241,7 +241,7 @@ availability on both hosts changes without notice, and
 | 7 | Auth or default-off for `POST /api/config` | P0 | R1 |
 | 8 | Done-callback and exception logging on the background task | P1 | B4 |
 | 9 | Model discovery instead of hardcoded literals | P1 | **done** — `app/discovery.py`; logic verified against replayed catalogs, **unverified live** (no key). Export's duplicate literal removed |
-| 10 | Nebius adjudicator for the 70-89 band and low-confidence cases | P1 | never overrides a deterministic verdict |
+| 10 | Nebius adjudicator for the 70-89 band and low-confidence cases | P1 | **done** — `app/adjudicate.py`; opinion cannot change a verdict, asserted by `tests/test_adjudicate.py`. Deterministic customs-risk strip and a guarded draft email added alongside. **Unverified live** (no key) |
 | 11 | Streaming upload limit + magic bytes + PIL bomb limit | P1 | R2, R7 |
 | 12 | Off-loop ingest and file IO | P1 | R3 |
 | 13 | Lockfile, runtime/dev split, CI matrix | P1 | R8 |

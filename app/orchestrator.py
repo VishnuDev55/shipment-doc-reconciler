@@ -16,6 +16,22 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .adjudicate import (
+    EMAIL_SYSTEM,
+    AdjudicationCache,
+    apply_verdict,
+    briefing_signature,
+    build_briefing_prompt,
+    customs_risk,
+    draft_is_usable,
+    has_discrepancies,
+    needs_adjudication,
+    parse_verdict,
+    verdict_is_usable,
+    verdict_signature,
+)
+from .adjudicate import SYSTEM as JUDGE_SYSTEM
+from .adjudicate import build_prompt as build_verdict_prompt
 from .client import (
     ExtractionClient,
     ExtractionOutcome,
@@ -28,11 +44,13 @@ from .discovery import Catalog, Selection, fetch, resolve
 from .fields import FIELD_ORDER, FieldKey
 from .ingest import PageImage, ingest
 from .models import (
+    Adjudication,
     Comparison,
     DocumentReport,
     NormalizedField,
     PageRef,
     Report,
+    RiskNote,
     RunInfo,
     Summary,
     TokenUsage,
@@ -216,6 +234,14 @@ def _sum_usage(attempts: list) -> TokenUsage:
     return TokenUsage(prompt=prompt, completion=completion, total=total)
 
 
+def _usage_of(usage: dict | None) -> TokenUsage:
+    return TokenUsage(
+        prompt=int((usage or {}).get("prompt", 0) or 0),
+        completion=int((usage or {}).get("completion", 0) or 0),
+        total=int((usage or {}).get("total", 0) or 0),
+    )
+
+
 def apply_outcome(target: DocumentReport, res: ExtractionOutcome | Exception) -> None:
     if isinstance(res, Exception):
         target.status = "failed"
@@ -313,6 +339,8 @@ class Reconciler:
             "nebius_summary_model",
             "demo_mode",
             "enable_summary",
+            "enable_adjudication",
+            "enable_briefing",
         }
     )
 
@@ -596,7 +624,17 @@ class Reconciler:
             self.store.write(report)
 
         await asyncio.gather(*(one(p) for p in prepared))
+
+        # Customs exposure first: it is free, instant and derived only from
+        # verdicts the engine already produced, so it stands even if every
+        # model call below fails.
+        level, reasons = customs_risk(report)
+        report.risk = RiskNote(level=level, reasons=reasons)
+
+        await self._adjudicate(report)
+        await self._write_briefing(report)
         await self._write_summary(report)
+        self.store.write(report)
         self._tasks.pop(shipment_id, None)
 
     # ------------------------------------------------------------------
@@ -690,6 +728,162 @@ class Reconciler:
         except OSError:
             pass
         self.store.write(report)
+
+    # ------------------------------------------------------------------
+    # Ambiguity: a second opinion, and a letter to send.
+    # ------------------------------------------------------------------
+
+    async def _adjudicate(self, report: Report) -> None:
+        """Ask Nebius about comparisons the engine itself called ambiguous.
+
+        Additive, and never fatal. `status` is untouched: a model that dislikes
+        a tolerance outcome or an ISO 6346 result is recorded beside it, because
+        only the deterministic answer can be audited and reproduced.
+        """
+        targets = [c for c in report.comparisons if needs_adjudication(c)]
+        if not targets:
+            return
+
+        settings = self.settings
+        endpoint = self.summary_client.endpoint
+        blocked = None
+        if not settings.enable_adjudication:
+            blocked = "disabled via ENABLE_ADJUDICATION"
+        elif settings.demo_mode:
+            # No authored verdicts exist: a hand-written "opinion" replayed as
+            # though a model formed it would be exactly the kind of fake result
+            # this project promises not to produce.
+            blocked = "DEMO_MODE: no captured adjudication exists for this comparison"
+        elif not _key_is_real(endpoint.api_key):
+            blocked = f"{endpoint.provider.upper()}_API_KEY not set"
+
+        if blocked:
+            for comp in targets:
+                comp.adjudication = Adjudication(status="skipped", error=blocked)
+            return
+
+        cache = AdjudicationCache(settings.cache_dir)
+        for comp in targets:
+            signature = verdict_signature(comp)
+            adjudication = Adjudication()
+            comp.adjudication = adjudication
+
+            cached = cache.get(signature)
+            verdict = cached.get("verdict") if cached else None
+            reason = verdict_is_usable(verdict)
+            if cached and reason is None:
+                apply_verdict(
+                    adjudication, verdict,
+                    model=cached.get("model", "") or endpoint.model,
+                    provider=cached.get("provider", "") or endpoint.provider,
+                    source="cached", usage=TokenUsage(), latency_ms=0,
+                )
+                continue
+
+            # Built outside the try: a defect in prompt construction is a bug,
+            # and recording it as "the model failed" would hide it exactly the
+            # way B4 hides background-task errors.
+            prompt = build_verdict_prompt(comp)
+            started = time.monotonic()
+            try:
+                raw, usage = await self.summary_client.judge(JUDGE_SYSTEM, prompt)
+            except Exception as exc:  # noqa: BLE001 - one opinion must not sink a run
+                adjudication.status = "failed"
+                adjudication.error = f"{type(exc).__name__}: {exc}"[:300]
+                adjudication.model = endpoint.model
+                adjudication.provider = endpoint.provider
+                continue
+
+            adjudication.model = endpoint.model
+            adjudication.provider = endpoint.provider
+            adjudication.latency_ms = int((time.monotonic() - started) * 1000)
+            adjudication.usage = _usage_of(usage)
+
+            parsed = parse_verdict(raw)
+            reason = verdict_is_usable(parsed)
+            if reason is not None:
+                # The call was made and paid for; say so rather than hiding it.
+                adjudication.status = "failed"
+                adjudication.error = reason
+                continue
+
+            cache.put(signature, model=endpoint.model, provider=endpoint.provider,
+                      raw=raw, verdict=parsed)
+            apply_verdict(
+                adjudication, parsed, model=endpoint.model, provider=endpoint.provider,
+                source="generated", usage=adjudication.usage,
+                latency_ms=adjudication.latency_ms,
+            )
+        self.store.write(report)
+
+    async def _write_briefing(self, report: Report) -> None:
+        """Draft the supplier email, from verdicts the engine already decided.
+
+        Skipped when everything agrees: there is nothing to ask about, and a
+        model asked to write a discrepancy letter about a clean shipment will
+        invent one.
+        """
+        briefing = report.briefing
+        settings = self.settings
+        endpoint = self.summary_client.endpoint
+
+        if not settings.enable_briefing:
+            briefing.status = "skipped"
+            briefing.error = "disabled via ENABLE_BRIEFING"
+            return
+        if not has_discrepancies(report):
+            briefing.status = "skipped"
+            briefing.error = "no discrepancies to raise"
+            return
+        if settings.demo_mode:
+            briefing.status = "skipped"
+            briefing.error = "DEMO_MODE: no captured draft for these verdicts"
+            return
+        if not _key_is_real(endpoint.api_key):
+            briefing.status = "skipped"
+            briefing.error = f"{endpoint.provider.upper()}_API_KEY not set"
+            return
+
+        cache = AdjudicationCache(settings.cache_dir, subdir="briefings")
+        signature = briefing_signature(report)
+        cached = cache.get(signature)
+        if cached and draft_is_usable(cached.get("raw_text", "")) is None:
+            briefing.status = "ok"
+            briefing.text = cached["raw_text"].strip()
+            briefing.model = cached.get("model", "") or endpoint.model
+            briefing.provider = cached.get("provider", "") or endpoint.provider
+            briefing.source = "cached"
+            return
+
+        prompt = build_briefing_prompt(report)
+        started = time.monotonic()
+        try:
+            raw, usage = await self.summary_client.judge(
+                EMAIL_SYSTEM, prompt, max_tokens=500, temperature=0.4,
+            )
+        except Exception as exc:  # noqa: BLE001 - a draft is a convenience
+            briefing.status = "failed"
+            briefing.error = f"{type(exc).__name__}: {exc}"[:300]
+            briefing.model = endpoint.model
+            briefing.provider = endpoint.provider
+            return
+
+        briefing.model = endpoint.model
+        briefing.provider = endpoint.provider
+        briefing.latency_ms = int((time.monotonic() - started) * 1000)
+        briefing.usage = _usage_of(usage)
+
+        reason = draft_is_usable(raw)
+        if reason is not None:
+            briefing.status = "failed"
+            briefing.error = reason
+            return
+
+        briefing.status = "ok"
+        briefing.text = raw.strip()
+        briefing.source = "generated"
+        briefing.error = None
+        cache.put(signature, model=endpoint.model, provider=endpoint.provider, raw=raw)
 
     # ------------------------------------------------------------------
 

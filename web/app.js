@@ -539,9 +539,11 @@ function renderReport(report) {
   $('#export').href = `/api/shipments/${report.shipment_id}/export`;
 
   renderNarrative(report);
+  renderBriefing(report);
   renderComparison(report);
   renderDocuments(report);
   renderTransparency(report);
+  renderRisk(report);
 
   const run = report.run;
   const meta = $('#run-meta');
@@ -721,6 +723,37 @@ async function showRaw(shipmentId, name, button) {
   }
 }
 
+function renderRisk(report) {
+  const risk = report.risk;
+  const box = $('#risk');
+  if (!risk || !risk.reasons || !risk.reasons.length) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  box.dataset.level = risk.level;
+  $('#risk-level').textContent = 'Customs risk: ' + risk.level;
+  $('#risk-reasons').textContent = risk.reasons.join('; ') + '.';
+  // Say where the number came from. A risk statement that reads like a model
+  // opinion would be the wrong kind of impressive.
+  $('#risk-src').textContent = risk.source === 'deterministic'
+    ? 'Computed from the verdicts above by rule — no model was asked.' : '';
+}
+
+function renderBriefing(report) {
+  const b = report.briefing || {};
+  const card = $('#briefing-card');
+  const show = b.status === 'ok' && !!b.text;
+  card.hidden = !show;
+  if (!show) return;
+  // A draft, never a sent thing.
+  $('#briefing-text').textContent = b.text;
+  $('#briefing-meta').textContent =
+    `${b.provider} · ${b.model} · ` +
+    (b.source === 'cached' ? 'reused from a stored draft' : 'written on this run') +
+    (b.usage && b.usage.total ? ` · ${b.usage.total} tokens` : '');
+}
+
 function renderComparison(report) {
   const table = $('#cmp');
   table.innerHTML = '';
@@ -748,7 +781,25 @@ function renderComparison(report) {
       (ICON[comp.status] || '') + '  ' + comp.status.replace(/_/g, ' ')));
     tr.appendChild(tdStatus);
 
-    tr.appendChild(el('td', 'reason', comp.reason));
+    const reasonCell = el('td', 'reason');
+    reasonCell.appendChild(el('div', null, comp.reason));
+    const adj = comp.adjudication;
+    if (adj && adj.status === 'ok') {
+      // Advisory, and labelled that way: the verdict above it is the
+      // deterministic one and this can never replace it.
+      const stance = adj.same === true ? 'probably the same'
+        : adj.same === false ? 'probably different' : 'declined to answer';
+      reasonCell.appendChild(el('div', 'adj',
+        `Reviewer note (advisory, not applied): ${adj.rationale} [${stance}, ` +
+        `confidence ${(adj.confidence * 100).toFixed(0)}% · ${adj.model}]`));
+    } else if (adj && (adj.status === 'failed' || adj.status === 'skipped')) {
+      // Worth showing even when nothing was asked: a user with no key learns the
+      // feature exists and what would switch it on.
+      reasonCell.appendChild(el('div', 'adj-failed',
+        (adj.status === 'failed' ? 'Second opinion unavailable: ' : 'No second opinion asked: ')
+        + (adj.error || adj.status)));
+    }
+    tr.appendChild(reasonCell);
 
     report.documents.forEach((doc) => {
       const v = comp.values.find((x) => x.document_id === doc.id);
