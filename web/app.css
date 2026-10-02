@@ -479,6 +479,23 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .cmp td.val .meta { font-size: .66rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .cmp td.val .w { font-size: .68rem; color: var(--warn); margin-top: .15rem; }
 
+/* Human corrections. Marked, never disguised: a corrected value must not look
+   like a transcribed one. */
+.btn-tiny {
+  margin-top: .3rem; padding: .18rem .45rem; font-size: .66rem; font-weight: 600;
+  letter-spacing: .03em; color: var(--ink-3); background: transparent;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer;
+  transition: color var(--motion), border-color var(--motion);
+}
+.btn-tiny:hover { color: var(--accent); border-color: var(--accent-line); }
+.cmp td.val.corrected {
+  background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent);
+}
+.corr-tag {
+  margin-top: .25rem; font-size: .66rem; line-height: 1.4; color: var(--accent);
+  font-weight: 600;
+}
+
 /* ------------------------------------------------------ risk strip ---- */
 
 .risk {

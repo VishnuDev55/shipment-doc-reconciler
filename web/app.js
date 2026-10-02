@@ -73,6 +73,7 @@ const state = {
   health: null,
   config: null,
   configToken: '',
+  reviewer: '',
   clearedKeys: new Set(),
 };
 
@@ -959,7 +960,7 @@ function renderComparison(report) {
 
     report.documents.forEach((doc) => {
       const v = comp.values.find((x) => x.document_id === doc.id);
-      tr.appendChild(valueCell(v));
+      tr.appendChild(valueCell(v, comp));
     });
     tbody.appendChild(tr);
   });
@@ -967,7 +968,7 @@ function renderComparison(report) {
   $('#no-matches').hidden = rows.length > 0;
 }
 
-function valueCell(v) {
+function valueCell(v, comp) {
   const cell = el('td', 'val');
   if (!v || !v.raw_value) {
     cell.classList.add('missing');
@@ -986,7 +987,89 @@ function valueCell(v) {
     (v.is_outlier ? ' · outlier' : '')));
 
   (v.warnings || []).forEach((w) => cell.appendChild(el('div', 'w', '⚠ ' + w)));
+
+  const corrected = correctedBy(v, comp.field);
+  if (corrected) {
+    // The reader's own answer is gone from this cell, so say plainly that what
+    // is shown here is a human assertion, and keep it reversible.
+    cell.classList.add('corrected');
+    cell.appendChild(el('div', 'corr-tag',
+      `corrected by ${corrected.actor} · model said ${corrected.original_value || 'nothing'}`));
+    const undo = el('button', 'btn btn-quiet btn-tiny', 'Revert');
+    undo.type = 'button';
+    undo.addEventListener('click', () => revertValue(v.document_id, comp.field));
+    cell.appendChild(undo);
+  } else {
+    const edit = el('button', 'btn btn-quiet btn-tiny edit-value', 'Correct');
+    edit.type = 'button';
+    edit.addEventListener('click', () => correctValue(v.document_id, comp.field, v.raw_value));
+    cell.appendChild(edit);
+  }
   return cell;
+}
+
+/** The active correction for this displayed value, if a reviewer replaced it. */
+function correctedBy(v, field) {
+  const doc = ((state.report && state.report.documents) || [])
+    .find((d) => d.id === v.document_id);
+  if (!doc || !doc.corrections) return null;
+  const active = doc.corrections.filter((c) => c.field === field && !c.reverted_at);
+  return active.length ? active[active.length - 1] : null;
+}
+
+async function correctValue(documentId, field, current) {
+  const entered = window.prompt(
+    `Correct "${field}" on this document.\n\nThe model read: ${current}\n` +
+    'Enter the value exactly as it appears on the document.', current);
+  if (entered === null) return;
+  const value = entered.trim();
+  if (!value) { setStatus('An empty value is a deletion, not a correction — use Revert.', true); return; }
+  await postCorrection(documentId, field, value);
+}
+
+async function revertValue(documentId, field) {
+  await request(
+    `/api/shipments/${encodeURIComponent(state.shipmentId)}/documents/` +
+    `${encodeURIComponent(documentId)}/fields/${encodeURIComponent(field)}/revert`,
+    { method: 'POST' },
+  );
+}
+
+async function postCorrection(documentId, field, value) {
+  await request(
+    `/api/shipments/${encodeURIComponent(state.shipmentId)}/documents/` +
+    `${encodeURIComponent(documentId)}/fields/${encodeURIComponent(field)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value, actor: reviewerName() }),
+    },
+  );
+}
+
+function reviewerName() {
+  // No accounts here, so the trail records who they say they are. Worth asking
+  // once per tab: an unattributed change is harder to defend to an auditor.
+  if (!state.reviewer) {
+    const asked = window.prompt('Who is making this correction? (recorded in the audit trail)', '');
+    state.reviewer = (asked || '').trim() || 'reviewer';
+  }
+  return state.reviewer;
+}
+
+/** POST a correction, then repaint from the recomputed report the server returns. */
+async function request(path, init) {
+  try {
+    const res = await fetch(path, init);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.detail || ('HTTP ' + res.status));
+    state.report = body;
+    renderReport(body);
+    loadHistory();
+    setStatus('');
+  } catch (err) {
+    setStatus('Could not apply that correction: ' + err.message, true);
+  }
 }
 
 function renderNarrative(report) {

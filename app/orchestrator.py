@@ -40,6 +40,7 @@ from .client import (
 from .compare import FieldObservation, compare_field
 from .consensus import divergences_between, summarize
 from .config import Settings, get_settings
+from .correct import apply_correction, revert_corrections
 from .discovery import Catalog, Selection, fetch, resolve
 from .fields import FIELD_ORDER, FieldKey
 from .ingest import PageImage, ingest
@@ -99,7 +100,9 @@ def _observations(docs: list[DocumentReport], key: FieldKey) -> list[FieldObserv
     for doc in docs:
         if doc.extraction is None:
             continue
-        extracted = doc.extraction.fields.get(key)
+        # A reviewer's correction takes precedence over what the model read,
+        # while doc.extraction still holds the model's own answer unchanged.
+        extracted = doc.overrides.get(key) or doc.extraction.fields.get(key)
         if extracted is None:
             continue
         obs.append(
@@ -1022,6 +1025,54 @@ class Reconciler:
         result.divergences = divergences_between(doc, secondary)
         result.summary = summarize(result.divergences)
         result.status = "cached" if outcome.used_cache else "ok"
+
+    # ------------------------------------------------------------------
+    # Human corrections
+    # ------------------------------------------------------------------
+
+    def _resettle(self, report: Report) -> Report:
+        """Re-derive everything downstream of the field values.
+
+        No model is called: normalization, comparison, cross-field sanity and the
+        risk score are pure functions of the values, which is exactly why a
+        reviewer can fix a transcription and see the verdict move in milliseconds
+        instead of paying for another extraction.
+        """
+        # refresh_report rebuilds the comparisons from scratch, so any second
+        # opinion already recorded has to be carried across rather than silently
+        # dropped -- it was real output that cost a call.
+        prior = {c.field: c.adjudication for c in report.comparisons if c.adjudication}
+        report.sanity = sanity_checks(report)
+        refresh_report(report, self.client)
+        for comp in report.comparisons:
+            carried = prior.get(comp.field)
+            if carried is not None:
+                comp.adjudication = carried
+        report.risk = score_report(report)
+        return report
+
+    def correct_field(
+        self, shipment_id: str, document_id: str, field: str, value: str,
+        *, actor: str = "reviewer", note: str = ""
+    ) -> Report:
+        report = self.get(shipment_id)
+        if report is None:
+            raise KeyError(shipment_id)
+        apply_correction(report, document_id, field, value, actor=actor, note=note)
+        self._resettle(report)
+        self.store.write(report)
+        return report
+
+    def revert_field(
+        self, shipment_id: str, document_id: str, field: str, *, actor: str = "reviewer"
+    ) -> Report:
+        report = self.get(shipment_id)
+        if report is None:
+            raise KeyError(shipment_id)
+        revert_corrections(report, document_id, field, actor=actor)
+        self._resettle(report)
+        self.store.write(report)
+        return report
 
     # ------------------------------------------------------------------
 

@@ -267,6 +267,9 @@ class Adjudication(BaseModel):
     error: str | None = None
     usage: TokenUsage = Field(default_factory=TokenUsage)
     latency_ms: int = 0
+    # The opinion was formed on values a human has since corrected: kept on file,
+    # but no longer a comment on the current verdict.
+    superseded_at: str | None = None
 
 
 class SanityFinding(BaseModel):
@@ -371,6 +374,26 @@ class ConsensusResult(BaseModel):
     latency_ms: int = 0
 
 
+class Correction(BaseModel):
+    """A human replacing a transcribed value.
+
+    The model's own answer is never overwritten: `original_value` keeps it
+    verbatim, so a correction is reversible and the report still shows what the
+    reader said. Only the derived comparison changes, immediately and
+    deterministically — correcting a value must not cost another API call.
+    """
+
+    field: FieldKey
+    document_id: str
+    original_value: str | None = None
+    original_present: bool = False
+    corrected_value: str
+    actor: str = "reviewer"
+    at: str = ""
+    reverted_at: str | None = None
+    note: str = ""
+
+
 class PageRef(BaseModel):
     index: int
     image_path: str
@@ -410,6 +433,11 @@ class DocumentReport(BaseModel):
     raw_files: list[str] = Field(default_factory=list)
     # Set only when a second provider was asked to read the same pages.
     consensus: ConsensusResult | None = None
+    # Human-entered values, overlaying the model's. `extraction` is left exactly
+    # as the model answered; these take precedence when a field is read for
+    # comparison, so the correction is visible as a correction.
+    overrides: dict[FieldKey, ExtractedField] = Field(default_factory=dict)
+    corrections: list[Correction] = Field(default_factory=list)
 
 
 class RunInfo(BaseModel):
@@ -485,6 +513,10 @@ class Narrative(BaseModel):
     # did not: a cached narrative has no fresh cost, and must not appear to.
     # Basename under runs/{id}/raw/.
     raw_file: str | None = None
+    # Set when a human corrected a value after this was written. The paragraph
+    # stays on screen -- it is still what a model produced -- but it must not read
+    # as a description of the current verdicts.
+    superseded_at: str | None = None
 
 
 class Report(BaseModel):
@@ -511,6 +543,19 @@ class Report(BaseModel):
 
 class RetryRequest(BaseModel):
     document_id: str
+
+
+class CorrectionRequest(BaseModel):
+    """A reviewer replacing one field's transcribed value.
+
+    `actor` is free text, not an identity: this app has no accounts, so the trail
+    records who they said they were. That is still worth keeping — an unattributed
+    change is harder to defend to an auditor than a claimed one.
+    """
+
+    value: str = Field(min_length=1, max_length=400)
+    actor: str = Field(default="reviewer", max_length=60)
+    note: str = Field(default="", max_length=400)
 
 
 class ConfigUpdate(BaseModel):

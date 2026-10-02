@@ -24,8 +24,9 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 
 from .config import PROJECT_ROOT, _usable, get_settings
+from .correct import CorrectionError, active_corrections, correction_trail
 from .export import build_zip, fixture_manifest
-from .models import ConfigUpdate, Report, RetryRequest
+from .models import ConfigUpdate, CorrectionRequest, Report, RetryRequest
 from .orchestrator import Reconciler
 
 STATIC_DIR = PROJECT_ROOT / "web"
@@ -324,6 +325,55 @@ def get_report(shipment_id: str) -> Report:
     if report is None:
         raise HTTPException(404, "unknown shipment id")
     return report
+
+
+@app.post("/api/shipments/{shipment_id}/documents/{document_id}/fields/{field}")
+def correct_field(
+    shipment_id: str, document_id: str, field: str, body: CorrectionRequest
+) -> Report:
+    """Replace one transcribed value and re-derive the verdicts, now.
+
+    Returns the whole recomputed report rather than an acknowledgement: the
+    comparison, cross-field checks and risk score are pure functions of the
+    values, so the reviewer sees the consequence in the same round trip and no
+    model is called to produce it.
+    """
+    rec = reconciler()
+    try:
+        return rec.correct_field(
+            shipment_id, document_id, field, body.value,
+            actor=body.actor, note=body.note,
+        )
+    except KeyError:
+        raise HTTPException(404, "unknown shipment id")
+    except CorrectionError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/shipments/{shipment_id}/documents/{document_id}/fields/{field}/revert")
+def revert_field(shipment_id: str, document_id: str, field: str) -> Report:
+    """Undo the active corrections on one field. History is kept, not deleted."""
+    rec = reconciler()
+    try:
+        return rec.revert_field(shipment_id, document_id, field)
+    except KeyError:
+        raise HTTPException(404, "unknown shipment id")
+    except CorrectionError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/shipments/{shipment_id}/corrections")
+def corrections(shipment_id: str) -> dict:
+    """The append-only trail: every value a human changed, and what the model said."""
+    rec = reconciler()
+    report = rec.get(shipment_id)
+    if report is None:
+        raise HTTPException(404, "unknown shipment id")
+    return {
+        "shipment_id": shipment_id,
+        "corrections": [entry.model_dump() for entry in correction_trail(report)],
+        "active": len(active_corrections(report)),
+    }
 
 
 @app.get("/api/shipments/{shipment_id}/raw/{name}", response_class=PlainTextResponse)

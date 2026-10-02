@@ -104,6 +104,8 @@ browser  index.html + app.js + app.css (hand-rolled tokens)   no build step
 |    GET  /api/shipments              GET  /page/{id}/{path}  (evidence)   |
 |    GET  /api/shipments/{id}/raw/{n} (transparency panel body)             |
 |    GET  /api/shipments/{id}/events  (SSE progress; poll is the fallback)  |
+|    POST /api/shipments/{id}/documents/{doc}/fields/{field}  (correction)   |
+|    POST .../fields/{field}/revert   GET /api/shipments/{id}/corrections    |
 |    GET  /api/fixture/{name}         GET  /                (static UI)    |
 +--------------------------------------------------------------------------+
    |
@@ -232,7 +234,7 @@ placeholders. It is also what the hosted instance runs, so a reviewer without ke
 still sees model output — labelled as such on screen.
 
 ```bash
-make test           # 431 tests, ~15s, zero API calls (socket guard, see Tests)
+make test           # 447 tests, ~20s, zero API calls (socket guard, see Tests)
 make probe          # rehearse the demo: prints the verdict table
 make dist           # clean source zip in dist/
 make docker         # single-stage image
@@ -402,6 +404,36 @@ Every point is shown next to the rule code and the value that triggered it, in t
 UI and in the exported report. `method: "deterministic-v1"` is recorded on the
 report so a score can be traced to the weighting that produced it even after the
 weights change.
+
+### Corrections a human can make, and undo
+
+Every value in the comparison table has a **Correct** button. Change it and the
+verdict moves in the same round trip — `conflict` became `consistent`, the risk
+score fell from 100 to 70 — because normalization, comparison, cross-field sanity
+and the score are all pure functions of the values. **No model is called**, so
+fixing a transcription costs nothing and returns immediately.
+
+Three properties that make this safe rather than merely convenient:
+
+- **The model's answer is never overwritten.** A correction lives in
+  `document.overrides` beside `document.extraction`, which keeps what the reader
+  returned verbatim. A corrected cell is marked, and says so: *"corrected by
+  vishnu · model said 13,200.00 KGS"*. Reverting is just re-normalizing the
+  original, which is why no "before" snapshot has to be trusted to stay correct.
+- **The trail is append-only.** `GET /api/shipments/{id}/corrections` returns every
+  value a human changed, who said they were, and what the model originally read.
+  Reverting stamps `reverted_at` rather than deleting the entry — history you can
+  quietly erase is not an audit trail.
+- **Consequences are recomputed, not hand-patched.** After a correction the
+  second opinions already recorded are carried onto the rebuilt comparisons and
+  marked `superseded_at`, and a narrative written about the old verdicts keeps its
+  text but gains the same stamp. Nothing that cost an API call is silently
+  discarded, and nothing stale is presented as current.
+
+Reverted entries, refusals and limits: an empty value is a deletion rather than a
+correction and is refused (400), as is a field outside the six; an unknown
+shipment is 404. `actor` is free text, not identity — this app has no accounts, so
+the trail records who they claimed to be, which is still worth more than nothing.
 
 ### Two readers, when you can afford the doubt
 
@@ -742,7 +774,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-431 passed in ~15s
+447 passed in ~20s
 ```
 
 ~10 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
@@ -805,7 +837,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 431 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 447 unit tests |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
 | Vision extraction, Nebius MiniCPM-V (fallback) | ✅ 9/9 documents, all parsed on attempt 1 |
@@ -904,7 +936,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 431 tests across 18 files (+ conftest.py socket guard)
+tests/                 447 tests across 19 files (+ conftest.py socket guard)
 docs/                  AUDIT.md (findings, evidence) · DEPLOYMENT.md (deploy + health semantics)
 ```
 
