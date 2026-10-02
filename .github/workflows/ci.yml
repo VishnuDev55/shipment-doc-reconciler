@@ -1,0 +1,75 @@
+name: CI
+
+# The test suite makes zero network calls, enforced rather than documented:
+# tests/conftest.py refuses every non-loopback socket for the session, and
+# tests/test_offline_guard.py fails if that wall stops standing. A CI job here
+# therefore cannot spend a provider key even if a secret were present.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Lint
+        run: python -m pyflakes app scripts tests
+
+      - name: Test (zero network calls by construction)
+        run: python -m pytest tests/ -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t shipment-doc-reconciler .
+
+      - name: Start it and check the endpoints
+        # DEMO_MODE so the container needs no key. Asserts the health payload,
+        # a fixture run end to end, and that Configure never emits key material.
+        run: |
+          set -euo pipefail
+          docker run -d --name smoke -p 8000:8000 \
+            -e DEMO_MODE=true shipment-doc-reconciler
+          for i in $(seq 1 30); do
+            curl -sf localhost:8000/api/health >/dev/null && break
+            sleep 2
+            [ "$i" = 30 ] && { docker logs smoke; exit 1; }
+          done
+          curl -sf localhost:8000/api/health | grep -q '"status":"ok"'
+          curl -sf localhost:8000/api/fixture/shipment_conflict \
+            | grep -q '"shipment_id"'
+          curl -sf localhost:8000/api/config | grep -q '"editable"'
+          # The image declares a HEALTHCHECK; give it one interval to report.
+          sleep 35
+          status=$(docker inspect --format '{{.State.Health.Status}}' smoke)
+          echo "container health: $status"
+          [ "$status" = "healthy" ]
+
+      - name: Leave no container behind
+        if: always()
+        run: docker rm -f smoke || true

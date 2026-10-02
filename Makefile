@@ -1,6 +1,6 @@
 PY := python3
 
-.PHONY: help setup fixtures dev run test lint probe probe-live probe-diff capture-summaries migrate dist clean docker
+.PHONY: help setup fixtures dev run test lint probe probe-live probe-diff capture-summaries migrate dist clean docker compose
 
 help:
 	@echo "make setup     install dependencies"
@@ -16,6 +16,7 @@ help:
 	@echo "make migrate        re-key cache entries after a cache-format change"
 	@echo "make dist      write a clean source zip to dist/"
 	@echo "make docker    build the container image"
+	@echo "make compose   build and run with a persistent runs/ volume"
 
 setup:
 	$(PY) -m pip install -r requirements.txt
@@ -54,6 +55,11 @@ migrate:
 
 docker:
 	docker build -t shipment-doc-reconciler .
+
+# One command, with runs/ on a named volume: the filesystem is the database, so
+# the container layer is not an acceptable place to keep history.
+compose:
+	docker compose up --build
 
 # Allowlist, not denylist: .env, runs/, caches and stray artefacts cannot leak
 # into the distributed zip because they are never listed.

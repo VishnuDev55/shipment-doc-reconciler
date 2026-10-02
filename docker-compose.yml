@@ -1,0 +1,30 @@
+# One-command local run:  docker compose up
+#
+# Keys come from a local .env (docker compose reads it automatically) or from
+# CONSENSUS/DEMO_MODE below. With no keys at all, set DEMO_MODE=true and the
+# bundled cache replays real captured model output instead.
+services:
+  reconciler:
+    build: .
+    image: shipment-doc-reconciler
+    ports:
+      - "8000:8000"
+    environment:
+      DEMO_MODE: "false"
+      VISION_PROVIDER: "nvidia"
+      ENABLE_SUMMARY: "true"
+      # The Configure drawer writes keys into this process, and there is no auth
+      # in front of it. Harmless on a laptop; dangerous on a shared host, so the
+      # compose default matches the local case and says so.
+      GUI_CONFIG_ENABLED: "true"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
+      NEBIUS_API_KEY: "${NEBIUS_API_KEY:-}"
+    volumes:
+      # The filesystem is the database: report.json plus the page JPEGs, the
+      # uploads and the raw model bodies all live here. Losing it loses history,
+      # so it is a named volume rather than the container's ephemeral layer.
+      - runs:/app/runs
+    restart: unless-stopped
+
+volumes:
+  runs:

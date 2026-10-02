@@ -451,11 +451,20 @@ correctly). Both paths are live-verified on all 9 fixture documents.
 
 ```bash
 docker build -t shipment-doc-reconciler .
-docker run -p 8000:8000 shipment-doc-reconciler            # live; paste keys into Configure
+docker run -p 8000:8000 -v sdr-runs:/app/runs shipment-doc-reconciler   # live; paste keys into Configure
+docker compose up --build                                               # same, with a named runs/ volume
 docker run -p 8000:8000 -e NVIDIA_API_KEY=... -e NEBIUS_API_KEY=... \
   shipment-doc-reconciler                                  # live, keys from the environment
 docker run -p 8000:8000 -e DEMO_MODE=true shipment-doc-reconciler   # keyless cache demo
 ```
+
+The image declares a `HEALTHCHECK` and runs as an unprivileged user;
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) covers Render, Fly/Railway, what the
+health endpoint does and does not claim, and why there is no hosted URL yet.
+
+Mount `runs/` (or set `RUNS_DIR` to a persistent path). The filesystem is the
+database: `report.json`, the page JPEGs, the uploads and the raw model bodies all
+live under it.
 
 The image needs **no `apt-get`**: all 69 transitive dependencies resolve to
 binary manylinux wheels, and every shared-library dependency is either vendored
@@ -837,7 +846,7 @@ scripts/
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
 tests/                 391 tests across 15 files (+ conftest.py socket guard)
-docs/                  AUDIT.md — evidence-backed findings and the deferred list
+docs/                  AUDIT.md (findings, evidence) · DEPLOYMENT.md (deploy + health semantics)
 ```
 
 The three-layer cache is deliberate. Each fixture document has a **NVIDIA** live

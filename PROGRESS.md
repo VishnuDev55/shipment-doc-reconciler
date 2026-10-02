@@ -465,3 +465,71 @@ checked out.
 on the "verified live" tables has been re-run since the original captures. Those
 claims rest on the committed artifacts in `fixtures/live_responses/`, and
 `README.md` now says so.
+
+---
+
+## Phase 1 — hackathon-critical features — 2026-10-02
+
+Six items, each committed and verified separately. **391 tests pass** (286 at
+baseline), lint clean, image builds and reports `healthy`.
+
+**1.1a — keep the evidence a run already produced.** `ExtractionClient` was built
+without `raw_dir`, so `runs/{id}/raw/` was empty in every production run while
+`export.py` shipped it in the ZIP. Per-attempt token usage was collected into
+`AttemptLog` and then discarded, and the summary's usage was bound to `_usage`
+and lost. `raw_dir` is a per-call argument, not a constructor one, because the
+server shares one client across every shipment. Cached bodies are written too,
+while usage stays zero for them: zero tokens and zero evidence are different
+claims. Verified in a real run — three ~950-byte bodies on disk.
+
+**1.1b — transparency panel.** Provider, model, source, tokens and latency per
+document, plus the raw bodies verbatim. A run that made no call says so in an
+amber caveat; an authored fixture is never worded as model output; cost appears
+only if `USD_PER_MTOK` is set, so the panel declines to invent a price. New route
+`GET /api/shipments/{id}/raw/{name}` accepts only filenames the report listed.
+
+**1.2 — model discovery.** `GET /v1/models` on each host before a run extracts;
+if the configured name is gone, a served one is adopted and the report records
+`model_selection: "discovered"`. This is the automated version of the check that
+originally cost the project its model choice (410 Gone / 404, found by hand).
+Discovery never invents a name, keeps a confirmed model so cache keys stay
+stable, and cannot abort a run — it now catches any exception, because the first
+cut caught only its own error type and a `TypeError` from a bad payload would
+have sunk the shipment.
+
+**1.3 — adjudicator, risk strip, draft email.** Nebius is asked only about the
+two interpretive field kinds, and only where the engine already said
+`suspicious`. The opinion is stored beside the verdict with no path to changing
+it; tests snapshot every decided field before and after, including a model that
+contradicts the engine and a document that tries to instruct the model to flip a
+verdict. Customs risk is computed by rule and labelled `deterministic` — a risk
+statement an auditor cannot trace to a rule is worth less than none.
+
+**1.4 — SSE progress.** Fan-out hooks `RunStore.write`, the one place every
+report mutation already funnels through. The browser keeps the 1s poll until the
+first stream event proves the channel is alive, then drops it; if the stream is
+blocked the behaviour is exactly as before. Listeners are bounded and drop their
+oldest frame so a stalled client cannot stall a run.
+
+**1.5 — optional second reader.** `CONSENSUS=true` has the other provider read
+the same pages and compares on `compare_key` in deterministic Python. Disagreement
+marks a field **needs review**; it does not tie-break. Off by default (roughly
+doubles spend). Both sides are real captured output — the cache holds a NVIDIA and
+a Nebius response for every fixture document — so it demonstrates offline without
+inventing anything.
+
+**1.6 — deploy.** `HEALTHCHECK` (stdlib, since `-slim` has no curl and the image
+takes no `apt-get`), `docker-compose.yml` with `runs/` on a named volume,
+`.github/workflows/ci.yml`, and `docs/DEPLOYMENT.md`. Health returns 200 even with
+no key and reports provider readiness inside the body, deliberately: an
+unconfigured container must not be restarted as a crashed one.
+
+**What is still unverified.** Everything live. No key existed for any of the
+above, so discovery, consensus against real endpoints, adjudication replies and
+the summary path are all exercised against cached captures or mocked transports.
+**CI is written but has never run** — the repo still has no remote.
+
+**Bugs the tests caught before shipping:** a `.value` call on a plain float in the
+adjudication prompt (hidden behind a broad `except`, which is why prompt
+construction now sits outside the guard), and a presence check on
+`NormalizedField.present`, an attribute that does not exist.
