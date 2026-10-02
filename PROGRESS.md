@@ -524,12 +524,116 @@ takes no `apt-get`), `docker-compose.yml` with `runs/` on a named volume,
 no key and reports provider readiness inside the body, deliberately: an
 unconfigured container must not be restarted as a crashed one.
 
-**What is still unverified.** Everything live. No key existed for any of the
-above, so discovery, consensus against real endpoints, adjudication replies and
-the summary path are all exercised against cached captures or mocked transports.
+**What is still unverified.** *(written 2026-10-02 before any key was in hand;
+superseded by the Phase 2 entry below.)* At that point discovery, consensus
+against real endpoints, adjudication replies and the summary path were exercised
+only against cached captures or mocked transports.
 **CI is written but has never run** — the repo still has no remote.
 
 **Bugs the tests caught before shipping:** a `.value` call on a plain float in the
 adjudication prompt (hidden behind a broad `except`, which is why prompt
 construction now sits outside the guard), and a presence check on
 `NormalizedField.present`, an attribute that does not exist.
+
+
+---
+
+## Phase 2 — the field set, and the evidence that had to be rebuilt — 2026-10-02
+
+Six fields became ten: `net_weight`, `incoterms`, `po_number`, `country_of_origin`.
+Not for feature count — a reconciliation tool that cannot see Incoterms or origin
+is blind to two of the things a customs entry actually declares. The work was
+mostly keeping the *evidence* honest while the contract moved underneath it.
+
+**One place decides the list.** `app/fields.py` now generates the JSON Schema, the
+prompt, the normalizer dispatch, the comparator table, the scoring weights, the UI
+rows and the authored fixtures. `scripts/selfcheck.py` was extended to assert an
+expected verdict for **all ten** fields per fixture shipment and to fail if a
+field has no recorded expectation, so the next addition cannot ship with the demo
+quietly ignoring it.
+
+**A field that is not printed is a field that is absent forever.** The four new
+fields had to be rendered onto the synthetic documents (invoice: country of
+origin; packing list: country of origin; bill of lading: net weight), which
+changed every page hash, which invalidated all 27 bundled cache entries. So the
+fixtures were rebuilt and **18 live extractions re-captured** — 9 per provider,
+both keys, `prompt_version extract-v3`.
+
+**Discovery was reading a field that does not exist.** Token Factory puts its
+capability string at `architecture.modality`; `parse_catalog` looked for a
+top-level `modality`. Result: 0 of 25 Nebius models appeared image-capable, and a
+host that *states* its capabilities was being decided by a name guess. Measured
+after the fix: 25 models, 25 declaring, 6 image-capable, and the retired
+Nemotron vision model now resolves to `openbmb/MiniCPM-V-4_5` as a declared
+capability. The tests were part of the problem — they asserted payload shapes
+neither host returns, so the suite was green while the live path found nothing.
+They now use the captured shapes, and a `text->embedding` row is pinned as
+ineligible for both roles.
+
+**The capture tool was capable of lying.** `scripts/live_compare.py` grew a
+`--seed-cache` flag that pointed the client at the bundled cache. The cache falls
+back to a hand-authored fixture matched on page hashes alone, so all nine
+"live" calls were replays — and the script still wrote them out stamped
+`LIVE API response, captured by scripts/live_compare.py`. It also counted loop
+iterations and printed "9 live calls made". Three fixes: an outcome is only
+captured when `source == "live_api"` and `used_cache` is false; the counter
+counts real calls; a run that captures nothing exits non-zero. Nine files of
+mislabelled evidence were deleted before anything was committed.
+
+**A second, subtler one:** `load_authored()` matched cache entries on page hashes
+without checking provenance, and the same directory holds *live captures of those
+same pages*. So the authored baseline was whichever filename sorted first —
+usually the other provider's model output. A diff line claiming
+`country_of_origin: authored=True` on a document that never prints it was the
+tell. Fixed, and `--diff-only` added so a comparison bug can be re-checked
+without re-billing eighteen extractions to find out whether the data changed or
+the tool did.
+
+**What the two providers actually produced**, against the corrected authored
+baseline: **NVIDIA 1 field difference, MiniCPM-V 7.** The seven are the same two
+systematic mislabels on every shipment — a packing list's `INVOICE REFERENCE`
+returned as the PO number, and `China` read out of the bill of lading's *port of
+loading* as the country of origin — plus one dropped `FOB NINGBO` prefix that
+normalizes to the same money key anyway. Both hints were rewritten to name those
+exact traps. **It did not change MiniCPM's output**, so it is recorded as a model
+limit rather than presented as fixed. The engine does the right thing with it:
+the disagreement is reported with the printed evidence line attached, and the
+score moves 15 → 25 on the clean fixture, which is the honest outcome — a wrong
+extraction is allowed to look wrong.
+
+**New deterministic rules and comparators.** `net_above_gross` (net mass above
+gross mass is impossible, not merely inconsistent — and it only holds because
+both sides were converted to kg first). Three comparators — `incoterm`,
+`reference`, `country` — deliberately exact, with no fuzzy band: two PO numbers
+90% similar are two different orders.
+
+**Two normalizer bugs found by writing their tests.** `normalize_reference`
+deleted bracketed content, so `PO No. (4410-DE)` lost the entire identifier and
+returned no key; and `P.O. 4410-DE` hashed differently from `PO 4410-DE`, which
+is a false conflict on the same order. `Made in P.R.C.` also had no mapping and
+fell through to the verbatim branch — now it resolves to `CN`, verified against
+real model output reading a real rendered page.
+
+**Two things that could only rot.** The UI kept its own copy of the field labels,
+so four of ten rows would have rendered `country_of_origin` at the user; the
+labels now come from the report, which is the server's own contract. And
+`migrate_cache_keys.py` would re-key a six-field capture onto a ten-field key
+(reading as a complete response) and stamp hand-authored fixtures with a provider
+they never had; it now refuses across a contract change and leaves authored
+entries alone.
+
+**Also:** the prompt said "extract the six fields" in two places after the set
+grew — now derived from `len(FIELD_ORDER)` so it cannot go stale, and the
+last-resort ladder rung names every field explicitly, because a field nobody
+asked for comes back as `present=false` and reads as "not printed" rather than
+"not extracted". `tests/test_prompt.py` pins that, and
+`tests/test_normalize_categorical.py` covers the three new normalizers.
+
+**Measured:** 619 tests passing in ~18s, zero network calls (socket guard), lint
+clean, `scripts/selfcheck.py` passing with all ten fields asserted per fixture,
+and the UI checked in a browser at 390 and 1280 px — ten rows, correct labels, no
+snake_case leaks, no page-level overflow, and a new field's correction round-trip
+(edit → normalizer applied → audit trail naming what the model said → revert).
+
+**Still unverified:** CI has never run (no remote), and no hosted deployment was
+made from this machine.

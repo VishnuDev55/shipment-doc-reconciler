@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
+from app.fields import FIELD_ORDER
 from app.main import app, configure
 from app.orchestrator import Reconciler
 
@@ -91,7 +92,8 @@ def test_upload_then_poll_report(client):
             break
     assert report["state"] == "done"
     assert report["summary"]["verdict"] == "conflicts"
-    assert len(report["comparisons"]) == 6
+    # One comparison per contracted field, whatever that number is today.
+    assert len(report["comparisons"]) == len(FIELD_ORDER)
 
 
 def test_fixture_route_matches_upload_route(client):
@@ -206,7 +208,7 @@ def test_report_json_is_valid_against_the_model(client):
     sid = client.get("/api/fixture/shipment_messy").json()["shipment_id"]
     raw = client.get(f"/api/shipments/{sid}/report")
     parsed = Report.model_validate(raw.json())
-    assert parsed.summary.total_fields == 6
+    assert parsed.summary.total_fields == len(FIELD_ORDER)
     assert parsed.run.prompt_version
 
 

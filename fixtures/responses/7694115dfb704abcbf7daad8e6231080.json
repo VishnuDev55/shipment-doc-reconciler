@@ -1,0 +1,87 @@
+{
+  "cache_key": "7694115dfb704abcbf7daad8e6231080",
+  "provider": "nvidia",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+  "prompt_version": "extract-v3",
+  "page_sha256": [
+    "f1b8b32aa4fcfad5f3fb594fddaefc5b4a9d927fb0e17fbe433ac135ae9a6fc8"
+  ],
+  "response": {
+    "doc_type": "commercial_invoice",
+    "doc_type_reason": "The page shows the heading \"COMMERCIAL INVOICE\" at the top.",
+    "fields": {
+      "quantity": {
+        "present": true,
+        "value": "100 CARTONS",
+        "evidence_text": "Total quantity 100 CARTONS",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "gross_weight": {
+        "present": true,
+        "value": "12,450.00 KGS",
+        "evidence_text": "Total gross weight 12,450.00 KGS",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "net_weight": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "container_number": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "hs_code": {
+        "present": true,
+        "value": "8517.62.00",
+        "evidence_text": "HS code 8517.62.00",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "consignee_name": {
+        "present": true,
+        "value": "Nordwind Industrial Supply",
+        "evidence_text": "CONSIGNEE Nordwind Industrial Supply",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "invoice_value": {
+        "present": true,
+        "value": "USD 8,420.00",
+        "evidence_text": "TOTAL AMOUNT USD 8,420.00",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "incoterms": {
+        "present": true,
+        "value": "CIF Hamburg (Incoterms 2020)",
+        "evidence_text": "TERMS OF DELIVERY CIF Hamburg (Incoterms 2020)",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "po_number": {
+        "present": true,
+        "value": "PO 4410-DE",
+        "evidence_text": "PURCHASE ORDER PO 4410-DE",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "country_of_origin": {
+        "present": true,
+        "value": "China",
+        "evidence_text": "COUNTRY OF ORIGIN China",
+        "page_index": 1,
+        "confidence": 1.0
+      }
+    }
+  },
+  "raw_text": "{\"doc_type\": \"commercial_invoice\", \"doc_type_reason\": \"The page shows the heading \\\"COMMERCIAL INVOICE\\\" at the top.\", \"fields\": {\"quantity\": {\"present\": true, \"value\": \"100 CARTONS\", \"evidence_text\": \"Total quantity 100 CARTONS\", \"page_index\": 1, \"confidence\": 1.0}, \"gross_weight\": {\"present\": true, \"value\": \"12,450.00 KGS\", \"evidence_text\": \"Total gross weight 12,450.00 KGS\", \"page_index\": 1, \"confidence\": 1.0}, \"net_weight\": {\"present\": false, \"value\": null, \"evidence_text\": \"\", \"page_index\": 1, \"confidence\": 0.0}, \"container_number\": {\"present\": false, \"value\": null, \"evidence_text\": \"\", \"page_index\": 1, \"confidence\": 0.0}, \"hs_code\": {\"present\": true, \"value\": \"8517.62.00\", \"evidence_text\": \"HS code 8517.62.00\", \"page_index\": 1, \"confidence\": 1.0}, \"consignee_name\": {\"present\": true, \"value\": \"Nordwind Industrial Supply\", \"evidence_text\": \"CONSIGNEE Nordwind Industrial Supply\", \"page_index\": 1, \"confidence\": 1.0}, \"invoice_value\": {\"present\": true, \"value\": \"USD 8,420.00\", \"evidence_text\": \"TOTAL AMOUNT USD 8,420.00\", \"page_index\": 1, \"confidence\": 1.0}, \"incoterms\": {\"present\": true, \"value\": \"CIF Hamburg (Incoterms 2020)\", \"evidence_text\": \"TERMS OF DELIVERY CIF Hamburg (Incoterms 2020)\", \"page_index\": 1, \"confidence\": 1.0}, \"po_number\": {\"present\": true, \"value\": \"PO 4410-DE\", \"evidence_text\": \"PURCHASE ORDER PO 4410-DE\", \"page_index\": 1, \"confidence\": 1.0}, \"country_of_origin\": {\"present\": true, \"value\": \"China\", \"evidence_text\": \"COUNTRY OF ORIGIN China\", \"page_index\": 1, \"confidence\": 1.0}}}",
+  "_provenance": "live API response"
+}

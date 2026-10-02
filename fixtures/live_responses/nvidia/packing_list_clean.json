@@ -1,0 +1,86 @@
+{
+  "cache_key": "a3bfb1c6ef5d923aa5b772f36e6167af",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+  "provider": "nvidia",
+  "prompt_version": "extract-v3",
+  "page_sha256": [
+    "775d3ecca0c9c1ad64e4c58f9d8c6104c5be5043f06ba3e3dc3303fcf414ec69"
+  ],
+  "response": {
+    "doc_type": "packing_list",
+    "doc_type_reason": "Printed heading 'PACKING LIST'",
+    "fields": {
+      "quantity": {
+        "present": true,
+        "value": "100 cartons",
+        "evidence_text": "TOTAL NO. OF PACKAGES 100 cartons",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "gross_weight": {
+        "present": true,
+        "value": "12,450.00 KGS",
+        "evidence_text": "TOTAL GROSS WT 12,450.00 KGS",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "net_weight": {
+        "present": true,
+        "value": "11,600.00 KGS",
+        "evidence_text": "TOTAL NET WT 11,600.00 KGS",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "container_number": {
+        "present": true,
+        "value": "MSKU3067322",
+        "evidence_text": "CONTAINER NO. MSKU3067322",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "hs_code": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "consignee_name": {
+        "present": true,
+        "value": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "CONSIGNEE Nordwind Industrial Supply GmbH",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "invoice_value": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "incoterms": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "po_number": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "country_of_origin": {
+        "present": true,
+        "value": "China",
+        "evidence_text": "COUNTRY OF ORIGIN China",
+        "page_index": 1,
+        "confidence": 1.0
+      }
+    }
+  },
+  "_provenance": "LIVE API response, captured by scripts/live_compare.py"
+}

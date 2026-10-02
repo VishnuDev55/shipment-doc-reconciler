@@ -34,6 +34,7 @@ __all__ = [
     "normalize_money",
     "normalize_incoterm",
     "normalize_country",
+    "normalize_reference",
     "normalize_party",
     "normalize_quantity",
     "normalize_weight",

@@ -141,14 +141,21 @@ def test_unknown_doc_type_becomes_other():
 
 
 def test_unexpected_extra_field_key_is_ignored_not_fatal():
+    """A key outside the contract is dropped and reported, not fatal.
+
+    `vessel_name` is what a model really does invent when the document shows a
+    vessel: it is not one of ours, and an earlier version of this test used
+    net_weight as the stand-in extra key, which stopped being true the moment
+    net_weight joined the field set.
+    """
     payload = good_payload()
-    payload["fields"]["net_weight"] = {
-        "present": True, "value": "11,600.00 KGS", "evidence_text": "x",
+    payload["fields"]["vessel_name"] = {
+        "present": True, "value": "MV HANWEI EXPRESS", "evidence_text": "x",
         "page_index": 1, "confidence": 0.9,
     }
     res = parse_extraction(json.dumps(payload))
     assert res.ok
-    assert "net_weight" not in res.response.fields
+    assert "vessel_name" not in res.response.fields
     assert any("unexpected" in i for i in res.issues)
 
 

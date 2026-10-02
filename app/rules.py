@@ -37,6 +37,10 @@ MAX_VALUE_PER_UNIT = 250_000.0
 # HS codes are internationally harmonised to six digits; anything shorter cannot
 # be a classification, only a partial one.
 MIN_HS_DIGITS = 6
+# Net weight above gross weight is not a rounding question: packaging cannot have
+# negative mass. Two documents may state either one, but both are totals for the
+# same shipment, so the pair is comparable whatever basis each was printed on.
+MIN_NET_MARGIN_KG = 0.0
 
 _WEIGHT_RE = re.compile(r"^weight:(-?\d+(?:\.\d+)?)$")
 _COUNT_RE = re.compile(r"^count:(-?\d+(?:\.\d+)?):(.+)$")
@@ -152,6 +156,18 @@ def sanity_checks(report: Report) -> list[SanityFinding]:
                     f"{MAX_VALUE_PER_UNIT:,.0f} bound. Currencies are never "
                     f"converted, so this compares like for like only.",
                 ))
+
+    net = got.get("net_weight")
+    if weight and net:
+        gross_kg, net_kg = weight.weight_kg, net.weight_kg
+        if gross_kg is not None and net_kg is not None and net_kg > gross_kg + MIN_NET_MARGIN_KG:
+            out.append(_finding(
+                "net_above_gross", "risk", ["net_weight", "gross_weight"],
+                f"Net weight {net.canonical} exceeds gross weight "
+                f"{weight.canonical}. Both are totals for this shipment, and "
+                f"packaging cannot have negative mass, so one of the two is "
+                f"transcribed wrongly or read off the wrong basis.",
+            ))
 
     if money:
         parsed = money.money

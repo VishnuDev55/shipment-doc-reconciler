@@ -21,10 +21,13 @@ not obvious from a glance at the code.
 | **"Uses at least one NVIDIA open-source model"** | **Document extraction** — the core function — uses **`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`** via NVIDIA's own `build.nvidia.com` API. The summary model above is *also* an NVIDIA open model, just hosted by Nebius. |
 
 **Be explicit about the division of labour:** the *primary* functionality
-(vision extraction of all six fields) runs on **build.nvidia.com**. The Nebius
+(vision extraction of all ten fields) runs on **build.nvidia.com**. The Nebius
 Token Factory role is the **reasoning/summary** call plus the *option* of vision
 fallback. If you want extraction itself on Nebius, set `VISION_PROVIDER=nebius`
-— that path is also live-verified, using `openbmb/MiniCPM-V-4_5`.
+— that path is live-verified too, on `openbmb/MiniCPM-V-4_5`, which Token
+Factory declares `text+image→text` alongside five other models. It is measurably
+weaker than the default: 7 field differences against the authored baseline where
+NVIDIA shows 1, all of them visible in the report. See `SUBMISSION.md`.
 
 ### Why two providers rather than one
 
@@ -140,6 +143,7 @@ browser  index.html + app.js + app.css (hand-rolled tokens)   no build step
    |
    +--> normalize/      pure Python, zero model calls
    |                     number weight quantity container hs_code party money
+   |                     categorical: incoterms · reference · country
    |                     emits canonical (UI) AND compare_key (engine) together
    |
    +--> compare/        pure Python. tolerance table, cardinality gate,
@@ -234,7 +238,7 @@ placeholders. It is also what the hosted instance runs, so a reviewer without ke
 still sees model output — labelled as such on screen.
 
 ```bash
-make test           # 447 tests, ~20s, zero API calls (socket guard, see Tests)
+make test           # 619 tests, ~20s, zero API calls (socket guard, see Tests)
 make probe          # rehearse the demo: prints the verdict table
 make dist           # clean source zip in dist/
 make docker         # single-stage image
@@ -366,6 +370,7 @@ field by field and still be impossible. `app/rules.py` checks pairs:
 | `unit_price_high` | invoice value ÷ count implies over 250,000 per piece |
 | `value_without_currency` | the value carries no currency code |
 | `hs_code_short` | fewer than the 6 internationally harmonised digits |
+| `net_above_gross` | net weight exceeds gross weight — packaging cannot have negative mass |
 | `bill_of_lading_without_container` | a B/L was read but no document stated equipment |
 | `single_source_fields` | states which fields were never cross-checked, so "unverified" is not mistaken for "agrees" |
 
@@ -543,7 +548,7 @@ unverified, for want of a Token Factory key; `make probe-live` closes that gap.
 
 ### The adjudicator: a second opinion, never a second decision
 
-Two of the six fields are genuinely interpretive — whether "ACME Freight Ltd" and
+Two of the ten fields are genuinely interpretive — whether "ACME Freight Ltd" and
 "Acme Freight Limited" are the same party, and whether "12 pallets" and "144
 cartons" describe the same shipment. Everything else is arithmetic or a check
 digit. So on exactly those two cases, and only when the deterministic engine
@@ -851,6 +856,8 @@ new test in the wrong shape could have spent real credits in CI.
 | File | Covers |
 |---|---|
 | `test_normalizers.py` | number/weight/quantity/container/HS/party/money tables |
+| `test_normalize_categorical.py` | Incoterms, PO references and origin: what must unify, what must never be guessed |
+| `test_prompt.py` | every contracted field is asked for, on every rung of the ladder |
 | `test_compare.py` | tolerance bands, cardinality gate, arbitration, outliers |
 | `test_parse.py` | retry-ladder rungs 1–3, "one bad field ≠ dead document" |
 | `test_client.py` | payload shape, probe, ladder call counts, backoff, cache |
@@ -949,7 +956,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 app/
   config.py            pydantic-settings; both keys; version tags
   providers.py         endpoint routing: vision vs summary, per provider
-  fields.py            the frozen six-field set; per-doc-type expectations
+  fields.py            the frozen ten-field set; hints, kinds, expectations
   models.py            every Pydantic model + the hand-written JSON Schema
   prompt.py            system prompt, field spec, page markers, corrections
   client.py            ChatClient base; ExtractionClient + SummaryClient;
@@ -959,7 +966,7 @@ app/
   parse.py             ladder rungs 1-3 (free, local)
   cache.py             sha256(prompt_ver + PROVIDER + model + page hashes)
   ingest.py            EXIF/resize/JPEG; pypdfium2 for PDFs
-  normalize/           number weight quantity container hs_code party money
+  normalize/           number weight quantity container hs_code party money categorical
   compare/             comparators, tolerance table, cardinality gate, reasons
   orchestrator.py      gather over documents; report assembly; summary step
   export.py            ZIP: report.json + report.csv + standalone report.html
@@ -982,7 +989,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 447 tests across 19 files (+ conftest.py socket guard)
+tests/                 619 tests across 21 files (+ conftest.py socket guard)
 docs/                  AUDIT.md (findings, evidence) · DEPLOYMENT.md (deploy + health semantics)
 ```
 

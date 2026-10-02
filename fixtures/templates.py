@@ -66,6 +66,7 @@ def invoice(
     freight: str,
     total: str,
     hs_code: str,
+    origin: str,
 ) -> str:
     rows = "".join(
         f"<tr><td>{d}</td><td class='num'>{q}</td><td class='num'>{u}</td>"
@@ -80,6 +81,7 @@ def invoice(
 <tr><td class="k">Invoice date</td><td>{date}</td></tr>
 <tr><td class="k">Purchase order</td><td>{po_no}</td></tr>
 <tr><td class="k">Terms of delivery</td><td>{incoterm}</td></tr>
+<tr><td class="k">Country of origin</td><td>{origin}</td></tr>
 </table>
 <table><thead><tr><th>Description of goods</th><th>Qty</th><th>Unit</th>
 <th>Unit price</th><th>Amount</th></tr></thead><tbody>{rows}</tbody></table>
@@ -108,6 +110,7 @@ def packing_list(
     total_gross: str,
     total_net: str,
     total_volume: str,
+    origin: str,
     container: str | None = None,
 ) -> str:
     rows = "".join(
@@ -124,6 +127,7 @@ def packing_list(
 <tr><td class="k">Packing list no.</td><td>{doc_no}</td></tr>
 <tr><td class="k">Date</td><td>{date}</td></tr>
 <tr><td class="k">Invoice reference</td><td>{invoice_ref}</td></tr>
+<tr><td class="k">Country of origin</td><td>{origin}</td></tr>
 {cont_row}
 </table>
 <table><thead><tr><th>Mark / No.</th><th>Description</th><th>Packages</th>
@@ -155,6 +159,7 @@ def bol(
     packages: str,
     description: str,
     gross_weight: str,
+    net_weight: str,
     freight_terms: str,
 ) -> str:
     body = (
@@ -173,6 +178,7 @@ def bol(
 <tr><td class="k">No. of containers or packages</td><td>{packages}</td></tr>
 <tr><td class="k">Description of packages and goods</td><td>{description}</td></tr>
 <tr><td class="k">Gross weight</td><td>{gross_weight}</td></tr>
+<tr><td class="k">Net weight</td><td>{net_weight}</td></tr>
 <tr><td class="k">Freight &amp; charges</td><td>{freight_terms}</td></tr>
 </table>"""
     )

@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from app.config import Settings
+from app.fields import FIELD_ORDER
 from app.models import DocumentReport, ExtractionResponse, Report, RunInfo
 from app.orchestrator import Reconciler, refresh_report, result_source
 
@@ -68,9 +69,18 @@ def authored_only_cache(tmp_path):
     return dst
 
 
+def _live_capture(name: str) -> tuple[Path, dict]:
+    """A real captured API response and the provider that produced it, so
+    provenance tests use real shapes. Captures live one directory per vision
+    provider; the first is taken because these tests care about the shape, not
+    about which host drew it -- except where the provider is asserted below."""
+    for path in sorted((REPO / "fixtures" / "live_responses").glob(f"*/{name}.json")):
+        return path, json.loads(path.read_text())
+    raise AssertionError(f"{name}: no live capture found")
+
+
 def _live_response(name: str) -> dict:
-    """A real captured API response, so provenance tests use real shapes."""
-    return json.loads((REPO / "fixtures" / "live_responses" / f"{name}.json").read_text())["response"]
+    return _live_capture(name)[1]["response"]
 
 
 def by_field(report, key: str):
@@ -253,7 +263,7 @@ async def test_report_is_written_to_disk_and_reloadable(tmp_path):
     assert path.is_file()
     reloaded = rec.store.read(sid)
     assert reloaded is not None
-    assert len(reloaded.comparisons) == 6
+    assert len(reloaded.comparisons) == len(FIELD_ORDER)
     assert reloaded.summary.conflict == rec.get(sid).summary.conflict
 
 
@@ -494,28 +504,29 @@ def test_live_cache_entries_stay_model_keyed(tmp_path):
     """A captured live response must NOT be served for a different model."""
     from app.cache import ResponseCache, cache_key
 
-    src = REPO / "fixtures" / "live_responses" / "bol_conflict.json"
-    if not src.is_file():
-        pytest.skip("no captured live response")
-    payload = json.loads(src.read_text())
+    src, payload = _live_capture("bol_conflict")
+    provider = src.parent.name
     page_hashes = payload["page_sha256"]
 
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     cache = ResponseCache(cache_dir)
     cache.put(
-        cache_key(page_hashes, "model-A", "nvidia"),
+        cache_key(page_hashes, "model-A", provider),
         payload["response"],
         model="model-A",
-        provider="nvidia",
+        provider=provider,
         page_sha256s=page_hashes,
         raw_text="{}",
         provenance="live API response",
     )
 
-    assert cache.get(cache_key(page_hashes, "model-A", "nvidia")) is not None
-    assert cache.get(cache_key(page_hashes, "model-B", "nvidia")) is None, (
+    assert cache.get(cache_key(page_hashes, "model-A", provider)) is not None
+    assert cache.get(cache_key(page_hashes, "model-B", provider)) is None, (
         "a live answer leaked across models"
     )
     # ...and the authored fallback must not pick it up either.
     assert cache.find_authored_by_pages(page_hashes) is None
+    # Provider is part of the key for the same reason model is: two hosts can
+    # serve the same model id and answer differently.
+    assert cache.get(cache_key(page_hashes, "model-A", provider + "-other")) is None

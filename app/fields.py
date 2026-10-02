@@ -1,6 +1,9 @@
 """The frozen canonical field set and per-document-type expectations.
 
-Six fields, fixed keys. This module is the only place the field list lives.
+Ten fields, fixed keys, one canonical order. This module is the only place the
+field list lives: the JSON Schema, the prompt, the normalizer dispatch, the
+comparator table, the UI rows and the authored fixtures are all driven from
+here, so adding a field means editing this file and nothing else that matters.
 """
 
 from __future__ import annotations
@@ -155,12 +158,16 @@ SURFACE_HINTS: dict[FieldKey, str] = {
     ),
     "po_number": (
         "Look for PO NO., PURCHASE ORDER, ORDER NO., CUSTOMER ORDER REF. Return the "
-        "reference exactly as printed. Do not return an invoice number as a PO "
-        "number."
+        "reference exactly as printed. A row labelled INVOICE NO. or INVOICE "
+        "REFERENCE is the seller's own number, not a purchase order: if nothing "
+        "purchase-order-like is printed, return present=false rather than "
+        "reaching for the nearest reference."
     ),
     "country_of_origin": (
         "Look for COUNTRY OF ORIGIN, ORIGIN, MADE IN, PAYS D'ORIGINE. Return the "
-        "country as printed (e.g. 'GERMANY', 'DE', 'Made in Germany'). Do not "
-        "confuse the shipment destination with the goods' origin."
+        "country as printed (e.g. 'GERMANY', 'DE', 'Made in Germany'). A port of "
+        "loading, a port of discharge or any other place name is NOT the origin: "
+        "'Ningbo, China' under PORT OF LOADING does not make China the stated "
+        "origin unless the document says so in an origin field."
     ),
 }

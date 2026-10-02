@@ -139,7 +139,11 @@ def _mark_outliers(values: list[ComparisonValue], majority_key: str | None) -> N
 
 
 def _compare_numeric(
-    kind: str, obs: list[FieldObservation], values: list[ComparisonValue]
+    kind: str,
+    obs: list[FieldObservation],
+    values: list[ComparisonValue],
+    *,
+    label: str = "value",
 ) -> tuple[str, str]:
     rel_consistent = (
         WEIGHT_TOLERANCE_CONSISTENT_REL if kind == "weight" else MONEY_TOLERANCE_CONSISTENT_REL
@@ -170,7 +174,7 @@ def _compare_numeric(
     spread = f"{lo:,.2f} vs {hi:,.2f}"
 
     if kind == "weight" and (hi - lo) <= WEIGHT_TOLERANCE_CONSISTENT_ABS_KG:
-        return "consistent", f"gross weight agrees within {WEIGHT_TOLERANCE_CONSISTENT_ABS_KG:g} kg ({spread})"
+        return "consistent", f"{label} agrees within {WEIGHT_TOLERANCE_CONSISTENT_ABS_KG:g} kg ({spread})"
     if rel <= rel_consistent:
         return "consistent", f"values agree within {rel_consistent:.1%} ({spread})"
     if rel <= rel_suspicious:
@@ -400,7 +404,12 @@ def compare_field(key: FieldKey, obs: list[FieldObservation]) -> Comparison:
     # type" look like a checksum failure or a null number.
     usable_values = [v for v, o in zip(values, obs) if o.usable]
     if kind in RELATIVE_KINDS:
-        status, reason = comparator(kind, obs, usable_values)  # type: ignore[call-arg]
+        # One comparator serves gross weight and net weight, so the row names
+        # itself here: "gross weight agrees" beside a net-weight verdict reads as
+        # though the engine had checked the wrong field.
+        status, reason = comparator(  # type: ignore[call-arg]
+            kind, obs, usable_values, label=FIELD_LABEL[key].lower()
+        )
     else:
         status, reason = comparator(obs, usable_values)
 

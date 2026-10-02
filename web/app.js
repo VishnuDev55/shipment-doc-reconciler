@@ -27,14 +27,16 @@ const DOC_TYPES = [
   ['other', 'Other'],
 ];
 
-const FIELD_LABELS = {
-  quantity: 'Quantity',
-  gross_weight: 'Gross weight',
-  container_number: 'Container no.',
-  hs_code: 'HS code',
-  consignee_name: 'Consignee',
-  invoice_value: 'Invoice value',
-};
+/**
+ * Field labels come from the report. The server owns the field contract
+ * (app/fields.py) and sends a label with every comparison; a copy of that list
+ * here went stale the day the set grew past six, and the UI would have shown
+ * raw snake_case keys for whatever came next.
+ */
+function fieldLabel(report, key) {
+  const comp = (report.comparisons || []).find((c) => c.field === key);
+  return comp ? comp.label : key.replace(/_/g, ' ');
+}
 
 const ICON = {
   consistent: '✓', suspicious: '⚠', conflict: '✗',
@@ -919,7 +921,7 @@ function renderComparison(report) {
     const tr = el('tr');
 
     const tdField = el('td', 'fld');
-    tdField.appendChild(el('span', null, FIELD_LABELS[comp.field] || comp.label));
+    tdField.appendChild(el('span', null, comp.label));
     tdField.appendChild(el('span', 'k', comp.field));
     tr.appendChild(tdField);
 
@@ -1166,7 +1168,7 @@ function renderDocuments(report) {
 
       Object.entries(doc.extraction.fields).forEach(([key, f]) => {
         const row = el('div', 'evi');
-        row.appendChild(el('span', null, FIELD_LABELS[key] || key));
+        row.appendChild(el('span', null, fieldLabel(report, key)));
         row.appendChild(el('code', null, f.present ? f.value : '— absent —'));
         row.appendChild(el('span', 'q', f.evidence_text || (f.present ? '' : 'nothing printed')));
         row.appendChild(el('span', 'n', f.present ? 'p' + f.page_index : ''));

@@ -140,17 +140,34 @@ of the code.
 | **Uses at least one NVIDIA open-source model** | **Document extraction** — the core pipeline — uses **`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`** via NVIDIA's `build.nvidia.com` API. The Nebius summary model above is **also** an NVIDIA open model (Nemotron), just hosted by Nebius. | ✅ yes — verified live |
 
 **Division of labour, explicitly:** the *primary* functionality (vision
-extraction of all six fields from every document) runs on **NVIDIA
+extraction of all ten fields from every document) runs on **NVIDIA
 build.nvidia.com**. The **Nebius Token Factory** role is the reasoning/summary
 feature. Both are runtime calls made by the running application, not build-time
 or offline steps.
 
 **Optional vision fallback:** setting `VISION_PROVIDER=nebius` moves document
-extraction to Nebius Token Factory as well, using
-**`openbmb/MiniCPM-V-4_5`** — the only `text+image→text` model available on the
-Nebius key used during development. This path is also live-verified (9/9 fixture
-documents). It is a **documented fallback, not the default**; the default is the
-NVIDIA Nemotron omni model.
+extraction to Nebius Token Factory as well. Its `/v1/models?verbose=true`
+catalog declares **6 of 25 models** as `text+image→text` (MiniCPM-V-4_5,
+Kimi-K3, Qwen3.8-27B, Kimi-K2.6, GLM-5.3-Flash, DeepSeek-V4.1-Flash);
+**`openbmb/MiniCPM-V-4_5`** is what the app uses, being both the configured
+fallback and first in the vision preference order. An earlier revision of this
+file called it the *only* vision model on the key — that was written while
+discovery was reading modality from a field the host does not use, so all 25
+models looked text-only.
+
+Re-verified live on 2026-10-02: 9/9 fixture documents captured on each provider.
+The fallback is measurably weaker, and the numbers are in the repo rather than
+in this sentence — `python scripts/live_compare.py --diff-only` replays them
+with no API calls. Against the authored baseline the NVIDIA omni captures differ
+in **1** field; the MiniCPM-V captures in **7**: the same two mislabels on every
+shipment (a packing list's `INVOICE REFERENCE` returned as the PO number, and
+`China` read out of the bill of lading's *port of loading* as the country of
+origin) plus one dropped `FOB NINGBO` prefix. Sharpening those two field hints
+did not change MiniCPM's output, so it is recorded as a model limit rather than
+presented as fixed. Nothing hides it: each disagreement is reported with the
+printed evidence line attached and can be corrected in one click, and on the
+clean fixture that single PO mislabel lifts the score from 15 (low) to
+25 (medium) — a wrong extraction is allowed to look wrong.
 
 **Why the split exists:** the brief's model `nvidia/Nemotron-Nano-V2-12b-VL` is
 unreachable with the keys available — 404 on Nebius (no Nemotron vision model on
@@ -367,7 +384,7 @@ render.yaml        Render Blueprint, free tier, DEMO_MODE=true
 .env.example       both keys, with signup URLs and comments
 Makefile           setup / dev / test / probe / probe-live / dist
 app/               FastAPI, clients, normalizers, comparison engine, export
-tests/             447 tests, ~20s, zero live API calls (enforced by a socket
+tests/             619 tests, ~20s, zero live API calls (enforced by a socket
                    guard in tests/conftest.py, itself under test)
 fixtures/          9 synthetic documents + 3-layer response cache
 scripts/           fixture builder, demo self-check, live probes, migration

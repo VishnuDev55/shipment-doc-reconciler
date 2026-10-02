@@ -1,7 +1,10 @@
 """Regression tests built from REAL captured API responses.
 
-fixtures/live_responses/*.json were captured by scripts/live_compare.py against
-the live Token Factory endpoint on 2026-09-23. They are not hand-authored.
+fixtures/live_responses/<provider>/*.json are genuine model output, captured by
+scripts/live_compare.py with an empty scratch cache and both API keys, one run
+per vision provider. They are not hand-authored, and the script now refuses to
+write a file whose outcome did not come from a live call -- an earlier version
+replayed the bundled authored fixtures and stamped them "LIVE API response".
 
 These exist because real model output differs from what I assumed while
 building offline, in ways that matter:
@@ -13,7 +16,9 @@ building offline, in ways that matter:
     signal and cannot be the only guard against a bad read.
 
 The point of these tests is that none of the above changes a comparison
-verdict, because normalization is deterministic and tolerant.
+verdict, because normalization is deterministic and tolerant. Where a claim is
+about a specific model's quirk rather than about the engine, the test says so
+and runs for every provider that was captured.
 """
 
 from __future__ import annotations
@@ -34,23 +39,68 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def live_files() -> list[Path]:
-    return sorted(p for p in LIVE_DIR.glob("*.json"))
+def capture_files() -> list[Path]:
+    """Every captured file, under whichever provider produced it."""
+    return sorted(LIVE_DIR.glob("*/*.json"))
 
 
-def load(name: str) -> dict:
-    path = LIVE_DIR / f"{name}.json"
+def providers_present() -> list[str]:
+    return sorted(p.parent.name for p in capture_files())
+
+
+def file_ids(path: Path) -> str:
+    return f"{path.parent.name}/{path.stem}"
+
+
+PROVIDERS = providers_present()
+BOTH = [p for p in PROVIDERS] if PROVIDERS else []
+
+
+def load(name: str, provider: str) -> dict:
+    path = LIVE_DIR / provider / f"{name}.json"
     if not path.is_file():
-        pytest.skip(f"{path.name} not captured")
+        pytest.skip(f"{provider}/{path.name} not captured")
     return json.loads(path.read_text())
 
 
 # ---------------------------------------------------------------------------
-# Every captured live response must parse through the real model cleanly.
+# The capture set itself: what "both providers, live" has to mean
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("path", live_files(), ids=lambda p: p.stem)
+def test_captures_live_in_provider_directories():
+    """No loose files left over from the flat layout, which could not tell two
+    providers apart and let the second capture overwrite the first."""
+    assert not list(LIVE_DIR.glob("*.json")), "move flat captures into a provider dir"
+    assert PROVIDERS, "no captures at all"
+
+
+def test_every_capture_says_who_produced_it():
+    for path in capture_files():
+        payload = json.loads(path.read_text())
+        assert payload["_provenance"].startswith("LIVE API response"), path
+        assert payload["provider"] == path.parent.name, (
+            f"{file_ids(path)}: directory and recorded provider disagree"
+        )
+        assert payload["model"], path
+
+
+def test_both_providers_cover_every_fixture_document():
+    """The submission claims both vision paths are live-verified. That claim is
+    only true if a capture exists for every document on every provider, so it is
+    checked rather than asserted in prose."""
+    index = json.loads(
+        (LIVE_DIR.parent / "index.json").read_text()
+    )["shipments"]
+    stems = {Path(doc["files"][0]).stem for entry in index.values()
+             for doc in entry["documents"]}
+    for provider in PROVIDERS:
+        captured = {p.stem for p in (LIVE_DIR / provider).glob("*.json")}
+        missing = sorted(stems - captured)
+        assert not missing, f"{provider}: no live capture for {missing}"
+
+
+@pytest.mark.parametrize("path", capture_files(), ids=file_ids)
 def test_live_response_validates_without_repair(path: Path):
     payload = json.loads(path.read_text())
     resp = ExtractionResponse.model_validate(payload["response"])
@@ -58,7 +108,7 @@ def test_live_response_validates_without_repair(path: Path):
     assert payload["_provenance"].startswith("LIVE API response")
 
 
-@pytest.mark.parametrize("path", live_files(), ids=lambda p: p.stem)
+@pytest.mark.parametrize("path", capture_files(), ids=file_ids)
 def test_live_response_normalizes_without_crashing(path: Path):
     resp = ExtractionResponse.model_validate(json.loads(path.read_text())["response"])
     for key, field in resp.fields.items():
@@ -66,15 +116,16 @@ def test_live_response_normalizes_without_crashing(path: Path):
         if field.present and field.value:
             # A present value that will not normalize must say why, not fail silently.
             if not norm.ok:
-                assert norm.warnings, f"{path.stem}/{key}: unnormalizable with no warning"
+                assert norm.warnings, f"{file_ids(path)}/{key}: unnormalizable with no warning"
 
 
 # ---------------------------------------------------------------------------
-# The specific real-world quirks observed, pinned as behaviour.
+# The specific real-world quirks observed, pinned as behaviour
 # ---------------------------------------------------------------------------
 
 
-def test_weight_normalizes_whatever_the_model_returned():
+@pytest.mark.parametrize("provider", BOTH)
+def test_weight_normalizes_whatever_the_model_returned(provider):
     """The durable claim is that normalization absorbs transcription variance,
     not that one particular model made one particular mistake.
 
@@ -82,7 +133,7 @@ def test_weight_normalizes_whatever_the_model_returned():
     digit, repeated in its own evidence quote); the NVIDIA omni model returned
     '13,200.00 KGS' correctly. Both must normalize to the same compare_key.
     """
-    live = load("bol_conflict")
+    live = load("bol_conflict", provider)
     field = ExtractionResponse.model_validate(live["response"]).fields["gross_weight"]
     norm = normalize_field("gross_weight", field)
     assert norm.ok
@@ -105,12 +156,13 @@ def test_invented_digit_is_absorbed_by_the_normalizer():
         normalize_field("gross_weight", good).compare_key == "weight:13200.000"
 
 
-def test_raw_value_is_preserved_alongside_the_normalized_one():
+@pytest.mark.parametrize("provider", BOTH)
+def test_raw_value_is_preserved_alongside_the_normalized_one(provider):
     """The report carries the model's verbatim string AND the canonical value,
     so a mis-transcription stays visible instead of being silently corrected.
     NormalizedField deliberately holds no raw text -- that separation is the
     point, and it is what stops the UI string-comparing display values."""
-    live = load("bol_conflict")
+    live = load("bol_conflict", provider)
     field = ExtractionResponse.model_validate(live["response"]).fields["gross_weight"]
     norm = normalize_field("gross_weight", field)
 
@@ -172,11 +224,13 @@ def test_confidence_is_recorded_but_never_decides_a_conflict():
     assert conflict.status == "conflict"
 
 
-def test_cross_page_evidence_matches_the_real_document():
-    """The messy packing list puts its TOTAL rows on page 2. The live model
+@pytest.mark.parametrize("provider", BOTH)
+def test_cross_page_evidence_matches_the_real_document(provider):
+    """The messy packing list puts its TOTAL rows on page 2. Both models
     correctly reported page_index 2 there and page 1 for the container number,
-    which is what made the fixture worth building."""
-    live = load("packing_list_messy")
+    which is what made the fixture worth building -- and page 2 is where the
+    evidence jump has to land for the citation to be checkable."""
+    live = load("packing_list_messy", provider)
     resp = ExtractionResponse.model_validate(live["response"])
     assert resp.fields["gross_weight"].page_index == 2
     assert resp.fields["quantity"].page_index == 2
@@ -184,18 +238,18 @@ def test_cross_page_evidence_matches_the_real_document():
     assert resp.fields["consignee_name"].page_index == 1
 
 
-def test_live_extraction_reproduces_the_planted_conflict():
+@pytest.mark.parametrize("provider", BOTH)
+def test_live_extraction_reproduces_the_planted_conflict(provider):
     """End-to-end sanity: the live values, once normalized, still produce the
     conflict the fixture was designed to demonstrate."""
-    from app.compare import compare_field
-    from app.compare import FieldObservation
+    from app.compare import compare_field, FieldObservation
 
     docs = []
     for name, dtype in (
         ("packing_list_conflict", "packing_list"),
         ("bol_conflict", "bill_of_lading"),
     ):
-        resp = ExtractionResponse.model_validate(load(name)["response"])
+        resp = ExtractionResponse.model_validate(load(name, provider)["response"])
         for key in ("gross_weight",):
             docs.append(
                 FieldObservation(

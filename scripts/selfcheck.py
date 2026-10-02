@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.config import Settings  # noqa: E402
+from app.fields import FIELD_ORDER  # noqa: E402
 from app.orchestrator import Reconciler  # noqa: E402
 
 ICON = {
@@ -38,6 +39,10 @@ EXPECT: dict[str, dict[str, str]] = {
         "consignee_name": "consistent",
         "invoice_value": "single_source",
         "hs_code": "single_source",
+        "net_weight": "consistent",
+        "incoterms": "single_source",
+        "po_number": "single_source",
+        "country_of_origin": "consistent",
     },
     "shipment_conflict": {
         "quantity": "consistent",
@@ -46,6 +51,10 @@ EXPECT: dict[str, dict[str, str]] = {
         "consignee_name": "consistent",
         "invoice_value": "single_source",
         "hs_code": "single_source",
+        "net_weight": "consistent",
+        "incoterms": "single_source",
+        "po_number": "single_source",
+        "country_of_origin": "consistent",
     },
     "shipment_messy": {
         "quantity": "suspicious",
@@ -54,6 +63,13 @@ EXPECT: dict[str, dict[str, str]] = {
         "consignee_name": "consistent",
         "invoice_value": "single_source",
         "hs_code": "single_source",
+        # Same mass, printed as KGS on the packing list and LBS on the waybill:
+        # this row is the demo that unit conversion happens in deterministic code.
+        "net_weight": "consistent",
+        "incoterms": "single_source",
+        "po_number": "single_source",
+        # "Made in P.R.C." on the invoice, "CHINA" on the packing list.
+        "country_of_origin": "consistent",
     },
 }
 
@@ -82,6 +98,10 @@ async def run_one(name: str, entry: dict, settings: Settings) -> list[str]:
         )
 
     got = {c.field: c for c in report.comparisons}
+    # Every field the engine extracts must have a stated expectation here, or a
+    # new field could ship with the demo never saying what it should do with it.
+    for field in sorted(set(FIELD_ORDER) - set(EXPECT[name])):
+        problems.append(f"{field}: no expectation recorded in EXPECT[{name!r}]")
     for field, expected in EXPECT[name].items():
         comp = got.get(field)
         if comp is None:

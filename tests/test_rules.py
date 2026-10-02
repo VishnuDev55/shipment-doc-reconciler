@@ -226,6 +226,85 @@ def test_a_clean_report_with_no_findings_stays_low():
     assert customs_risk(report)[0] == "low"
 
 
+# ---------------------------------------------------------------------------
+# net against gross
+# ---------------------------------------------------------------------------
+
+
+def _net_gross(gross_key: str, net_key: str) -> list:
+    report = report_with(
+        gross_weight=stated("gross_weight", [("d1", "Invoice", gross_key)]),
+        net_weight=stated("net_weight", [("d1", "Invoice", net_key)]),
+    )
+    return [f for f in sanity_checks(report) if f.code == "net_above_gross"]
+
+
+def test_net_weight_above_gross_weight_is_impossible_and_says_why():
+    """Packaging cannot have negative mass. No single-field comparison can see
+    this: both values can be read exactly as printed and still describe a
+    shipment that cannot exist."""
+    findings = _net_gross("weight:11600.000", "weight:12450.000")
+    assert len(findings) == 1
+    assert findings[0].level == "risk"
+    assert set(findings[0].fields) == {"gross_weight", "net_weight"}
+    for key in ("weight:11600.000", "weight:12450.000"):
+        assert key in findings[0].explanation, "the finding must quote both numbers"
+
+
+def test_a_plausible_net_weight_is_left_alone():
+    assert _net_gross("weight:12450.000", "weight:11600.000") == []
+
+
+def test_equal_net_and_gross_is_not_flagged():
+    """Some documents print the same figure twice because the packaging was
+    weighed separately or not at all. Impossible is net above gross; equal is
+    merely untidy, and the band that separates them is the whole rule."""
+    assert _net_gross("weight:11600.000", "weight:11600.000") == []
+
+
+def test_a_missing_net_weight_makes_the_rule_silent():
+    """No second value means no pair to test. Saying "not enough information"
+    here would be noise: absence is already reported per field."""
+    report = report_with(
+        gross_weight=stated("gross_weight", [("d1", "Invoice", "weight:11600.000")]),
+    )
+    assert [f for f in sanity_checks(report) if f.code == "net_above_gross"] == []
+
+
+def test_the_rule_uses_the_decided_value_not_a_second_opinion():
+    """Where the three documents disagree about gross weight, the comparison has
+    already chosen a majority. A rule that re-derived its own winner would be a
+    second decision-maker, and the two could disagree in the report."""
+    report = report_with(
+        gross_weight=stated("gross_weight", [
+            ("d1", "Packing list", "weight:12450.000"),
+            ("d2", "Bill of lading", "weight:12450.000"),
+            ("d3", "Waybill copy", "weight:9000.000"),
+        ]),
+        net_weight=stated("net_weight", [("d1", "Packing list", "weight:11600.000")]),
+    )
+    assert [f for f in sanity_checks(report) if f.code == "net_above_gross"] == []
+
+
+def test_cross_unit_masses_are_compared_after_conversion():
+    """The messy fixture states net in kilograms on the packing list and gross in
+    pounds on the waybill. Compared as printed they look inverted; as kg they are
+    11,600 net under 12,450 gross, which is why this must stay silent."""
+    from app.models import ExtractedField
+    from app.normalize import normalize_field
+
+    def key(value: str) -> str:
+        return normalize_field(
+            "gross_weight",
+            ExtractedField(present=True, value=value, evidence_text=value,
+                           page_index=1, confidence=0.95),
+        ).compare_key
+
+    assert key("27,447.00 LBS") == "weight:12449.750"
+    findings = _net_gross(key("27,447.00 LBS"), key("11,600.00 KGS"))
+    assert findings == []
+
+
 @pytest.mark.asyncio
 async def test_a_real_run_carries_sanity_into_the_report_and_export(tmp_path):
     index = json.loads((REPO / "fixtures" / "index.json").read_text(encoding="utf-8"))

@@ -47,7 +47,12 @@ _REF_LABELS = frozenset({
 
 _COUNTRY_WORDS = {
     "DE": {"DE", "DEU", "GERMANY", "GERMAN", "BUNDESREPUBLIK DEUTSCHLAND", "DEUTSCHLAND"},
-    "CN": {"CN", "CHN", "CHINA", "CHINESE", "PEOPLE S REPUBLIC OF CHINA"},
+    "CN": {"CN", "CHN", "CHINA", "CHINESE", "PEOPLE S REPUBLIC OF CHINA",
+           # "Made in P.R.C." is what actually gets printed on goods shipped from
+           # Ningbo, and after punctuation is stripped it is three separate
+           # letters -- without both forms it falls through to the verbatim
+           # branch and reports the same country as a disagreement.
+           "PRC", "P R C"},
     "US": {"US", "USA", "U S A", "UNITED STATES", "AMERICAN", "U S"},
     "IN": {"IN", "IND", "INDIA", "INDIAN"},
     "NL": {"NL", "NLD", "NETHERLANDS", "HOLLAND", "DUTCH"},
@@ -126,7 +131,16 @@ def normalize_reference(text: str) -> Res:
     # "PO No. 4471-B" and "4471B" -- the same order -- compared unequal, which is
     # the one thing this normalizer exists to prevent.
     upper = " ".join(text.split()).upper()
-    tokens = re.split("[^A-Z0-9]+", _PARENTHETICAL.sub("", upper))
+    # "P.O." is "PO" with typing dots, and splitting on punctuation turns it into
+    # two tokens that are neither in _REF_LABELS nor droppable on their own --
+    # so a document printing "P.O. 4410-DE" and one printing "PO 4410-DE" were
+    # reported as two different orders.
+    upper = re.sub(r"(?<=[A-Z])\.(?=[A-Z])", "", upper)
+    # Parentheses are delimiters here, not deletable content. The earlier version
+    # removed the whole bracketed group, which threw away the identifier in the
+    # common "PO No. (4410-DE)" printing and returned no key at all. Splitting on
+    # non-alphanumerics already treats ( and ) as separators.
+    tokens = re.split("[^A-Z0-9]+", upper)
     tight = "".join(tok for tok in tokens if tok and tok not in _REF_LABELS)
     warnings = []
     if not tight:

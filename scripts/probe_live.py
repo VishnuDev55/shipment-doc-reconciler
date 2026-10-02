@@ -35,7 +35,10 @@ from app.providers import vision_endpoint  # noqa: E402
 from app.summary import build_summary_prompt, summary_is_plausible  # noqa: E402
 
 FIXTURE = ROOT / "fixtures" / "images" / "invoice_conflict.png"
-OUT_DIR = ROOT / "fixtures" / "live_responses"
+# Diagnostics land in runs/, not in the captured-fixture directory: a probe file
+# sitting beside the regression captures gets globbed by tests and mistaken for
+# one, and it is a snapshot of the last probe, not a fixture anyone chose to keep.
+OUT_DIR = ROOT / "runs" / "live_probe"
 
 
 def rule(title: str) -> None:
@@ -106,7 +109,7 @@ async def check_vision(settings: Settings) -> str | None:
         print(f"  rung {a.rung:12} ok={a.ok} usage={a.usage} {a.note[:70]}")
     if out.response is None:
         print(f"\nLIVE RESPONSE DID NOT PARSE: {out.error}")
-        print("Inspect fixtures/live_responses/raw/ — this is the most important")
+        print("Inspect runs/live_probe/raw/ — this is the most important")
         print("unknown, so it is worth reading the raw body.")
         return None
 

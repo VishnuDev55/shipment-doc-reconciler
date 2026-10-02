@@ -103,7 +103,7 @@ def build_user_text(declared_doc_type: str | None, page_count: int) -> str:
             f"and report it as doc_type (one of: {', '.join(DOC_TYPES)})."
         )
 
-    return f"""Identify this document and extract the six fields below from it.
+    return f"""Identify this document and extract the {len(FIELD_ORDER)} fields below from it.
 
 DOCUMENT
 This document has {page_count} page(s), appended below in order as separate
@@ -179,10 +179,17 @@ def simplified_schema() -> dict:
 
 
 def simplified_messages(declared_doc_type: str | None, uris: list[str]) -> list[dict]:
+    # The field names are spelled out here, not left to "..." in an example: this
+    # rung is the last resort when the schema param is refused, and a field the
+    # model was never asked for comes back as present=false -- which reads as "the
+    # document does not state it" instead of "nobody looked".
     text = (
-        "Extract the six fields from this document. Return JSON only, shaped like "
+        f"Extract these {len(FIELD_ORDER)} fields from this document: "
+        + ", ".join(FIELD_ORDER)
+        + '. Return JSON only, shaped like '
         '{"fields": {"quantity": {"present": true, "value": "..."}, ...}}. '
-        "Copy values verbatim. Use present=false when a field is not printed."
+        "Copy values verbatim. Use present=false when a field is not printed. "
+        "Every field must appear."
     )
     parts: list[dict] = [{"type": "text", "text": text}]
     for i, uri in enumerate(uris, start=1):
