@@ -43,7 +43,6 @@ def cache_key(
         h.update(b"\x00")
     return h.hexdigest()[:32]
 
-
 class ResponseCache:
     def __init__(self, directory: Path):
         self.directory = Path(directory)
@@ -69,44 +68,64 @@ class ResponseCache:
         page_sha256s: list[str] | None = None,
         provider: str = "",
         model: str = "",
+        prompt_version: str = PROMPT_VERSION,
     ) -> dict[str, Any] | None:
         """Return the stored response object, or None.
 
         Exact key first. If that misses, fall back to a hand-authored fixture
         covering the same pages — model- and provider-agnostic by design, so
-        flipping VISION_PROVIDER does not silently break DEMO_MODE.
+        flipping VISION_PROVIDER does not silently break DEMO_MODE. Live
+        responses are NEVER eligible for this tier.
         """
         payload = self._load(self.path(key)) if self.path(key).is_file() else None
 
         if payload is None and page_sha256s:
-            payload = self._find_authored(page_sha256s)
+            payload = self._find_authored(page_sha256s, prompt_version=prompt_version)
 
         if payload is None:
             return None
         response = payload.get("response")
         return response if isinstance(response, dict) else None
 
-    def _find_authored(self, page_sha256s: list[str]) -> dict[str, Any] | None:
+    def _find_authored(
+        self, page_sha256s: list[str], *, prompt_version: str = PROMPT_VERSION
+    ) -> dict[str, Any] | None:
+        """Authored fixtures for these pages, under this contract only.
+
+        The page-hash match has to be qualified by prompt version: a line-item
+        fixture and a scalar fixture cover the same images, so an unqualified
+        fallback would hand the goods-lines shape to a lookup that wants the
+        twelve-field object. The shape it would return parses — every key just
+        comes back absent — so the damage would be invisible.
+        """
         if not self.directory.is_dir():
             return None
         for path in sorted(self.directory.glob("*.json")):
             payload = self._load(path)
             if payload is None or not self.is_authored(payload):
                 continue
+            if payload.get("prompt_version") != prompt_version:
+                continue
             if payload.get("page_sha256") == list(page_sha256s):
                 return payload
         return None
 
-    def find_authored_by_pages(self, page_sha256s: list[str]) -> dict[str, Any] | None:
+    def find_authored_by_pages(
+        self, page_sha256s: list[str], *, prompt_version: str = PROMPT_VERSION
+    ) -> dict[str, Any] | None:
         """Public accessor for the authored tier (used by tests and scripts)."""
-        payload = self._find_authored(page_sha256s)
+        payload = self._find_authored(page_sha256s, prompt_version=prompt_version)
         if payload is None:
             return None
         response = payload.get("response")
         return response if isinstance(response, dict) else None
 
     def provenance_of(
-        self, key: str, *, page_sha256s: list[str] | None = None
+        self,
+        key: str,
+        *,
+        page_sha256s: list[str] | None = None,
+        prompt_version: str = PROMPT_VERSION,
     ) -> str:
         """'authored' | 'live' | 'none' — who produced the values we would serve.
 
@@ -115,7 +134,7 @@ class ResponseCache:
         """
         payload = self._load(self.path(key)) if self.path(key).is_file() else None
         if payload is None and page_sha256s:
-            payload = self._find_authored(page_sha256s)
+            payload = self._find_authored(page_sha256s, prompt_version=prompt_version)
         if payload is None:
             return "none"
         return "authored" if self.is_authored(payload) else "live"
@@ -147,6 +166,7 @@ class ResponseCache:
         page_sha256s: list[str],
         raw_text: str,
         provenance: str = "live API response",
+        prompt_version: str = PROMPT_VERSION,
     ) -> Path:
         self.directory.mkdir(parents=True, exist_ok=True)
         path = self.path(key)
@@ -156,7 +176,7 @@ class ResponseCache:
                     "cache_key": key,
                     "provider": provider,
                     "model": model,
-                    "prompt_version": PROMPT_VERSION,
+                    "prompt_version": prompt_version,
                     "page_sha256": page_sha256s,
                     "response": response,
                     "raw_text": raw_text[:20000],

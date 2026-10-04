@@ -35,7 +35,7 @@ NOT_CURRENCY = {
     "SAY", "ONLY", "TOTAL", "AMT", "VAT", "GST", "TAX", "NET", "GRS", "KGS",
     "LBS", "MTQ", "PCQ", "SET", "THE", "AND", "FOR", "PER", "PVT", "LTD", "INC",
     "CORP", "GMBH", "SRL", "BHD", "SDN", "PTE", "TNC", "PLC", "LLC", "CBM", "HS",
-    "SC", "NO", "AT", "IN", "OF", "TO", "FROM", "SAY", "USD$", "CODE", "DESCRIPTION",
+    "SC", "NO", "AT", "IN", "OF", "TO", "FROM", "USD$", "CODE", "DESCRIPTION",
 }
 
 INCOTERM = re.compile(

@@ -6,8 +6,9 @@
   * request validation on the upload route
 
 Design constraints that must not drift:
-  * `fields` is an OBJECT keyed by the six fixed names, so structural
-    completeness does not depend on the model remembering to include them.
+  * `fields` is an OBJECT keyed by the fixed names in app/fields.py, so
+    structural completeness does not depend on the model remembering to include
+    them.
   * the model's `value` is always a string (or null) — never a typed number.
     All parsing and arithmetic happens in normalizers, on our side.
 """
@@ -172,6 +173,88 @@ def extraction_json_schema() -> dict:
             },
         },
         "required": ["doc_type", "doc_type_reason", "fields"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Line items (opt-in second read)
+# ---------------------------------------------------------------------------
+
+# A real trade document can run to dozens of goods lines; the cap exists so a
+# model that starts transcribing the terms-and-conditions paragraph cannot make
+# the response unbounded.
+MAX_LINE_ITEMS = 60
+
+
+class ExtractedLineItem(BaseModel):
+    """One goods line as printed. Everything is a verbatim string.
+
+    `quantity` keeps the unit the document printed ("60 CTNS") because the unit
+    is part of what gets compared: 60 pieces and 6 cartons are the same goods on
+    different bases, and stripping the unit would hide that.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    description: str = ""
+    sku: str = ""
+    quantity: str = ""
+
+    @field_validator("description", "sku", "quantity", mode="before")
+    @classmethod
+    def _stringify(cls, v: object) -> str:
+        return "" if v is None else str(v)
+
+
+class LineItemsResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    items: list[ExtractedLineItem] = Field(default_factory=list)
+
+
+def line_items_json_schema() -> dict:
+    """Strict-mode schema for the line-item read. See extraction_json_schema()."""
+    item = {
+        "type": "object",
+        "additionalProperties": False,
+        "description": (
+            "One row of the goods table, copied exactly as printed. Do not merge "
+            "two rows, do not split a wrapped row, do not restate the total."
+        ),
+        "properties": {
+            "description": {
+                "type": "string",
+                "description": "The printed goods description for this row, verbatim. '' if blank.",
+            },
+            "sku": {
+                "type": "string",
+                "description": (
+                    "The printed item number / SKU / HS-code-per-row for this row, verbatim. "
+                    "'' when the row has none — never invent one from the item sequence."
+                ),
+            },
+            "quantity": {
+                "type": "string",
+                "description": (
+                    "The printed quantity for this row, verbatim, including the unit as "
+                    "printed (e.g. '60 CTNS', '1,200 PCS'). '' when the row has none."
+                ),
+            },
+        },
+        "required": ["description", "sku", "quantity"],
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "items": {
+                "type": "array",
+                "maxItems": MAX_LINE_ITEMS,
+                "description": "Every goods row, in printed order. [] when the document lists none.",
+                "items": item,
+            }
+        },
+        "required": ["items"],
     }
 
 
@@ -527,6 +610,52 @@ class Narrative(BaseModel):
     superseded_at: str | None = None
 
 
+class LineItemMatch(BaseModel):
+    """One goods line, as seen by every document that stated it.
+
+    `quantities` maps a document label to the string that document printed, so a
+    disagreement is shown as two quotes rather than as a computed delta — the
+    reader has to be able to see what each paper actually said.
+    """
+
+    key: str
+    label: str
+    documents: list[str] = Field(default_factory=list)
+    quantities: dict[str, str] = Field(default_factory=dict)
+    # 'matched' | 'quantity_conflict' | 'unit_differs' | 'only_here'
+    status: str = "matched"
+    detail: str = ""
+
+
+class LineItemsSection(BaseModel):
+    """The goods-line picture. Additive, and off unless asked for.
+
+    `enabled` is kept separately from `status` because "nobody asked" and "asked,
+    found nothing" are different things to show a reviewer; collapsing them would
+    read as a failure on every run that left the flag off.
+    """
+
+    enabled: bool = False
+    status: Literal["disabled", "pending", "ok", "partial", "skipped", "failed"] = "disabled"
+    # 'live_api' | 'cached_live' | 'cached_authored' | 'none', same meaning as on
+    # DocumentReport.source. Never derived from the DEMO_MODE flag.
+    source: str = "none"
+    model: str = ""
+    provider: str = ""
+    documents: list[str] = Field(default_factory=list)
+    item_counts: dict[str, int] = Field(default_factory=dict)
+    matches: list[LineItemMatch] = Field(default_factory=list)
+    matched: int = 0
+    conflicts: int = 0
+    uncheckable: int = 0
+    note: str = ""
+    error: str | None = None
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+    latency_ms: int = 0
+    # Basenames under runs/{id}/raw/ for the line-item calls only.
+    raw_files: list[str] = Field(default_factory=list)
+
+
 class Report(BaseModel):
     shipment_id: str
     created_at: str
@@ -542,6 +671,8 @@ class Report(BaseModel):
     # strip, so a risk level that ignores them would be understating.
     sanity: list[SanityFinding] = Field(default_factory=list)
     briefing: Briefing = Field(default_factory=Briefing)
+    # Written after the comparisons are settled, and never read by the engine.
+    line_items: LineItemsSection = Field(default_factory=LineItemsSection)
 
 
 # ---------------------------------------------------------------------------

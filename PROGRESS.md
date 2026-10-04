@@ -715,3 +715,68 @@ could not be observed on this machine — the local interception layer answers
 the failure is the environment rather than the route. The server side of both is
 verified above.
 
+
+---
+
+## Phase 2 tail: goods-line matching, behind a flag that defaults off
+
+**What.** `app/lineitems.py` matches the rows of a goods table across documents,
+and the report gained a `line_items` section. The question it answers is the one a
+clerk actually asks on the phone: not "do the totals agree" but "which line is
+different". Both papers can print 100 cartons, 12,450 kg and the same value while
+one lists 60 + 40 and the other 50 + 50. Every field comparison passes that
+shipment.
+
+**The design choice that matters.** Nothing is scored on similarity. Two rows are
+the same row when they carry the same item number, or when both carry none and
+their descriptions fold to the same token set — case, accents, punctuation, word
+order and package words removed, every number kept. A `token_set_ratio` band
+anywhere in here would score `H-40` against `H-41` as a near match and delete the
+only finding in the room. The cost is accepted knowingly: `ALUMINIUM` and
+`ALUMINUM` fold apart and appear as two rows, and there is a test asserting
+exactly that, because two rows a person can reconcile beats one row that quietly
+merged.
+
+**Three defects found while building it, all caught by tests rather than review.**
+
+- `match_line_items` credited a document to only its *first* row. The guard
+  against double-applying a document was a per-document set shared across every
+  match, so the second and third rows of a page had an empty `documents` list —
+  and `_classify` then indexed `documents[0]` and raised `IndexError`. The
+  pipeline test hit it; the unit tests as first written did not, because most
+  used one row per document.
+- The authored-fallback cache tier matches on page hashes alone, so a goods-lines
+  fixture for a page would have answered a *ten-field* lookup for the same page.
+  It would not have raised: the shape parses, every field comes back absent, and
+  the report reads as a document that states nothing. The tier now filters on
+  `prompt_version`, which meant `ResponseCache.put` had to stop hard-coding the
+  scalar tag.
+- A line present on one document and absent from a document that was never read
+  for lines was described as "the other document lists no such item". That is a
+  claim about the bill of lading's contents, and nobody looked at it. Documents
+  that returned no rows are now named as not participating, separately from
+  documents checked and found not to print the line.
+
+**Wiring.** `ENABLE_LINE_ITEMS=false`, a second contract tag
+(`lineitems-v1`) rather than a second cache directory, a strict-mode schema whose
+example stays un-copyable for the reason `example_output()` documents, one
+correction rung and no ladder (a failure here returns a reason, because the
+scalar report is already correct without it), and the orchestrator writing the
+section *after* the report has been settled and persisted.
+
+**Verified.** 772 tests, pyflakes and ruff clean, selfcheck green. The
+default-off path is pinned by running the same fixture shipment twice and
+asserting the comparisons, summary, risk note, sanity findings and every document
+dump are identical with the flag on and off. End to end through a running server
+with a scratch cache: the JSON carries the conflict with both printed quantities
+verbatim, the browser panel renders it with the row tinted and the provenance flag
+reading `hand-authored fixture — no model read these lines`, and the shipment
+verdict stayed `clean` while a line conflicted — the exact case the feature
+exists for. The PDF section prints both documents' strings and refuses to render
+when the feature was never asked for.
+
+**Not verified, stated plainly:** no live model has ever produced goods lines for
+these fixtures, so the feature's *accuracy* is unmeasured and `DEMO_MODE` reports
+`skipped` rather than showing an empty table. The scratch cache used for the UI
+check was deleted; nothing hand-authored was written into `fixtures/`, where it
+would have become a fake model result.

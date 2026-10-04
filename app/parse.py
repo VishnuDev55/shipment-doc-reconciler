@@ -23,7 +23,13 @@ from typing import Any
 from pydantic import ValidationError
 
 from .fields import DOC_TYPES, FIELD_ORDER, FieldKey
-from .models import ExtractedField, ExtractionResponse
+from .models import (
+    ExtractedField,
+    ExtractionResponse,
+    ExtractedLineItem,
+    LineItemsResponse,
+    MAX_LINE_ITEMS,
+)
 
 SMART_QUOTES = {
     "‘": "'",
@@ -335,4 +341,90 @@ def parse_extraction(raw: str) -> ParseResult:
     result.repaired = repaired
     if notes:
         result.issues = notes + result.issues
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Line items: the same rungs, a different shape
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LineItemsParseResult:
+    response: LineItemsResponse | None = None
+    issues: list[str] = field(default_factory=list)
+    dropped_items: int = 0
+    repaired: bool = False
+    needs_retry: bool = False
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.response is not None
+
+
+def _coerce_line_item(raw: Any, index: int, issues: list[str]) -> ExtractedLineItem | None:
+    if not isinstance(raw, dict):
+        issues.append(f"item {index}: expected an object, got {type(raw).__name__}")
+        return None
+    # extra="ignore" means a stray page_index or unit key costs nothing; a row
+    # whose printed text we can read is worth keeping.
+    try:
+        item = ExtractedLineItem.model_validate(raw)
+    except ValidationError as exc:
+        issues.append(f"item {index}: dropped ({exc.errors()[0]['type']})")
+        return None
+    if not (item.description.strip() or item.sku.strip() or item.quantity.strip()):
+        issues.append(f"item {index}: dropped, every cell blank")
+        return None
+    return item
+
+
+def parse_line_items(raw: str) -> LineItemsParseResult:
+    """Parse the goods-lines response. Never raises.
+
+    Same rule as the scalar contract: one unreadable row must not sink the
+    document. Unlike the scalar contract there is no fixed key set to complete,
+    so a dropped row is reported as a count rather than a list of names.
+    """
+    result = LineItemsParseResult()
+    if raw is None or not str(raw).strip():
+        return LineItemsParseResult(needs_retry=True, error="empty model response")
+
+    obj, notes, repaired, error = load_json_object(str(raw))
+    result.repaired = repaired
+    if obj is None:
+        return LineItemsParseResult(
+            needs_retry=True, repaired=repaired, error=error, issues=notes
+        )
+
+    issues = list(notes)
+    raw_items = obj.get("items")
+    if raw_items is None:
+        issues.append("no 'items' key, read as a document with no goods table")
+        result.response = LineItemsResponse(items=[])
+        result.issues = issues
+        return result
+    if not isinstance(raw_items, list):
+        result.needs_retry = True
+        result.error = f"'items' is {type(raw_items).__name__}, expected an array"
+        result.issues = issues
+        return result
+
+    items: list[ExtractedLineItem] = []
+    for i, entry in enumerate(raw_items):
+        coerced = _coerce_line_item(entry, i + 1, issues)
+        if coerced is None:
+            result.dropped_items += 1
+            continue
+        items.append(coerced)
+
+    if len(items) > MAX_LINE_ITEMS:
+        issues.append(
+            f"truncated to the first {MAX_LINE_ITEMS} of {len(items)} rows"
+        )
+        items = items[:MAX_LINE_ITEMS]
+
+    result.response = LineItemsResponse(items=items)
+    result.issues = issues
     return result

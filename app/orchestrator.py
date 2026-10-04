@@ -46,11 +46,13 @@ from .correct import apply_correction, revert_corrections
 from .discovery import Catalog, Selection, fetch, resolve
 from .fields import FIELD_ORDER, FieldKey
 from .ingest import PageImage, ingest
+from .lineitems import LineItem, match_line_items
 from .models import (
     Adjudication,
     Comparison,
     ConsensusResult,
     DocumentReport,
+    LineItemMatch,
     NormalizedField,
     PageRef,
     Report,
@@ -743,12 +745,133 @@ class Reconciler:
         # read off the score.
         report.sanity = sanity_checks(report)
         report.risk = score_report(report)
+        self.store.write(report)
+
+        # After the write above, so the goods lines can only ever be read
+        # alongside a finished scalar report, never instead of it.
+        if self.settings.enable_line_items:
+            await self._read_line_items(report, prepared, raw_dir)
 
         await self._adjudicate(report)
         await self._write_briefing(report)
         await self._write_summary(report)
         self.store.write(report)
         self._tasks.pop(shipment_id, None)
+
+    # ------------------------------------------------------------------
+    # Opt-in goods lines. Runs last; can change nothing else.
+    # ------------------------------------------------------------------
+
+    async def _read_line_items(
+        self, report: Report, prepared: list[PreparedDocument], raw_dir: Path
+    ) -> None:
+        """Transcribe the goods table on each document and match the rows.
+
+        Called only when ENABLE_LINE_ITEMS is on, and only once the scalar
+        report has already been written. Nothing here is read by the comparison
+        engine, so every failure path leaves the verdicts exactly as they were —
+        the worst outcome is a section that says it could not be filled.
+        """
+        section = report.line_items
+        section.enabled = True
+        section.status = "pending"
+        section.model = self.client.endpoint.model
+        section.provider = self.client.endpoint.provider
+        self.store.write(report)
+
+        sets: dict[str, list[LineItem]] = {}
+        sources: list[str] = []
+        # Reason -> the documents it applies to. Four documents that all skipped
+        # for the same reason is one sentence, not four, and a reviewer reading a
+        # wall of repeated text learns less than one reading a named list.
+        problems: dict[str, list[str]] = {}
+
+        def note(label: str, message: str) -> None:
+            problems.setdefault(message, []).append(label)
+
+        call_failures = 0
+        usage = {"prompt": 0, "completion": 0, "total": 0}
+        started = time.monotonic()
+
+        for p in prepared:
+            doc = next((d for d in report.documents if d.id == p.doc_id), None)
+            if doc is None or doc.extraction is None:
+                # A document that failed to extract has no trusted pages to read
+                # a second time; re-asking would spend a call on a known failure.
+                continue
+            # Two uploads with the same filename get the same label, and a label
+            # collision here would silently merge two documents' rows into one.
+            label = p.label
+            if label in sets:
+                label = f"{label} ({p.doc_id})"
+            try:
+                out = await self.client.extract_line_items(
+                    document_id=p.doc_id, pages=p.pages, raw_dir=raw_dir
+                )
+            except Exception as exc:  # noqa: BLE001 - one line read must not sink the section
+                note(label, f"{type(exc).__name__}: {str(exc)[:180]}")
+                call_failures += 1
+                continue
+            section.raw_files.extend(out.raw_files)
+            for k, v in (out.usage or {}).items():
+                usage[k] = usage.get(k, 0) + int(v or 0)
+            sets[label] = [
+                LineItem(raw_description=i.description, raw_sku=i.sku, raw_quantity=i.quantity)
+                for i in out.items
+            ]
+            section.item_counts[label] = len(out.items)
+            sources.append(out.source)
+            if out.status == "failed":
+                call_failures += 1
+            if out.status != "ok":
+                note(label, out.error or out.status)
+            if out.dropped_items:
+                note(label, f"{out.dropped_items} row(s) unreadable and dropped")
+
+        section.usage = TokenUsage(**usage)
+        section.latency_ms = int((time.monotonic() - started) * 1000)
+        section.source = (
+            "live_api" if "live_api" in sources
+            else "cached_live" if "cached_live" in sources
+            else "cached_authored" if "cached_authored" in sources
+            else "none"
+        )
+
+        matched = match_line_items(sets)
+        section.documents = matched.documents
+        section.matches = [
+            LineItemMatch(
+                key=m.key,
+                label=m.label,
+                documents=list(m.documents),
+                quantities=dict(m.quantities),
+                status=m.status,
+                detail=m.detail,
+            )
+            for m in matched.matches
+        ]
+        section.matched = matched.matched
+        section.conflicts = matched.conflicts
+        section.uncheckable = matched.uncheckable
+
+        reason = "; ".join(
+            f"{', '.join(labels)}: {message}" for message, labels in problems.items()
+        )
+        if matched.skipped_reason:
+            reason = f"{reason}; {matched.skipped_reason}" if reason else matched.skipped_reason
+
+        # "skipped" and "failed" are different claims. DEMO_MODE with no captured
+        # goods lines skipped; a transport error failed. Collapsing them would
+        # make a keyless demo look like a broken API.
+        if not matched.usable:
+            section.status = "failed" if call_failures else "skipped"
+            section.error = reason if call_failures else None
+        elif problems:
+            section.status = "partial"
+        else:
+            section.status = "ok"
+        section.note = reason
+        self.store.write(report)
 
     # ------------------------------------------------------------------
     # Optional AI summary. Never allowed to affect state or verdict.

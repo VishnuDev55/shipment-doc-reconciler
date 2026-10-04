@@ -242,3 +242,65 @@ def test_a_failing_renderer_says_so_instead_of_shipping_silence(monkeypatch):
     monkeypatch.setattr(pisa_module, "CreatePDF", boom)
     with pytest.raises(RuntimeError, match="PDF rendering failed"):
         render_pdf(_crafted("8517.62.00"))
+
+
+# ---------------------------------------------------------------------------
+# The goods-lines section, which only exists when it was asked for
+# ---------------------------------------------------------------------------
+
+
+def _with_lines(**over) -> Report:
+    from app.models import LineItemMatch, LineItemsSection
+
+    report = _crafted("8517.62.00")
+    report.line_items = LineItemsSection(
+        enabled=True, status="ok", source="cached_authored",
+        documents=["invoice.png", "packing.png"],
+        matches=[
+            LineItemMatch(key="sku:H40", label="H-40",
+                          documents=["invoice.png", "packing.png"],
+                          quantities={"invoice.png": "60 CTNS",
+                                      "packing.png": "55 CTNS"},
+                          status="quantity_conflict",
+                          detail="the same line is counted differently"),
+            LineItemMatch(key="sku:B7", label="B-7",
+                          documents=["invoice.png", "packing.png"],
+                          quantities={"invoice.png": "10 CTNS",
+                                      "packing.png": "10 CTNS"}),
+        ],
+        matched=1, conflicts=1, uncheckable=0, **over)
+    return report
+
+
+def test_goods_lines_are_absent_from_a_report_that_never_asked_for_them():
+    """Off by default, and the paper must not mention a check that did not run."""
+    assert "Goods lines" not in report_html(_crafted("8517.62.00"))
+
+
+def test_the_goods_lines_print_with_both_documents_quoted_verbatim():
+    page = report_html(_with_lines())
+    assert "Goods lines" in page
+    assert "H-40" in page and "60 CTNS" in page and "55 CTNS" in page
+    # The status reaches the paper as words, not as the enum's snake_case.
+    assert "quantity conflict" in page and "quantity_conflict" not in page
+    assert "matched" in page
+    assert "nothing is scored on similarity" in page
+
+
+def test_the_section_says_which_documents_were_not_read():
+    page = report_html(_with_lines(note="bol.png returned no goods lines"))
+    assert "bol.png returned no goods lines" in page
+
+
+def test_a_goods_line_cannot_mark_up_the_report():
+    page = report_html(_with_lines())
+    assert "<script" not in page.lower()
+    hostile = _crafted("x")
+    from app.models import LineItemMatch, LineItemsSection
+
+    hostile.line_items = LineItemsSection(
+        enabled=True, status="ok", source="live_api", documents=["a"],
+        matches=[LineItemMatch(key="k", label="<script>alert(1)</script>",
+                               documents=["a"], quantities={"a": "</td><b>"})])
+    page = report_html(hostile)
+    assert "&lt;script&gt;" in page and "<script" not in page.lower()

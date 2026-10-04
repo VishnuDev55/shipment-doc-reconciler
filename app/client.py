@@ -38,12 +38,22 @@ from typing import Any, Literal
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 
 from .cache import ResponseCache, cache_key
-from .config import Settings, get_settings
+from .config import LINEITEMS_PROMPT_VERSION, Settings, get_settings
 from .fields import FieldKey
 from .ingest import PageImage
-from .models import ExtractionResponse, extraction_json_schema
-from .parse import ParseResult, parse_extraction
-from .prompt import correction_messages, messages_for, simplified_messages
+from .models import (
+    ExtractionResponse,
+    ExtractedLineItem,
+    extraction_json_schema,
+    line_items_json_schema,
+)
+from .parse import ParseResult, parse_extraction, parse_line_items
+from .prompt import (
+    correction_messages,
+    line_items_messages,
+    messages_for,
+    simplified_messages,
+)
 from .providers import Endpoint, summary_endpoint, vision_endpoint
 
 JsonMode = Literal["strict", "json_object", "plain", "cache"]
@@ -118,6 +128,30 @@ class ExtractionOutcome:
         return sum(a.latency_ms for a in self.attempts)
 
 
+@dataclass
+class LineItemsOutcome:
+    """The goods lines one document yielded, and how much to trust them.
+
+    Kept separate from ExtractionOutcome because it is a different contract read
+    off the same images: it has its own cache namespace, its own source stamp,
+    and a failure here must not touch the scalar verdicts already recorded.
+    """
+
+    items: list[ExtractedLineItem] = field(default_factory=list)
+    status: Literal["ok", "skipped", "failed"] = "ok"
+    # 'live_api' | 'cached_live' | 'cached_authored' | 'none'
+    source: str = "none"
+    used_cache: bool = False
+    issues: list[str] = field(default_factory=list)
+    error: str | None = None
+    dropped_items: int = 0
+    usage: dict[str, int] = field(default_factory=dict)
+    latency_ms: int = 0
+    raw_files: list[str] = field(default_factory=list)
+    provider: str = ""
+    model: str = ""
+
+
 def _message_text(message: Any) -> tuple[str, str]:
     """Pull usable text out of a chat message, handling reasoning-only replies.
 
@@ -177,14 +211,22 @@ class ChatClient:
             )
         return self._client
 
-    def response_format(self) -> dict[str, Any] | None:
+    def response_format(
+        self, *, schema: dict[str, Any] | None = None, name: str = "shipment_extraction"
+    ) -> dict[str, Any] | None:
+        """The structured-output param for this endpoint's honoured mode.
+
+        `schema` defaults to the scalar extraction contract; callers reading a
+        different shape (the goods lines) pass their own, so one endpoint's
+        probed capability serves both contracts.
+        """
         if self.json_mode == "strict":
             return {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "shipment_extraction",
+                    "name": name,
                     "strict": True,
-                    "schema": extraction_json_schema(),
+                    "schema": schema or extraction_json_schema(),
                 },
             }
         if self.json_mode == "json_object":
@@ -530,6 +572,174 @@ class ExtractionClient(ChatClient):
         except OSError:
             # A cache write failure must not lose a successful extraction.
             pass
+
+    async def extract_line_items(
+        self,
+        *,
+        document_id: str,
+        pages: list[PageImage],
+        raw_dir: Path | None = None,
+    ) -> LineItemsOutcome:
+        """Read the goods lines. Separate contract, separate cache namespace.
+
+        Deliberately simpler than the scalar ladder: two rungs and no schema
+        simplification. A failure here returns an outcome carrying the reason,
+        because the scalar report is already complete and correct without it —
+        one more fallback would only delay saying so.
+        """
+        async with self._semaphore:
+            return await self._line_items_locked(
+                document_id=document_id, pages=pages, raw_dir=raw_dir
+            )
+
+    async def _line_items_locked(
+        self,
+        *,
+        document_id: str,
+        pages: list[PageImage],
+        raw_dir: Path | None,
+    ) -> LineItemsOutcome:
+        page_hashes = [p.sha256 for p in pages]
+        key = cache_key(
+            page_hashes,
+            self.endpoint.model,
+            self.endpoint.provider,
+            prompt_version=LINEITEMS_PROMPT_VERSION,
+        )
+        raw_files: list[str] = []
+
+        def keep(stem: str, body: str) -> None:
+            written = self.persist_raw(stem, body, raw_dir=raw_dir)
+            if written:
+                raw_files.append(written)
+
+        def usage_of(logs: list[dict[str, int]]) -> dict[str, int]:
+            keys = ("prompt", "completion", "total")
+            return {k: sum((u or {}).get(k, 0) for u in logs) for k in keys}
+
+        cached = self.cache.get(
+            key, page_sha256s=page_hashes, prompt_version=LINEITEMS_PROMPT_VERSION
+        )
+        if cached is not None:
+            tier = self.cache.provenance_of(
+                key, page_sha256s=page_hashes, prompt_version=LINEITEMS_PROMPT_VERSION
+            )
+            parsed = parse_line_items(json.dumps(cached))
+            keep(f"{document_id}_lineitems_cache", json.dumps(cached))
+            if parsed.ok and parsed.response is not None:
+                return LineItemsOutcome(
+                    items=list(parsed.response.items),
+                    status="ok",
+                    source="cached_live" if tier == "live" else "cached_authored",
+                    used_cache=True,
+                    issues=parsed.issues,
+                    dropped_items=parsed.dropped_items,
+                    raw_files=raw_files,
+                    provider=self.endpoint.provider,
+                    model=self.endpoint.model,
+                )
+            return LineItemsOutcome(
+                status="failed",
+                error=f"cached line-item response unparsable: {parsed.error}",
+                used_cache=True,
+                raw_files=raw_files,
+                provider=self.endpoint.provider,
+                model=self.endpoint.model,
+            )
+
+        if self.settings.demo_mode:
+            return LineItemsOutcome(
+                status="skipped",
+                source="none",
+                error=(
+                    "DEMO_MODE is on and no captured line-item response exists for "
+                    "these images, so no goods lines were read."
+                ),
+                provider=self.endpoint.provider,
+                model=self.endpoint.model,
+            )
+
+        await self.probe()
+        uris = [p.data_uri for p in pages]
+        msgs = line_items_messages(uris)
+        fmt = self.response_format(
+            schema=line_items_json_schema(), name="shipment_line_items"
+        )
+        stages: list[tuple[str, list[dict], dict | None]] = [("lineitems", msgs, fmt)]
+        i = 0
+        usages: list[dict[str, int]] = []
+        started = time.monotonic()
+        issues: list[str] = []
+        error = ""
+
+        while i < len(stages):
+            rung, m, response_format = stages[i]
+            i += 1
+            try:
+                raw, field_used, usage = await self.transport_call(
+                    m, response_format=response_format, max_tokens=2000
+                )
+            except (APIStatusError, AllTransportAttemptsFailed, RuntimeError) as exc:
+                note = status_note(exc)
+                keep(f"{document_id}_{rung}", f"[transport error] {note}")
+                return LineItemsOutcome(
+                    status="failed",
+                    error=f"transport failed: {note}",
+                    issues=issues,
+                    usage=usage_of(usages),
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                    raw_files=raw_files,
+                    provider=self.endpoint.provider,
+                    model=self.endpoint.model,
+                )
+            keep(f"{document_id}_{rung}", raw)
+            if field_used != "content":
+                issues.append(f"answer read from '{field_used}' (content was empty)")
+            parsed = parse_line_items(raw)
+            if parsed.ok and parsed.response is not None:
+                usages.append(usage or {})
+                try:
+                    self.cache.put(
+                        key,
+                        parsed.response.model_dump(mode="json"),
+                        model=self.endpoint.model,
+                        provider=self.endpoint.provider,
+                        page_sha256s=page_hashes,
+                        raw_text=raw,
+                        prompt_version=LINEITEMS_PROMPT_VERSION,
+                    )
+                except OSError:
+                    pass
+                return LineItemsOutcome(
+                    items=list(parsed.response.items),
+                    status="ok",
+                    source="live_api",
+                    issues=issues + parsed.issues,
+                    dropped_items=parsed.dropped_items,
+                    usage=usage_of(usages),
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                    raw_files=raw_files,
+                    provider=self.endpoint.provider,
+                    model=self.endpoint.model,
+                )
+            usages.append(usage or {})
+            error = parsed.error or "unparsable"
+            issues.extend(parsed.issues)
+            if rung == "lineitems":
+                stages.append(
+                    ("lineitems_corrected", correction_messages(raw, error, m), response_format)
+                )
+
+        return LineItemsOutcome(
+            status="failed",
+            error=f"gave up; last error: {error}",
+            issues=issues,
+            usage=usage_of(usages),
+            latency_ms=int((time.monotonic() - started) * 1000),
+            raw_files=raw_files,
+            provider=self.endpoint.provider,
+            model=self.endpoint.model,
+        )
 
 
 class SummaryClient(ChatClient):

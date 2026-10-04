@@ -655,6 +655,7 @@ function renderReport(report) {
   renderTransparency(report);
   renderRisk(report);
   renderSanity(report);
+  renderLineItems(report);
 
   const run = report.run;
   const meta = $('#run-meta');
@@ -891,6 +892,92 @@ function renderSanity(report) {
     li.appendChild(el('span', 'sanity-text', f.explanation));
     list.appendChild(li);
   });
+}
+
+const LINEITEM_STATUS = {
+  matched: 'same on every document',
+  quantity_conflict: 'count differs',
+  unit_differs: 'package basis differs',
+  only_here: 'printed on one document',
+};
+
+/** Where the goods lines came from, said plainly. */
+function lineItemsProvenance(li) {
+  if (li.source === 'live_api') {
+    return `read on this run by ${li.provider} · ${li.model}`;
+  }
+  if (li.source === 'cached_live') {
+    return `replayed from a captured model read (${li.provider} · ${li.model})`;
+  }
+  if (li.source === 'cached_authored') {
+    return 'hand-authored fixture — no model read these lines';
+  }
+  return 'no goods lines were read';
+}
+
+function renderLineItems(report) {
+  const li = report.line_items || {};
+  const card = $('#lineitems-card');
+  // Off by default, so a run that never asked for this shows no panel at all.
+  // An empty "Goods lines" card would read as a check that came out clean.
+  if (!li.enabled) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+
+  const tag = $('#lineitems-tag');
+  tag.textContent = lineItemsProvenance(li);
+  tag.className = 'flag'
+    + (li.source === 'cached_authored' ? ' flag-warn'
+       : li.source === 'live_api' ? ' flag-live' : '');
+
+  const note = $('#lineitems-note');
+  note.textContent = li.note || '';
+  note.hidden = !li.note;
+
+  const table = $('#lineitems');
+  table.textContent = '';
+  const matches = li.matches || [];
+  if (li.status === 'pending') {
+    $('#lineitems-hint').textContent = 'Reading the goods lines…';
+    table.hidden = true;
+    $('#lineitems-meta').textContent = '';
+    return;
+  }
+  table.hidden = !matches.length;
+  $('#lineitems-hint').textContent = matches.length
+    ? `${li.matched} line(s) agree, ${li.conflicts} disagree, `
+      + `${li.uncheckable} printed on one document only.`
+    : 'No goods lines to compare.';
+
+  if (matches.length) {
+    const docs = li.documents || [];
+    const head = el('tr');
+    ['Item', ...docs, 'Status', 'What it means'].forEach((t, i) => {
+      head.appendChild(i === 0 ? el('th', null, t) : el('td', null, t));
+    });
+    const thead = el('thead');
+    thead.appendChild(head);
+    table.appendChild(thead);
+
+    const tbody = el('tbody');
+    matches.forEach((m) => {
+      const tr = el('tr', 'li-' + m.status);
+      tr.appendChild(el('th', 'mono', m.label));
+      docs.forEach((d) => tr.appendChild(el('td', 'mono', m.quantities[d] || '—')));
+      tr.appendChild(el('td', null, LINEITEM_STATUS[m.status] || m.status));
+      tr.appendChild(el('td', 'reason', m.detail || ''));
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+  }
+
+  $('#lineitems-meta').textContent =
+    lineItemsProvenance(li)
+    + (li.usage && li.usage.total ? ` · ${li.usage.total} tokens` : '')
+    + (li.latency_ms ? ` · ${(li.latency_ms / 1000).toFixed(1)}s` : '')
+    + ' · matching is exact, in Python; nothing here changes the verdict above.';
 }
 
 function renderBriefing(report) {

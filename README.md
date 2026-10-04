@@ -451,7 +451,7 @@ Three properties that make this safe rather than merely convenient:
   discarded, and nothing stale is presented as current.
 
 Reverted entries, refusals and limits: an empty value is a deletion rather than a
-correction and is refused (400), as is a field outside the six; an unknown
+correction and is refused (400), as is a field outside the ten; an unknown
 shipment is 404. `actor` is free text, not identity — this app has no accounts, so
 the trail records who they claimed to be, which is still worth more than nothing.
 
@@ -494,6 +494,56 @@ catalog, so the default model is verified live and `model_selection` reports
 **Still unverified: Nebius.** No Token Factory key was available, so its
 `?verbose=true` modality handling is tested against replayed payloads only. Run
 `make probe-live` with a Nebius key to confirm.
+
+### Line by line, when the totals agree and the shipment is still wrong
+
+`ENABLE_LINE_ITEMS=true` asks for a second, separate read of every page: the
+goods table, transcribed row by row. Those rows are then matched in Python across
+documents, and the report gains a **Goods lines** section naming *which line*
+disagrees.
+
+This exists because the scalar fields answer "do the totals agree", and that is a
+weaker question than it looks. An invoice and a packing list can both print 100
+cartons, 12,450 kg and the same value, while one lists 60 + 40 and the other 50 +
+50. Every field comparison passes. The shipment is still wrong.
+
+What it deliberately does not do:
+
+- **It cannot move a verdict.** The section is written after the comparisons, the
+  risk score and the shipment state are settled and persisted, and nothing in the
+  engine reads it. `tests/test_lineitems.py` runs the same fixture twice and
+  asserts the comparisons, summary, risk contributions, sanity findings and every
+  document are byte-identical with the flag on and off.
+- **It never matches on similarity.** Two rows are the same row when they carry
+  the same item number, or when both carry none and their descriptions fold to
+  the same tokens (case, accents, punctuation, word order and package words
+  removed; every number kept). A fuzzy band would score `H-40` against `H-41` as
+  a near match and delete the only finding in the room. A spelling variant of a
+  material name therefore shows up as two rows, which is a thing a person can
+  resolve, rather than one row, which is not.
+- **It counts a package-basis difference separately from a conflict.** 60 PCS
+  against 60 CTNS is reported as `package basis differs`, not as a disagreement
+  about how much was shipped.
+- **It says which documents were not read.** A bill of lading with no goods table
+  is never described as "not listing the item" — nobody read its lines, and the
+  detail says so instead of implying a comparison that did not happen.
+- **It has its own cache contract.** The key is
+  `sha256("lineitems-v1", provider, model, page_hashes)`, and the hand-authored
+  fallback tier filters on that tag. Without the filter, a goods-lines fixture
+  would answer a ten-field lookup on the same pages, and the shape would parse
+  with every field absent — a silent, plausible-looking empty report.
+
+**Verification status, stated plainly: the line-item read has never been run
+against a live model.** No fixture page has captured goods lines, so in
+`DEMO_MODE` the section reports `skipped` with that reason rather than showing an
+empty table. What *has* been verified is the plumbing, offline and through the
+running app: parsing and repair, the cache namespace, the pipeline's inability to
+change a verdict, and the UI and PDF rendering the section from a hand-seeded
+cache — which the panel then labels `hand-authored fixture — no model read these
+lines`. Capturing real goods lines is a `make probe-live`-shaped follow-up, and
+until it happens the feature's accuracy against a model is unmeasured.
+
+Off by default because it is one more vision call per document.
 
 ### Extracting live
 

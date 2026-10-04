@@ -210,6 +210,38 @@ def _corrections(report: Report) -> str:
 already reflects them.</p>{table}{back}"""
 
 
+def _line_items(report: Report) -> str:
+    """The goods-line section, only when it was asked for and has something in it.
+
+    Omitted entirely when disabled. A "Goods lines: not run" heading in a formal
+    artifact would read as a check that was skipped, which is true but is not
+    information the paper needs about a feature that defaults off.
+    """
+    li = report.line_items
+    if not li.enabled or not li.matches:
+        return ""
+    docs = li.documents
+    head = "".join(f"<th>{esc(d)}</th>" for d in docs)
+    rows = "".join(
+        "<tr>"
+        f"<td class='val'>{esc(m.label)}</td>"
+        + "".join(f"<td class='val'>{esc(m.quantities.get(d) or '—')}</td>" for d in docs)
+        + f"<td>{esc(m.status.replace('_', ' '))}</td>"
+        f"<td class='small'>{esc(m.detail)}</td>"
+        "</tr>"
+        for m in li.matches
+    )
+    note = (f"<p class='small'>{esc(li.note)}</p>") if li.note else ""
+    return f"""<h2>Goods lines</h2>
+<p class="small">Line by line, not total by total: {li.matched} agree,
+{li.conflicts} disagree, {li.uncheckable} printed on one document only. Matched in
+Python on the item number, or on an identical description once package words are
+removed; nothing is scored on similarity. {esc(li.source.replace('_', ' '))}.
+Advisory — these lines do not feed the verdicts above.</p>
+<table><thead><tr><th>Item</th>{head}<th>Status</th><th>What it means</th></tr>
+<tbody>{rows}</tbody></table>{note}"""
+
+
 def _model_prose(report: Report) -> str:
     """Narrative and draft email, each labelled as the model output it is."""
     blocks = []
@@ -251,7 +283,8 @@ def report_html(report: Report) -> str:
     """The printable HTML. Exposed because it is the thing tests can read."""
     body = "".join([
         _header(report), _risk(report), _comparisons(report), _sanity(report),
-        _corrections(report), _model_prose(report), _documents(report),
+        _line_items(report), _corrections(report), _model_prose(report),
+        _documents(report),
     ])
     footer = (
         f"prompt {esc(report.run.prompt_version)} · normalizer "

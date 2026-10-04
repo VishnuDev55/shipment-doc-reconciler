@@ -18,6 +18,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROMPT_VERSION = "extract-v4"
 NORMALIZER_VERSION = "norm-v1"
 COMPARATOR_VERSION = "cmp-v1"
+# Line items are a separate contract read from the same page images. It has to
+# carry its own version tag or its cache entries land in the scalar namespace:
+# the key is a hash of (prompt_version, provider, model, pages), and the
+# hand-authored fallback tier matches on page hashes alone.
+LINEITEMS_PROMPT_VERSION = "lineitems-v1"
 
 
 class Settings(BaseSettings):
@@ -95,6 +100,14 @@ class Settings(BaseSettings):
     # agree on. Off by default because it doubles the token spend of a run, and
     # the result is a review marker rather than a better answer.
     consensus: bool = Field(default=False, alias="CONSENSUS")
+
+    # A second, separate read of every page that transcribes the goods lines
+    # rather than the totals, so the report can say *which line* disagrees. Off
+    # by default: it is one more vision call per document, and no scalar verdict
+    # depends on it. The matched-items section is appended after the run is
+    # already complete, so enabling it cannot change a field status, a risk
+    # score or the shipment verdict.
+    enable_line_items: bool = Field(default=False, alias="ENABLE_LINE_ITEMS")
     # 'nvidia' | 'nebius' | blank for "whichever the primary run is not".
     consensus_provider: str = Field(default="", alias="CONSENSUS_PROVIDER")
 

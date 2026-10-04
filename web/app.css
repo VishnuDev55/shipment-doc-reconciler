@@ -703,6 +703,15 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
 
 .cmp .flag::before { display: none; }
 
+/* Goods lines. The row's status is the finding, so the row carries the tint
+   instead of a badge — a reviewer scanning for trouble reads down the page. */
+.li-quantity_conflict { background: var(--bad-soft); }
+.li-unit_differs { background: var(--warn-soft); }
+.li-only_here { background: var(--surface-sunk); }
+/* An item number is the one cell that must never wrap: "H-40" split over two
+   lines reads as two parts, which is the exact error this table exists to catch. */
+#lineitems tbody th { min-width: 6.5rem; }
+
 /* Documents collapse: the head is the summary, so it needs the disclosure
  * affordance the browser drops once the element is restyled as a flex row. */
 .doc > summary { cursor: pointer; list-style: none; }
