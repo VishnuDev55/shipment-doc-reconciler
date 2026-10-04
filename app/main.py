@@ -398,6 +398,29 @@ def fixtures() -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
+READ_CHUNK = 1 << 20  # 1 MiB
+
+
+async def _read_capped(upload: UploadFile, limit: int) -> bytes:
+    """Read an upload, refusing it the moment it passes the limit.
+
+    ``await upload.read()`` followed by a length check reads the whole body into
+    memory first, so the limit only ever decides whether to reject something that
+    has already been paid for -- and five files at a generous limit is a request
+    that can exhaust the worker. Reading in chunks aborts at limit + 1 byte.
+    """
+    buffer = bytearray()
+    while True:
+        piece = await upload.read(READ_CHUNK)
+        if not piece:
+            return bytes(buffer)
+        buffer.extend(piece)
+        if len(buffer) > limit:
+            raise HTTPException(
+                413, f"{upload.filename} exceeds the {limit} byte limit"
+            )
+
+
 @app.post("/api/shipments", dependencies=[Depends(require_api_key)])
 async def create_shipment(
     files: list[UploadFile] = File(...),
@@ -420,11 +443,7 @@ async def create_shipment(
 
     uploads: list[tuple[str, str | None, bytes]] = []
     for i, upload in enumerate(files):
-        data = await upload.read()
-        if len(data) > settings.max_upload_bytes:
-            raise HTTPException(
-                413, f"{upload.filename} exceeds the {settings.max_upload_bytes} byte limit"
-            )
+        data = await _read_capped(upload, settings.max_upload_bytes)
         declared_type = declared[i] if i < len(declared) else None
         uploads.append((upload.filename or f"document{i + 1}", declared_type, data))
 

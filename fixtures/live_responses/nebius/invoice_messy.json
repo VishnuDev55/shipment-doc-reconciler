@@ -1,8 +1,8 @@
 {
-  "cache_key": "1863fb5769843715333d0ae88b6982cf",
+  "cache_key": "05f9e92ffc46e253db944129d858bc4e",
   "model": "openbmb/MiniCPM-V-4_5",
   "provider": "nebius",
-  "prompt_version": "extract-v3",
+  "prompt_version": "extract-v4",
   "page_sha256": [
     "077218f6a820aed4602071944d784170792e8afdc3de43779849d246eb617c08"
   ],

@@ -12,7 +12,9 @@ the frontend's 1-second poll sees progress without two writers racing on disk.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -61,8 +63,14 @@ from .normalize import normalize_field
 from .providers import summary_endpoint, vision_endpoint
 from .rules import sanity_checks
 from .scoring import score_report
+from starlette.concurrency import run_in_threadpool
+
 from .store import RunStore, new_shipment_id
 from .summary import build_summary_prompt, summary_is_plausible
+
+# Every line carries a shipment id, so a production run can be traced by grepping one
+# token instead of correlating timestamps by eye.
+log = logging.getLogger("sdr.run")
 
 
 def _now() -> str:
@@ -323,7 +331,14 @@ class Reconciler:
         self.store = store or RunStore(self.settings.runs_dir)
         self.client = ExtractionClient(self.settings)
         self.summary_client = SummaryClient(self.settings)
-        self._reports: dict[str, Report] = {}
+        # Bounded, oldest-evicted. Every report was also written to disk, so an
+        # eviction costs a re-read, never data -- while an unbounded dict means a
+        # long-lived instance is holding every shipment it has ever served.
+        self._reports: OrderedDict[str, Report] = OrderedDict()
+        self._purged = self.store.purge_older_than(settings.run_ttl_hours)
+        if self._purged:
+            log.info("purged %d run(s) older than %dh", len(self._purged),
+                     settings.run_ttl_hours)
         self._tasks: dict[str, asyncio.Task] = {}
         # Discovery results, keyed by host so two roles on one host share a
         # catalog. Both are best-effort: an unreachable host leaves the
@@ -545,9 +560,14 @@ class Reconciler:
             if len(data) > self.settings.max_upload_bytes:
                 rejected.append((label, filename, "file exceeds the size limit", declared))
                 continue
-            self.store.save_upload(shipment_id, filename, data)
+            # Rasterising a PDF and decoding a photo are CPU-bound C calls, and
+            # writing the evidence is disk IO. Both used to run on the event
+            # loop, where one 6-page scan stalls every other shipment's
+            # in-flight request for its duration.
+            await run_in_threadpool(self.store.save_upload, shipment_id, filename, data)
             try:
-                pages = ingest(
+                pages = await run_in_threadpool(
+                    ingest,
                     filename,
                     data,
                     long_edge=self.settings.image_long_edge,
@@ -555,10 +575,13 @@ class Reconciler:
                     max_pages=self.settings.max_pages_per_document,
                 )
             except ValueError as exc:
+                log.info("shipment %s: rejected %s: %s", shipment_id, filename, exc)
                 rejected.append((label, filename, str(exc), declared))
                 continue
 
-            page_paths = self.store.save_pages(shipment_id, doc_id, pages)
+            page_paths = await run_in_threadpool(
+                self.store.save_pages, shipment_id, doc_id, pages
+            )
             prepared.append(
                 PreparedDocument(
                     doc_id=doc_id,
@@ -619,15 +642,46 @@ class Reconciler:
                 usd_per_mtok=self.settings.usd_per_mtok,
             ),
         )
-        self._reports[shipment_id] = report
+        self._remember(shipment_id, report)
         refresh_report(report, self.client)
         self.store.write(report)
 
         if prepared:
-            self._tasks[shipment_id] = asyncio.create_task(
-                self._process(shipment_id, prepared)
-            )
+            task = asyncio.create_task(self._process(shipment_id, prepared))
+            self._tasks[shipment_id] = task
+            task.add_done_callback(lambda done: self._task_done(shipment_id, done))
+        else:
+            log.warning("shipment %s: every document was rejected", shipment_id)
         return shipment_id, report
+
+    def _task_done(self, shipment_id: str, task: asyncio.Task) -> None:
+        """Surface whatever killed a run.
+
+        A bare create_task swallows exceptions into "Task exception was never
+        retrieved", which arrives on stderr some time later with no shipment id
+        attached -- so a run that died mid-flight looked like a run that was
+        still running. The report on disk is the reader's source of truth; this
+        only makes sure the failure is attributable.
+        """
+        self._tasks.pop(shipment_id, None)
+        if task.cancelled():
+            log.warning("shipment %s: processing cancelled", shipment_id)
+            return
+        error = task.exception()
+        if error is not None:
+            log.error("shipment %s: processing crashed: %s: %s",
+                      shipment_id, type(error).__name__, error)
+
+    def _remember(self, shipment_id: str, report: Report) -> None:
+        self._reports[shipment_id] = report
+        self._reports.move_to_end(shipment_id)
+        limit = max(self.settings.max_reports_in_memory, 1)
+        while len(self._reports) > limit:
+            dropped, _ = self._reports.popitem(last=False)
+            log.debug("evicted report %s from memory", dropped)
+
+    def _forget(self, shipment_id: str) -> None:
+        self._reports.pop(shipment_id, None)
 
     # ------------------------------------------------------------------
 

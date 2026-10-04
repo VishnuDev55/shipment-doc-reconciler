@@ -149,6 +149,11 @@ class ChatClient:
         self.json_mode: JsonMode = "cache" if settings.demo_mode else "plain"
         self._probed = settings.demo_mode
         self._client: AsyncOpenAI | None = None
+        # Guards the capability probe. Created here, not lazily: an attribute
+        # named through a string never picks up the class-private mangling, so a
+        # lazily-created lock looked initialised and handed out a fresh one on
+        # every call. The concurrency test caught it.
+        self._probe_gate = asyncio.Lock()
 
     @property
     def client(self) -> AsyncOpenAI:
@@ -250,6 +255,17 @@ class ChatClient:
         raise AllTransportAttemptsFailed(attempts)
 
     async def probe(self, *, force: bool = False) -> JsonMode:
+        """Public wrapper so only one document per client ever pays for a probe.
+
+        `probe` writes `self.json_mode`, and every document in a fan-out calls
+        it. Two documents starting cold used to both run the probe: duplicate
+        spend, and a mode that could change underneath the other mid-flight.
+        The lock makes the second caller wait for the first answer instead.
+        """
+        async with self._probe_gate:
+            return await self._probe(force=force)
+
+    async def _probe(self, *, force: bool = False) -> JsonMode:
         """Decide once what structured-output mode this endpoint honours."""
         if self.settings.demo_mode:
             self.json_mode = "cache"

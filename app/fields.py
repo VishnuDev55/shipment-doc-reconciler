@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-DocType = Literal["commercial_invoice", "packing_list", "bill_of_lading", "other"]
+DocType = Literal["commercial_invoice", "packing_list", "bill_of_lading",
+              "certificate_of_origin", "other"]
 FieldKey = Literal[
     "quantity",
     "gross_weight",
@@ -52,6 +53,7 @@ DOC_TYPES: tuple[DocType, ...] = (
     "commercial_invoice",
     "packing_list",
     "bill_of_lading",
+    "certificate_of_origin",
     "other",
 )
 
@@ -94,6 +96,13 @@ EXPECTED: dict[DocType, frozenset[FieldKey]] = {
     "bill_of_lading": frozenset({
         "quantity", "gross_weight", "net_weight", "container_number", "consignee_name",
     }),
+    # A certificate of origin exists to state two of our fields and nothing else:
+    # it carries no value line on purpose, because duty is assessed from the
+    # invoice, not the certificate.
+    "certificate_of_origin": frozenset({
+        "quantity", "gross_weight", "net_weight", "hs_code", "consignee_name",
+        "country_of_origin",
+    }),
     "other": frozenset(),
 }
 
@@ -103,7 +112,7 @@ TYPICALLY_IN: dict[FieldKey, str] = {
     "quantity": "invoice, packing list, bill of lading",
     "gross_weight": "packing list, bill of lading",
     "container_number": "bill of lading",
-    "hs_code": "invoice",
+    "hs_code": "invoice, certificate of origin",
     "consignee_name": "all documents",
     "invoice_value": "invoice",
     "net_weight": "packing list, bill of lading",

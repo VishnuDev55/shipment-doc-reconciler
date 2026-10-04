@@ -1,6 +1,6 @@
 {
   "generated_by": "scripts/build_fixtures.py",
-  "prompt_version": "extract-v3",
+  "prompt_version": "extract-v4",
   "model": "hand-authored-fixture",
   "note": "Fixtures and cached responses are hand-authored synthetic data. They are NOT model output and prove nothing about live API behaviour.",
   "shipments": {
@@ -12,7 +12,7 @@
             "invoice_clean.png"
           ],
           "pages": 1,
-          "cache_key": "4f8f858402c0adc79a204d63c16578e0"
+          "cache_key": "14bad46cf3b57de771f80aaae0e50310"
         },
         {
           "doc_type": "packing_list",
@@ -20,7 +20,7 @@
             "packing_list_clean.png"
           ],
           "pages": 1,
-          "cache_key": "7b0b1ce2f5faa8735045909dc75bb67c"
+          "cache_key": "253b2f7b8df0bcd8b0dba9bfea1952a1"
         },
         {
           "doc_type": "bill_of_lading",
@@ -28,7 +28,15 @@
             "bol_clean.png"
           ],
           "pages": 1,
-          "cache_key": "5c7a2a7bd2a660d8482453b8967bfdd8"
+          "cache_key": "32a2d18128d725c81a42471030b0abd3"
+        },
+        {
+          "doc_type": "certificate_of_origin",
+          "files": [
+            "coo_clean.png"
+          ],
+          "pages": 1,
+          "cache_key": "f859659ca5d242c03fbf071cffa5757a"
         }
       ]
     },
@@ -40,7 +48,7 @@
             "invoice_conflict.png"
           ],
           "pages": 1,
-          "cache_key": "a266437cac7bd06e58bc89f27a38516c"
+          "cache_key": "86190940cfa223b9adc756ee127f8d2b"
         },
         {
           "doc_type": "packing_list",
@@ -48,7 +56,7 @@
             "packing_list_conflict.png"
           ],
           "pages": 1,
-          "cache_key": "4a9e06317a6188a22fcdd4279428b211"
+          "cache_key": "93be61592a88955c8cef62b6dd801d00"
         },
         {
           "doc_type": "bill_of_lading",
@@ -56,7 +64,15 @@
             "bol_conflict.png"
           ],
           "pages": 1,
-          "cache_key": "356ae39ca4d85e73970679905143a807"
+          "cache_key": "e3965b4bad757bf959a1dd9d15aef12e"
+        },
+        {
+          "doc_type": "certificate_of_origin",
+          "files": [
+            "coo_conflict.png"
+          ],
+          "pages": 1,
+          "cache_key": "98ead5e8eb4263e19f0b3881b12d4f40"
         }
       ]
     },
@@ -68,7 +84,7 @@
             "invoice_messy.png"
           ],
           "pages": 1,
-          "cache_key": "32c29d310e99d47e88b28cdc48bce52b"
+          "cache_key": "040d56b974c75d4edae5d14bca315547"
         },
         {
           "doc_type": "packing_list",
@@ -76,7 +92,7 @@
             "packing_list_messy.pdf"
           ],
           "pages": 2,
-          "cache_key": "6f65bb70c3ece341ac739be24c70d97a"
+          "cache_key": "2586e48f54a6573e1d62b59f57e638dc"
         },
         {
           "doc_type": "bill_of_lading",
@@ -84,7 +100,15 @@
             "bol_messy.png"
           ],
           "pages": 1,
-          "cache_key": "efd7cef8dfd8395c58a8f72bd709b9c7"
+          "cache_key": "aa30316826b3743dd27c5d4532df204b"
+        },
+        {
+          "doc_type": "certificate_of_origin",
+          "files": [
+            "coo_messy.png"
+          ],
+          "pages": 1,
+          "cache_key": "827a036f727f995896675f81801c0027"
         }
       ]
     }

@@ -11,12 +11,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
+import shutil
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import Report
+
+log = logging.getLogger("sdr.store")
 
 
 def new_shipment_id() -> str:
@@ -35,6 +39,46 @@ class RunStore:
         # Set by the reconciler to fan report changes out to SSE listeners.
         # Optional by design: scripts and tests write runs without a server.
         self.on_write: Callable[[Report], None] | None = None
+
+    def purge_older_than(self, hours: int) -> list[str]:
+        """Delete runs whose meta says they are older than `hours`. Returns the ids.
+
+        Age comes from meta.json's created_at, falling back to the directory's
+        own mtime for runs written before meta existed. Anything unreadable is
+        left alone: this deletes other people's evidence, so a doubtful case is
+        a keep, never a remove.
+        """
+        from datetime import timedelta
+
+        if hours <= 0 or not self.root.is_dir():
+            return []
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        removed: list[str] = []
+        for entry in sorted(self.root.iterdir()):
+            if not entry.is_dir():
+                continue
+            created = self._created_at(entry)
+            if created is None or created > cutoff:
+                continue
+            try:
+                shutil.rmtree(entry)
+                removed.append(entry.name)
+            except OSError as exc:  # pragma: no cover -- disk/permissions
+                log.warning("could not purge run %s: %s", entry.name, exc)
+        return removed
+
+    def _created_at(self, run_dir: Path):
+        try:
+            meta = json.loads((run_dir / "meta.json").read_text())
+            stamp = str(meta.get("created_at") or "")
+            if stamp:
+                return datetime.fromisoformat(stamp)
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        try:
+            return datetime.fromtimestamp(run_dir.stat().st_mtime, tz=timezone.utc)
+        except OSError:
+            return None
 
     def dir(self, shipment_id: str) -> Path:
         return self.root / shipment_id

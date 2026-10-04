@@ -24,6 +24,7 @@ const DOC_TYPES = [
   ['commercial_invoice', 'Commercial invoice'],
   ['packing_list', 'Packing list'],
   ['bill_of_lading', 'Bill of lading'],
+  ['certificate_of_origin', 'Certificate of origin'],
   ['other', 'Other'],
 ];
 

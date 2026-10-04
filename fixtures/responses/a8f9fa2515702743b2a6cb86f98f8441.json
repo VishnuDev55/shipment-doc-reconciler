@@ -1,0 +1,87 @@
+{
+  "cache_key": "a8f9fa2515702743b2a6cb86f98f8441",
+  "provider": "nebius",
+  "model": "openbmb/MiniCPM-V-4_5",
+  "prompt_version": "extract-v4",
+  "page_sha256": [
+    "775d3ecca0c9c1ad64e4c58f9d8c6104c5be5043f06ba3e3dc3303fcf414ec69"
+  ],
+  "response": {
+    "doc_type": "packing_list",
+    "doc_type_reason": "The document is titled \"PACKING LIST\" and contains details such as consignee, packing list number, date, invoice reference, country of origin, container number, and a table with descriptions, quantities, weights, and volumes.",
+    "fields": {
+      "quantity": {
+        "present": true,
+        "value": "100 cartons",
+        "evidence_text": "TOTAL NO. OF PACKAGES 100 cartons",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "gross_weight": {
+        "present": true,
+        "value": "12,450.00 KGS",
+        "evidence_text": "TOTAL GROSS WT 12,450.00 KGS",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "net_weight": {
+        "present": true,
+        "value": "11,600.00 KGS",
+        "evidence_text": "TOTAL NET WT 11,600.00 KGS",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "container_number": {
+        "present": true,
+        "value": "MSKU3067322",
+        "evidence_text": "MSKU3067322",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "hs_code": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "consignee_name": {
+        "present": true,
+        "value": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "Nordwind Industrial Supply GmbH",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "invoice_value": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "incoterms": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "po_number": {
+        "present": true,
+        "value": "HW-2026-0912",
+        "evidence_text": "HW-2026-0912",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "country_of_origin": {
+        "present": true,
+        "value": "China",
+        "evidence_text": "China",
+        "page_index": 1,
+        "confidence": 1.0
+      }
+    }
+  },
+  "raw_text": "{\n  \"doc_type\": \"packing_list\",\n  \"doc_type_reason\": \"The document is titled \\\"PACKING LIST\\\" and contains details such as consignee, packing list number, date, invoice reference, country of origin, container number, and a table with descriptions, quantities, weights, and volumes.\",\n  \"fields\": {\n    \"quantity\": {\n      \"present\": true,\n      \"value\": \"100 cartons\",\n      \"evidence_text\": \"TOTAL NO. OF PACKAGES 100 cartons\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"gross_weight\": {\n      \"present\": true,\n      \"value\": \"12,450.00 KGS\",\n      \"evidence_text\": \"TOTAL GROSS WT 12,450.00 KGS\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"net_weight\": {\n      \"present\": true,\n      \"value\": \"11,600.00 KGS\",\n      \"evidence_text\": \"TOTAL NET WT 11,600.00 KGS\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"container_number\": {\n      \"present\": true,\n      \"value\": \"MSKU3067322\",\n      \"evidence_text\": \"MSKU3067322\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"hs_code\": {\n      \"present\": false,\n      \"value\": null,\n      \"evidence_text\": \"\",\n      \"page_index\": 1,\n      \"confidence\": 0.0\n    },\n    \"consignee_name\": {\n      \"present\": true,\n      \"value\": \"Nordwind Industrial Supply GmbH\",\n      \"evidence_text\": \"Nordwind Industrial Supply GmbH\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"invoice_value\": {\n      \"present\": false,\n      \"value\": null,\n      \"evidence_text\": \"\",\n      \"page_index\": 1,\n      \"confidence\": 0.0\n    },\n    \"incoterms\": {\n      \"present\": false,\n      \"value\": null,\n      \"evidence_text\": \"\",\n      \"page_index\": 1,\n      \"confidence\": 0.0\n    },\n    \"po_number\": {\n      \"present\": true,\n      \"value\": \"HW-2026-0912\",\n      \"evidence_text\": \"HW-2026-0912\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"country_of_origin\": {\n      \"present\": true,\n      \"value\": \"China\",\n      \"evidence_text\": \"China\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    }\n  }\n}",
+  "_provenance": "live API response"
+}

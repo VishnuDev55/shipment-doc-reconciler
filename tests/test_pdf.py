@@ -131,8 +131,17 @@ def test_a_replayed_report_says_it_made_no_call(conflict_pdf):
 
 
 def test_the_versions_that_produced_it_are_printed(conflict_pdf):
+    """The version string is read from the config, not written out here.
+
+    An earlier version of this test hardcoded "extract-v3" and failed the day
+    the contract moved to v4 -- which is the correct outcome for the product and
+    the wrong one for a test, since the point is that the PDF carries whatever
+    version produced the report, not that it carries a particular number.
+    """
+    from app.config import PROMPT_VERSION
+
     text = pdf_text(conflict_pdf)
-    assert "prompt extract-v3" in text
+    assert f"prompt {PROMPT_VERSION}" in text
     assert "normalizer" in text and "comparator" in text
 
 

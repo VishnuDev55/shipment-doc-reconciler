@@ -142,6 +142,61 @@ def packing_list(
     return _page("PACKING LIST", "Packing specification — synthetic sample", body)
 
 
+def certificate_of_origin(
+    *,
+    form_no: str,
+    serial: str,
+    consignor: str,
+    consignor_addr: str,
+    consignee: str,
+    consignee_addr: str,
+    goods: str,
+    packages: str,
+    hs_code: str,
+    origin: str,
+    gross_weight: str,
+    net_weight: str,
+    invoice_ref: str,
+    vessel: str,
+    issued: str,
+) -> str:
+    """A Form A style certificate of origin.
+
+    Deliberately missing: any value line. A certificate states what the goods
+    are and where they are from, and never what was paid for them -- duty is
+    assessed from the invoice, so a certificate that carried a price would be
+    the document to distrust.
+    """
+    body = (
+        f"""<table class="party"><tr><td class="plbl">1. Consignor</td>
+<td class="pval"><b>{consignor}</b><br>{consignor_addr}</td></tr></table>"""
+        + f"""<table class="party"><tr><td class="plbl">2. Consignee</td>
+<td class="pval"><b>{consignee}</b><br>{consignee_addr}</td></tr></table>"""
+        + f"""<table class="kv">
+<tr><td class="k">Certificate no.</td><td>{form_no} / {serial}</td></tr>
+<tr><td class="k">Issued at / on</td><td>{issued}</td></tr>
+<tr><td class="k">Invoice reference</td><td>{invoice_ref}</td></tr>
+<tr><td class="k">Means of transport</td><td>{vessel}</td></tr>
+</table>
+<table><thead><tr><th>2. Item number; description of packages and articles
+contained</th><th>3. HS code</th><th>4. Origin criterion</th></tr></thead>
+<tbody><tr><td>{goods}</td><td class="num">{hs_code}</td><td class="num">P</td>
+</tr></tbody></table>
+<table class="totals"><tbody>
+<tr><td>Number and kind of packages</td><td class="num">{packages}</td></tr>
+<tr><td>Gross weight (kg)</td><td class="num">{gross_weight}</td></tr>
+<tr><td>Net weight (kg)</td><td class="num">{net_weight}</td></tr>
+<tr class="grand"><td>Country of origin</td><td class="num">{origin}</td></tr>
+</tbody></table>
+<div style="margin-top:5mm;font-size:8pt">It is hereby certified on the basis of
+records available that the above goods were produced and manufactured in the
+country of origin declared above.</div>"""
+    )
+    return _page("CERTIFICATE OF ORIGIN",
+                 "Form A — declared by the exporter, verified by the issuing body",
+                 body)
+
+
 def bol(
     *,
     doc_no: str,

@@ -1,43 +1,43 @@
 {
-  "cache_key": "1ba31696145466a686b804f51a5be8f8",
+  "cache_key": "0637128bca7ab5b0c0da9096732126e6",
   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
   "provider": "nvidia",
-  "prompt_version": "extract-v3",
+  "prompt_version": "extract-v4",
   "page_sha256": [
     "e8427bed0aef5b25db014336fc10e9ab017b2a8f352414af33b96e2ee770b6af",
     "8c853302de8f3465eccc33fd99e892bc338e746c2f03a1c5ce671cb77c69a42f"
   ],
   "response": {
     "doc_type": "packing_list",
-    "doc_type_reason": "The document is titled \"PACKING LIST\" and contains a table of package details, confirming it is a packing list.",
+    "doc_type_reason": "The document has a printed heading \"PACKING LIST\" and contains a table of package details, confirming it is a packing list.",
     "fields": {
       "quantity": {
         "present": true,
         "value": "100 cartons",
-        "evidence_text": "TOTAL NO. OF PACKAGES & 100 cartons",
+        "evidence_text": "TOTAL NO. OF PACKAGES 100 cartons",
         "page_index": 2,
-        "confidence": 0.9
+        "confidence": 1.0
       },
       "gross_weight": {
         "present": true,
         "value": "12,450.00 KGS",
-        "evidence_text": "TOTAL GROSS WT & 12,450.00 KGS",
+        "evidence_text": "TOTAL GROSS WT 12,450.00 KGS",
         "page_index": 2,
-        "confidence": 0.9
+        "confidence": 1.0
       },
       "net_weight": {
         "present": true,
         "value": "11,600.00 KGS",
-        "evidence_text": "TOTAL NET WT & 11,600.00 KGS",
+        "evidence_text": "TOTAL NET WT 11,600.00 KGS",
         "page_index": 2,
-        "confidence": 0.9
+        "confidence": 1.0
       },
       "container_number": {
         "present": true,
         "value": "MSKU3067322",
-        "evidence_text": "CONTAINER NO. & MSKU3067322",
+        "evidence_text": "CONTAINER NO. MSKU3067322",
         "page_index": 1,
-        "confidence": 0.9
+        "confidence": 1.0
       },
       "hs_code": {
         "present": false,
@@ -49,9 +49,9 @@
       "consignee_name": {
         "present": true,
         "value": "Nordwind Industrial Supply GmbH",
-        "evidence_text": "CONSIGNEE & Nordwind Industrial Supply GmbH",
+        "evidence_text": "CONSIGNEE Nordwind Industrial Supply GmbH",
         "page_index": 1,
-        "confidence": 0.9
+        "confidence": 1.0
       },
       "invoice_value": {
         "present": false,
@@ -77,9 +77,9 @@
       "country_of_origin": {
         "present": true,
         "value": "CHINA",
-        "evidence_text": "COUNTRY OF ORIGIN & CHINA",
+        "evidence_text": "COUNTRY OF ORIGIN CHINA",
         "page_index": 1,
-        "confidence": 0.9
+        "confidence": 1.0
       }
     }
   },

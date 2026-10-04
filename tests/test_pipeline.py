@@ -101,7 +101,7 @@ async def test_shipment_clean_is_all_green(tmp_path):
     report = rec.get(sid)
     assert report is not None
     assert report.state == "done"
-    assert report.summary.documents_ok == 3
+    assert report.summary.documents_ok == 4, "invoice, packing list, B/L, certificate"
     assert report.summary.conflict == 0
 
     statuses = {c.field: c.status for c in report.comparisons}
@@ -110,7 +110,11 @@ async def test_shipment_clean_is_all_green(tmp_path):
     assert statuses["container_number"] == "consistent"
     assert statuses["consignee_name"] == "consistent"
     assert statuses["invoice_value"] == "single_source"  # invoice only
-    assert statuses["hs_code"] == "single_source"
+    # HS code used to be single_source because only the invoice stated it, which
+    # meant the field a mis-declared classification rests on could never be
+    # checked. The certificate states it too, so now it is.
+    assert statuses["hs_code"] == "consistent"
+    assert statuses["country_of_origin"] == "consistent"
     assert report.summary.verdict == "clean"
 
 
@@ -120,13 +124,13 @@ async def test_multi_page_document_is_one_upload_and_one_extraction(tmp_path):
 
     Keying the cache on separately-ingested pages meant the real upload path
     (one file per document) missed the cache and silently dropped a document,
-    turning a 3-document comparison into a 2-document one.
+    turning a full comparison into one with a document missing.
     """
     rec, sid = await run_shipment(tmp_path, "shipment_messy")
     report = rec.get(sid)
 
-    assert len(report.documents) == 3
-    assert report.summary.documents_ok == 3, "no document may silently vanish"
+    assert len(report.documents) == 4
+    assert report.summary.documents_ok == 4, "no document may silently vanish"
     assert all(d.used_cache for d in report.documents)
 
     pl = next(d for d in report.documents if d.filename.endswith(".pdf"))
@@ -225,8 +229,13 @@ async def test_shipment_messy_proves_the_normalizer_works(tmp_path):
     assert qty.status == "suspicious"
     assert "package basis" in qty.reason, "pieces vs cartons must not read as a conflict"
 
+    # The invoice states the ten-digit US code and the certificate the six-digit
+    # heading. Compared on the harmonised six they are the same classification,
+    # which is the entire reason the HS comparator exists -- and it is why HS code
+    # is no longer a single-source field on this shipment.
     hs = by_field(report, "hs_code")
-    assert hs.status == "single_source"
+    assert hs.status == "consistent", hs.reason
+    assert "2 documents" in hs.reason
 
 
 @pytest.mark.asyncio
@@ -293,10 +302,10 @@ async def test_uningestable_file_fails_only_itself(tmp_path):
     await rec.wait(sid, timeout=60)
     report = rec.get(sid)
 
-    # 3 good + 1 rejected: the shipment is usable but incomplete, so "partial"
+    # 4 good + 1 rejected: the shipment is usable but incomplete, so "partial"
     # is the honest state. The comparison must still be clean.
     assert report.state == "partial"
-    assert report.summary.documents_ok == 3
+    assert report.summary.documents_ok == 4
     assert report.summary.documents_failed == 1
     bad = next(d for d in report.documents if d.status == "failed")
     assert "unsupported file type" in bad.error
@@ -497,7 +506,7 @@ async def test_demo_mode_survives_a_change_of_model_id(tmp_path):
     assert other.run.result_source == "authored", (
         "DEMO_MODE broke for a different model id"
     )
-    assert other.summary.documents_ok == 3
+    assert other.summary.documents_ok == 4
 
 
 def test_live_cache_entries_stay_model_keyed(tmp_path):

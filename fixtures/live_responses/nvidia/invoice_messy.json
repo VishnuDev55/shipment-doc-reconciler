@@ -1,14 +1,14 @@
 {
-  "cache_key": "f167b4ec1224f4d71e3ecff79719e2c6",
+  "cache_key": "f21aa7e3bec8303eceab225c1bb4696f",
   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
   "provider": "nvidia",
-  "prompt_version": "extract-v3",
+  "prompt_version": "extract-v4",
   "page_sha256": [
     "077218f6a820aed4602071944d784170792e8afdc3de43779849d246eb617c08"
   ],
   "response": {
     "doc_type": "commercial_invoice",
-    "doc_type_reason": "Printed heading 'COMMERCIAL INVOICE' on the page",
+    "doc_type_reason": "The page shows the heading \"COMMERCIAL INVOICE\" at the top, indicating it is a commercial invoice.",
     "fields": {
       "quantity": {
         "present": true,
@@ -48,7 +48,7 @@
       "consignee_name": {
         "present": true,
         "value": "Nordwind Industrial Supply GmbH",
-        "evidence_text": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "CONSIGNEE Nordwind Industrial Supply GmbH",
         "page_index": 1,
         "confidence": 1.0
       },

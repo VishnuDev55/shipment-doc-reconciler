@@ -1,14 +1,14 @@
 {
-  "cache_key": "f981186dc5bf0740cf9edda69fe64f41",
+  "cache_key": "1d0db0247d0c5d1cf5bc723b12b9486e",
   "model": "openbmb/MiniCPM-V-4_5",
   "provider": "nebius",
-  "prompt_version": "extract-v3",
+  "prompt_version": "extract-v4",
   "page_sha256": [
     "b34ac09700e830aae36cbcc00186169f5f7848b919a7ef7bb32b453eabf21c7e"
   ],
   "response": {
     "doc_type": "bill_of_lading",
-    "doc_type_reason": "The document is titled BILL OF LADING at the top.",
+    "doc_type_reason": "The document is titled BILL OF LADING and contains standard bill of lading fields such as shipper, consignee, bill of lading number, date of issue, vessel/ voyage, port of loading, port of discharge, container number, seal number, number of containers or packages, description of packages and goods, gross weight, net weight, and freight & charges.",
     "fields": {
       "quantity": {
         "present": true,
@@ -76,7 +76,7 @@
       "country_of_origin": {
         "present": true,
         "value": "China",
-        "evidence_text": "Ningbo, China",
+        "evidence_text": "China",
         "page_index": 1,
         "confidence": 1.0
       }

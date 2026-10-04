@@ -31,6 +31,10 @@ ICON = {
 
 # What each fixture is supposed to demonstrate. A mismatch is a real regression,
 # not a cosmetic difference — it means a comparator or normalizer changed.
+#
+# hs_code is "consistent" rather than "single_source" because the certificate of
+# origin states it alongside the invoice: the field a wrong classification rests
+# on is now checkable, which is the point of shipping that document.
 EXPECT: dict[str, dict[str, str]] = {
     "shipment_clean": {
         "quantity": "consistent",
@@ -38,7 +42,7 @@ EXPECT: dict[str, dict[str, str]] = {
         "container_number": "consistent",
         "consignee_name": "consistent",
         "invoice_value": "single_source",
-        "hs_code": "single_source",
+        "hs_code": "consistent",
         "net_weight": "consistent",
         "incoterms": "single_source",
         "po_number": "single_source",
@@ -50,7 +54,7 @@ EXPECT: dict[str, dict[str, str]] = {
         "container_number": "conflict",
         "consignee_name": "consistent",
         "invoice_value": "single_source",
-        "hs_code": "single_source",
+        "hs_code": "consistent",
         "net_weight": "consistent",
         "incoterms": "single_source",
         "po_number": "single_source",
@@ -62,7 +66,7 @@ EXPECT: dict[str, dict[str, str]] = {
         "container_number": "consistent",
         "consignee_name": "consistent",
         "invoice_value": "single_source",
-        "hs_code": "single_source",
+        "hs_code": "consistent",
         # Same mass, printed as KGS on the packing list and LBS on the waybill:
         # this row is the demo that unit conversion happens in deterministic code.
         "net_weight": "consistent",

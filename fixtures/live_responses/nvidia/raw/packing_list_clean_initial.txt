@@ -1,17 +1,1 @@
-We need to extract fields.
-
-First, document type: heading "PACKING LIST". So doc_type = packing_list. Reason: printed heading "PACKING LIST". So doc_type_reason: "Printed heading 'PACKING LIST'".
-
-Now fields:
-
-1. quantity: Look for total number of packages, cartons, etc. In table, there are 100 cartons (TOTAL NO. OF PACKAGES = 100 cartons). Also "PACKAGES" column shows 50 CTN each, total 100 CTN. So quantity = "100 cartons". Should we include unit? The rule: include package unit if printed next to it (e.g., '100 CARTONS'). So value = "100 cartons". present true. evidence_text: need the line where it's found. The line "TOTAL NO. OF PACKAGES" with value "100 cartons". So evidence_text = "TOTAL NO. OF PACKAGES 100 cartons". page_index = 1. confidence: 1.0 (clearly visible).
-
-2. gross_weight: Look for TOTAL GROSS WT. In table: "TOTAL GROSS WT" = "12,450.00 KGS". So value = "12,450.00 KGS". present true. evidence_text = "TOTAL GROSS WT 12,450.00 KGS". page_index 1. confidence 1.0.
-
-3. net_weight: "TOTAL NET WT" = "11,600.00 KGS". So value = "11,600.00 KGS". present true. evidence_text = "TOTAL NET WT 11,600.00 KGS". page_index 1. confidence 1.0.
-
-4. container_number: Look for CONTAINER NO. It is "MSKU3067322". That's 4 letters + 7 digits? Actually "MSKU" (4 letters) + "3067322" (7 digits) = 11 characters. So present true. value = "MSKU3067322". evidence_text = "CONTAINER NO. MSKU3067322". page_index 1. confidence 1.0.
-
-5. hs_code: Look for HS CODE etc. Not present in document. So present false, value null. evidence_text empty. page_index 1. confidence 0.0.
-
-6. consignee_name: Look for CONSIGNEE. It says "Nordwind Industrial Supply GmbH". That's the name. So present true. value = "Nordwind Industrial Supply GmbH". evidence_text = "CONSIGNEE Nordwind Industrial Supply GmbH". page_index [
+{"doc_type": "packing_list", "doc_type_reason": "Printed heading 'PACKING LIST'", "fields": {"quantity": {"present": true, "value": "100 cartons", "evidence_text": "TOTAL NO. OF PACKAGES 100 cartons", "page_index": 1, "confidence": 0.99}, "gross_weight": {"present": true, "value": "12,450.00 KGS", "evidence_text": "TOTAL GROSS WT 12,450.00 KGS", "page_index": 1, "confidence": 0.99}, "net_weight": {"present": true, "value": "11,600.00 KGS", "evidence_text": "TOTAL NET WT 11,600.00 KGS", "page_index": 1, "confidence": 0.99}, "container_number": {"present": true, "value": "MSKU3067322", "evidence_text": "CONTAINER NO.: MSKU3067322", "page_index": 1, "confidence": 0.99}, "hs_code": {"present": false, "value": null, "evidence_text": "", "page_index": 1, "confidence": 0.0}, "consignee_name": {"present": true, "value": "Nordwind Industrial Supply GmbH", "evidence_text": "CONSIGNEE Nordwind Industrial Supply GmbH", "page_index": 1, "confidence": 0.99}, "invoice_value": {"present": false, "value": null, "evidence_text": "", "page_index": 1, "confidence": 0.0}, "incoterms": {"present": false, "value": null, "evidence_text": "", "page_index": 1, "confidence": 0.0}, "po_number": {"present": false, "value": null, "evidence_text": "", "page_index": 1, "confidence": 0.0}, "country_of_origin": {"present": true, "value": "China", "evidence_text": "COUNTRY OF ORIGIN China", "page_index": 1, "confidence": 0.99}}}

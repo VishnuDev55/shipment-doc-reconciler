@@ -1,14 +1,14 @@
 {
-  "cache_key": "76e7b8a99d8bc8c662c543c15350cfcc",
+  "cache_key": "ad6a23d2bbc8e8bc9b4cd8c615c6cb37",
   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
   "provider": "nvidia",
-  "prompt_version": "extract-v3",
+  "prompt_version": "extract-v4",
   "page_sha256": [
     "14b41ed663dee73b25aec3be459240e3843615c252dd5fddf67d8e25a629a986"
   ],
   "response": {
     "doc_type": "commercial_invoice",
-    "doc_type_reason": "Printed heading 'COMMERCIAL INVOICE' at top of the page.",
+    "doc_type_reason": "Printed heading 'COMMERCIAL INVOICE' at top of page",
     "fields": {
       "quantity": {
         "present": true,
@@ -62,14 +62,14 @@
       "incoterms": {
         "present": true,
         "value": "CIF Hamburg (Incoterms 2020)",
-        "evidence_text": "TERMS OF DELIVERY CIF Hamburg (Incoterms 2020)",
+        "evidence_text": "CIF Hamburg (Incoterms 2020)",
         "page_index": 1,
         "confidence": 1.0
       },
       "po_number": {
         "present": true,
         "value": "PO 4410-DE",
-        "evidence_text": "PURCHASE ORDER PO 4410-DE",
+        "evidence_text": "PO 4410-DE",
         "page_index": 1,
         "confidence": 1.0
       },

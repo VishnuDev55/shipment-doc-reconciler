@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # Version tags. Bump when behaviour changes so a cached response can never be
 # silently reconciled against an incompatible ruleset.
-PROMPT_VERSION = "extract-v3"
+PROMPT_VERSION = "extract-v4"
 NORMALIZER_VERSION = "norm-v1"
 COMPARATOR_VERSION = "cmp-v1"
 
@@ -102,6 +102,18 @@ class Settings(BaseSettings):
     cache_dir: Path = Field(default=PROJECT_ROOT / "fixtures" / "responses", alias="CACHE_DIR")
 
     max_documents: int = Field(default=5, alias="MAX_DOCUMENTS")
+
+    # Age after which runs under RUNS_DIR are deleted at startup. Zero -- the
+    # default -- keeps everything, because silently discarding somebody's
+    # shipment history is worse than an unbounded directory they can clean
+    # themselves. Set it on a public instance, where runs are other people's
+    # commercial documents and disk is not free.
+    run_ttl_hours: int = Field(default=0, alias="RUN_TTL_HOURS")
+
+    # Reports held in process memory so a poll does not re-read disk. Bounded:
+    # an instance that has served 50,000 shipments should not still be holding
+    # all 50,000.
+    max_reports_in_memory: int = Field(default=128, alias="MAX_REPORTS_IN_MEMORY")
     max_pages_per_document: int = Field(default=6, alias="MAX_PAGES_PER_DOCUMENT")
     max_upload_bytes: int = Field(default=25 * 1024 * 1024, alias="MAX_UPLOAD_BYTES")
     image_long_edge: int = Field(default=1600, alias="IMAGE_LONG_EDGE")

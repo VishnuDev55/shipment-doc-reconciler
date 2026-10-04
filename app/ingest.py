@@ -8,6 +8,11 @@ of the same page still hits.
 PDFs are rasterised with pypdfium2 (pure wheel, no poppler) because Token
 Factory's Files endpoint is batch-JSONL only — there is no document-upload
 path into chat completions.
+
+Two things are true of every byte sequence that arrives here: it is checked
+against what the filename claimed to be, and it is decoded with a ceiling on
+how much memory it is allowed to expand into. A document upload is untrusted
+input by definition, and "the decoder chose to allocate 4 GB" is not a reason.
 """
 
 from __future__ import annotations
@@ -21,8 +26,67 @@ from pathlib import Path
 import pypdfium2 as pdfium
 from PIL import Image, ImageOps
 
+# Raised when a file's declared pixel count would expand past the
+# ceiling below. Named once because it can surface in two places:
+# open() sees it from the header, load() from the decode.
+_BOMB = Image.DecompressionBombError
+
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".bmp"}
 PDF_SUFFIXES = {".pdf"}
+
+# Pillow warns above ~89 MP and raises above ~178 MP by default. Both numbers
+# are far more than a page of text needs: 50 MP is already a 7000×7000 image,
+# and every page is resized to a 1600 px long edge moments later. Making the
+# ceiling explicit (and turning the warning into an error) means a
+# decompression bomb is refused rather than survived.
+MAX_IMAGE_PIXELS = 50_000_000
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+# Magic numbers, checked before any decoder is handed the bytes.
+_SIGNATURES: tuple[tuple[bytes, str], ...] = (
+    (b"%PDF-", "pdf"),
+    (b"\xff\xd8\xff", "jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"RIFF", "riff"),        # webp: RIFF....WEBP
+    (b"II*\x00", "tiff"),
+    (b"MM\x00*", "tiff"),
+    (b"BM", "bmp"),
+)
+
+
+def sniff(raw: bytes) -> str | None:
+    """What these bytes actually are, by their first bytes, or None."""
+    for magic, kind in _SIGNATURES:
+        if raw.startswith(magic):
+            if kind == "riff":
+                return "webp" if raw[8:12] == b"WEBP" else None
+            return kind
+    return None
+
+
+def _reject_unless_kind_matches(filename: str, raw: bytes) -> str:
+    """Return the kind to parse, refusing a file that is not what it claims."""
+    suffix = Path(filename).suffix.lower()
+    claimed = "pdf" if suffix in PDF_SUFFIXES else (
+        "image" if suffix in IMAGE_SUFFIXES else None
+    )
+    if claimed is None:
+        raise ValueError(
+            f"unsupported file type {suffix!r}; allowed: .pdf and "
+            f"{sorted(IMAGE_SUFFIXES)}"
+        )
+
+    actual = sniff(raw)
+    if actual is None:
+        raise ValueError(f"{filename}: unrecognised file signature, refusing to parse")
+    if claimed == "pdf" and actual != "pdf":
+        raise ValueError(f"{filename}: claims to be a PDF but starts with a "
+                         f"{actual!r} signature")
+    if claimed == "image" and actual == "pdf":
+        raise ValueError(f"{filename}: claims to be an image but is a PDF")
+    if claimed == "image" and suffix in {".jpg", ".jpeg"} and actual != "jpeg":
+        raise ValueError(f"{filename}: claims to be a JPEG but is {actual}")
+    return claimed
 
 
 @dataclass(frozen=True)
@@ -68,7 +132,30 @@ def rasterize_image(
 ) -> list[PageImage]:
     """One image file. Multi-frame TIFFs are capped at max_pages."""
     pages: list[PageImage] = []
-    with Image.open(io.BytesIO(raw)) as im:
+    try:
+        handle = Image.open(io.BytesIO(raw))
+    except _BOMB as exc:
+        raise ValueError(f"image too large to decode safely: {exc}") from exc
+
+    # Pillow only *raises* at twice MAX_IMAGE_PIXELS and merely warns in
+    # between, and a warning is not a refusal: an 81-megapixel PNG was measured
+    # sailing through a 50-megapixel ceiling. The declared size is in the header,
+    # so the check happens before any pixel is decoded.
+    if handle.width * handle.height > MAX_IMAGE_PIXELS:
+        handle.close()
+        raise ValueError(
+            f"image declares {handle.width}x{handle.height} "
+            f"({handle.width * handle.height:,} px), above the "
+            f"{MAX_IMAGE_PIXELS:,} px ceiling"
+        )
+
+    with handle as im:
+        # Ask the JPEG/PNG decoder to downscale while parsing rather than after:
+        # a 12000×16000 camera photo becomes a 1600 px page without ever being
+        # materialised at full size, which is the difference between a slow
+        # request and an exhausted worker.
+        if long_edge:
+            im.draft("RGB", (long_edge, long_edge))
         frames = getattr(im, "n_frames", 1)
         for i in range(min(frames, max_pages)):
             if frames > 1:
@@ -113,14 +200,10 @@ def ingest(
     quality: int = 85,
     max_pages: int = 6,
 ) -> list[PageImage]:
-    """Dispatch on file suffix. Raises ValueError on unsupported or empty input."""
+    """Dispatch on what the bytes are, having checked what they claimed to be."""
     if not raw:
         raise ValueError("empty file")
-    suffix = Path(filename).suffix.lower()
-    if suffix in PDF_SUFFIXES:
+    claimed = _reject_unless_kind_matches(filename, raw)
+    if claimed == "pdf":
         return rasterize_pdf(raw, long_edge=long_edge, quality=quality, max_pages=max_pages)
-    if suffix in IMAGE_SUFFIXES:
-        return rasterize_image(raw, long_edge=long_edge, quality=quality, max_pages=max_pages)
-    raise ValueError(
-        f"unsupported file type {suffix!r}; allowed: .pdf and {sorted(IMAGE_SUFFIXES)}"
-    )
+    return rasterize_image(raw, long_edge=long_edge, quality=quality, max_pages=max_pages)

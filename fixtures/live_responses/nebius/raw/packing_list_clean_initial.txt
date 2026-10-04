@@ -26,7 +26,7 @@
     "container_number": {
       "present": true,
       "value": "MSKU3067322",
-      "evidence_text": "CONTAINER NO. MSKU3067322",
+      "evidence_text": "MSKU3067322",
       "page_index": 1,
       "confidence": 1.0
     },
@@ -40,7 +40,7 @@
     "consignee_name": {
       "present": true,
       "value": "Nordwind Industrial Supply GmbH",
-      "evidence_text": "CONSIGNEE Nordwind Industrial Supply GmbH",
+      "evidence_text": "Nordwind Industrial Supply GmbH",
       "page_index": 1,
       "confidence": 1.0
     },
@@ -61,14 +61,14 @@
     "po_number": {
       "present": true,
       "value": "HW-2026-0912",
-      "evidence_text": "INVOICE REFERENCE HW-2026-0912",
+      "evidence_text": "HW-2026-0912",
       "page_index": 1,
       "confidence": 1.0
     },
     "country_of_origin": {
       "present": true,
       "value": "China",
-      "evidence_text": "COUNTRY OF ORIGIN China",
+      "evidence_text": "China",
       "page_index": 1,
       "confidence": 1.0
     }

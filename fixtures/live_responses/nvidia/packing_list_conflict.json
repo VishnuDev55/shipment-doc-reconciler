@@ -1,42 +1,42 @@
 {
-  "cache_key": "e6a1fdf52f8d0208f05bca84abb24d02",
+  "cache_key": "aecd0082f3251eba11ce48e22ca35df4",
   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
   "provider": "nvidia",
-  "prompt_version": "extract-v3",
+  "prompt_version": "extract-v4",
   "page_sha256": [
     "48bd234cf624273dd40ee1f3f2ee2e72d1c1ca5ba279a6f02e86712ae7eb8962"
   ],
   "response": {
     "doc_type": "packing_list",
-    "doc_type_reason": "Printed heading 'PACKING LIST'",
+    "doc_type_reason": "Printed heading 'PACKING LIST' at top of page",
     "fields": {
       "quantity": {
         "present": true,
         "value": "100 cartons",
         "evidence_text": "TOTAL NO. OF PACKAGES 100 cartons",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.99
       },
       "gross_weight": {
         "present": true,
         "value": "12,450.00 KGS",
         "evidence_text": "TOTAL GROSS WT 12,450.00 KGS",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.99
       },
       "net_weight": {
         "present": true,
         "value": "11,600.00 KGS",
         "evidence_text": "TOTAL NET WT 11,600.00 KGS",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.99
       },
       "container_number": {
         "present": true,
         "value": "MSKU3067328",
         "evidence_text": "CONTAINER NO. MSKU3067328",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.99
       },
       "hs_code": {
         "present": false,
@@ -50,7 +50,7 @@
         "value": "Nordwind Industrial Supply GmbH",
         "evidence_text": "CONSIGNEE Nordwind Industrial Supply GmbH",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.99
       },
       "invoice_value": {
         "present": false,
@@ -78,7 +78,7 @@
         "value": "China",
         "evidence_text": "COUNTRY OF ORIGIN China",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.99
       }
     }
   },
