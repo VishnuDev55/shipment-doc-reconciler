@@ -363,6 +363,20 @@ def build_zip(report: Report, run_dir: Path | None) -> bytes:
         zf.writestr("report.json", report.model_dump_json(indent=2))
         zf.writestr("report.csv", report_csv(report))
         zf.writestr("report.html", standalone_html(report, run_dir))
+        # Imported here, not at the top of the module: app.pdf reads the label tables
+        # out of this module, so a module-level import would be a cycle.
+        from .pdf import render_pdf
+
+        try:
+            pdf = render_pdf(report)
+            zf.writestr("report.pdf", pdf)
+            pdf_note = "report.pdf   the same report laid out for print and filing\n"
+        except Exception as exc:  # noqa: BLE001
+            # A missing PDF is disclosed in the manifest rather than left as an absent
+            # file the reader assumes the archive never promised.
+            pdf = None
+            pdf_note = ("(report.pdf could not be rendered here: "
+                        f"{type(exc).__name__})\n")
         zf.writestr(
             "README.txt",
             "Shipment Doc Reconciler export\n"
@@ -375,6 +389,7 @@ def build_zip(report: Report, run_dir: Path | None) -> bytes:
             f" -> {report.narrative.status}\n"
             f"demo_mode   : {report.run.demo_mode}\n\n"
             "report.html  standalone, self-contained view (opens anywhere)\n"
+            + pdf_note +
             "report.json  full machine-readable report incl. evidence and versions\n"
             "report.csv   one row per field per document\n"
             "pages/       normalized page images used as evidence\n"

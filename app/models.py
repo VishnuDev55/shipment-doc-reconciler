@@ -549,6 +549,16 @@ class Report(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class SessionRequest(BaseModel):
+    """An API key offered to /api/session in exchange for a browser cookie.
+
+    Only ever compared and forgotten -- the key is not stored, echoed, or
+    reflected in any response body.
+    """
+
+    key: str = ""
+
+
 class RetryRequest(BaseModel):
     document_id: str
 

@@ -1,8 +1,14 @@
-"""FastAPI application.
+"""FastAPI application: the reconciliation UI and the API underneath it.
 
-Routes are deliberately few: upload, poll one JSON report, retry one document,
-download the ZIP, and load a bundled fixture. The frontend polls report.json
-every second — no websockets, no job queue.
+Upload documents, read one JSON report, watch it progress over SSE, retry a
+document, correct a field, and export the result as ZIP, PDF or CSV. The same
+routes serve the browser and any other client; nothing here is UI-specific.
+
+When `API_KEYS` is configured every data-bearing route requires one of those
+keys, sent as `X-API-Key` or `Authorization: Bearer` by a client that can set
+headers, or held in a short session cookie by the browser UI. `/api/health`
+stays open on purpose: a load balancer has to be able to ask whether the service
+is up without holding a secret.
 """
 
 from __future__ import annotations
@@ -12,7 +18,7 @@ import hmac
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import (Depends, FastAPI, File, Form, HTTPException, Request, UploadFile)
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -21,12 +27,14 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
+from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 
 from .config import PROJECT_ROOT, _usable, get_settings
 from .correct import CorrectionError, active_corrections, correction_trail
 from .export import build_zip, fixture_manifest
-from .models import ConfigUpdate, CorrectionRequest, Report, RetryRequest
+from .pdf import render_pdf
+from .models import (ConfigUpdate, CorrectionRequest, Report, RetryRequest, SessionRequest)
 from .orchestrator import Reconciler
 
 STATIC_DIR = PROJECT_ROOT / "web"
@@ -36,8 +44,12 @@ FIXTURE_IMAGES = PROJECT_ROOT / "fixtures" / "images"
 app = FastAPI(
     title="Shipment Doc Reconciler",
     description=(
-        "Cross-check quantity, gross weight, container number, HS code, "
-        "consignee and invoice value across trade documents."
+        "Cross-check ten fields across trade documents: quantity, gross weight, "
+        "net weight, container number, HS code, consignee, invoice value, "
+        "Incoterms, PO number and country of origin. Extraction is model-driven; "
+        "normalization, comparison and the risk score are deterministic Python. "
+        "Requests need an API key when the deployment sets API_KEYS; "
+        "/api/health is always open."
     ),
     version="1.0.0",
 )
@@ -65,6 +77,110 @@ def active_settings():
     environment rather than the configuration actually serving requests.
     """
     return reconciler().settings
+
+
+API_KEY_HEADER = APIKeyHeader(
+    name="X-API-Key",
+    auto_error=False,
+    description="Required when the deployment sets API_KEYS. Also accepted as "
+                "`Authorization: Bearer <key>`.",
+)
+
+# Long enough to survive a demo and a working session, short enough that losing
+# the process invalidating it is not an outage. In-process by design: this app
+# is one worker with a filesystem store, and a cookie that outlived a restart
+# would be a secret with no way to revoke it.
+SESSION_TTL_SECONDS = 12 * 60 * 60
+_sessions: dict[str, float] = {}
+
+
+def _issue_session() -> str:
+    import secrets
+    import time
+
+    now = time.time()
+    for token in [t for t, expires in _sessions.items() if expires <= now]:
+        _sessions.pop(token, None)
+    token = secrets.token_urlsafe(32)
+    _sessions[token] = now + SESSION_TTL_SECONDS
+    return token
+
+
+def _session_valid(request: Request) -> bool:
+    import time
+
+    token = request.cookies.get("sdr_session") or ""
+    expires = _sessions.get(token)
+    if not expires:
+        return False
+    if expires < time.time():
+        _sessions.pop(token, None)
+        return False
+    return True
+
+
+def require_api_key(request: Request,
+                    supplied: str | None = Depends(API_KEY_HEADER)) -> None:
+    """Accept the request only if it carries a configured key or a live session.
+
+    An empty API_KEYS means an open deployment, which is the documented default
+    for the keyless demo, so this returns rather than refusing. When keys exist
+    the comparison is constant-time against each of them, and neither the value
+    supplied nor the value expected is echoed back or logged: a 401 body that
+    repeats a caller's key would put that key in somebody's access log.
+    """
+    allowed = active_settings().api_key_list
+    if not allowed:
+        return
+
+    if _session_valid(request):
+        return
+
+    candidates = [supplied] if supplied else []
+    bearer = (request.headers.get("authorization") or "").strip()
+    if bearer[:7].lower() == "bearer ":
+        candidates.append(bearer[7:].strip())
+
+    for given in (c.strip() for c in candidates if c and c.strip()):
+        if any(hmac.compare_digest(given, key) for key in allowed):
+            return
+    raise HTTPException(
+        status_code=401,
+        detail="this deployment requires an API key: send X-API-Key or "
+               "Authorization: Bearer, or POST the key to /api/session",
+        headers={"WWW-Authenticate": "X-API-Key"},
+    )
+
+
+@app.post("/api/session", tags=["auth"])
+def open_session(body: SessionRequest, response: Response) -> dict:
+    """Trade an API key for the session cookie the browser UI needs.
+
+    SameSite=Strict plus a JSON body plus no state change on GET is what makes a
+    cookie here safe to accept: a cross-site request cannot carry the cookie in a
+    way that reaches this handler. The key itself is never stored or returned --
+    only checked, then forgotten in favour of a random nonce.
+    """
+    allowed = active_settings().api_key_list
+    key = (body.key or "").strip()
+    if not allowed:
+        raise HTTPException(400, "this deployment is open: no API key is required")
+    if not key or not any(hmac.compare_digest(key, k) for k in allowed):
+        raise HTTPException(401, "that key is not valid for this deployment")
+    token = _issue_session()
+    response.set_cookie(
+        "sdr_session", token, max_age=SESSION_TTL_SECONDS, httponly=True,
+        samesite="strict", path="/",
+    )
+    return {"session": "opened", "expires_in_seconds": SESSION_TTL_SECONDS}
+
+
+@app.delete("/api/session", tags=["auth"])
+def close_session(request: Request, response: Response) -> dict:
+    token = request.cookies.get("sdr_session") or ""
+    _sessions.pop(token, None)
+    response.delete_cookie("sdr_session", path="/")
+    return {"session": "closed"}
 
 
 if STATIC_DIR.is_dir():
@@ -95,6 +211,10 @@ def health() -> dict:
     return {
         "status": "ok",
         "demo_mode": settings.demo_mode,
+        # The UI reads this to decide whether to ask for a key before it can
+        # show anything. Health itself stays open so a load balancer can poll it
+        # without holding a secret.
+        "api_protected": bool(settings.api_key_list),
         # Kept for backwards compatibility with anything reading the old shape.
         "model": vision.model,
         "api_key_present": settings.has_nebius_key,
@@ -120,7 +240,7 @@ def health() -> dict:
     }
 
 
-@app.get("/api/models")
+@app.get("/api/models", dependencies=[Depends(require_api_key)])
 def models() -> dict:
     """What this app decided to call, per role, and why."""
     rec = reconciler()
@@ -131,7 +251,7 @@ def models() -> dict:
     }
 
 
-@app.post("/api/models/refresh")
+@app.post("/api/models/refresh", dependencies=[Depends(require_api_key)])
 async def refresh_models() -> dict:
     """Re-query both hosts now, ignoring the TTL.
 
@@ -196,7 +316,7 @@ def config_view() -> dict:
     }
 
 
-@app.get("/api/config")
+@app.get("/api/config", dependencies=[Depends(require_api_key)])
 def get_config(request: Request) -> dict:
     """Runtime configuration, keys masked.
 
@@ -208,7 +328,7 @@ def get_config(request: Request) -> dict:
     return config_view()
 
 
-@app.post("/api/config")
+@app.post("/api/config", dependencies=[Depends(require_api_key)])
 def set_config(request: Request, body: ConfigUpdate) -> dict:
     rec = reconciler()
     if not rec.settings.gui_config_enabled:
@@ -248,7 +368,7 @@ def set_config(request: Request, body: ConfigUpdate) -> dict:
     return config_view()
 
 
-@app.get("/api/fixtures")
+@app.get("/api/fixtures", dependencies=[Depends(require_api_key)])
 def fixtures() -> JSONResponse:
     """The bundled demo shipments, so the demo needs no file picker."""
     manifest = fixture_manifest(FIXTURE_INDEX)
@@ -278,7 +398,7 @@ def fixtures() -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
-@app.post("/api/shipments")
+@app.post("/api/shipments", dependencies=[Depends(require_api_key)])
 async def create_shipment(
     files: list[UploadFile] = File(...),
     doc_types: str = Form(""),
@@ -319,7 +439,7 @@ async def create_shipment(
     )
 
 
-@app.get("/api/shipments/{shipment_id}/report", response_model=Report)
+@app.get("/api/shipments/{shipment_id}/report", response_model=Report, dependencies=[Depends(require_api_key)])
 def get_report(shipment_id: str) -> Report:
     report = reconciler().get(shipment_id)
     if report is None:
@@ -327,7 +447,7 @@ def get_report(shipment_id: str) -> Report:
     return report
 
 
-@app.post("/api/shipments/{shipment_id}/documents/{document_id}/fields/{field}")
+@app.post("/api/shipments/{shipment_id}/documents/{document_id}/fields/{field}", dependencies=[Depends(require_api_key)])
 def correct_field(
     shipment_id: str, document_id: str, field: str, body: CorrectionRequest
 ) -> Report:
@@ -350,7 +470,7 @@ def correct_field(
         raise HTTPException(400, str(exc))
 
 
-@app.post("/api/shipments/{shipment_id}/documents/{document_id}/fields/{field}/revert")
+@app.post("/api/shipments/{shipment_id}/documents/{document_id}/fields/{field}/revert", dependencies=[Depends(require_api_key)])
 def revert_field(shipment_id: str, document_id: str, field: str) -> Report:
     """Undo the active corrections on one field. History is kept, not deleted."""
     rec = reconciler()
@@ -362,7 +482,7 @@ def revert_field(shipment_id: str, document_id: str, field: str) -> Report:
         raise HTTPException(400, str(exc))
 
 
-@app.get("/api/shipments/{shipment_id}/corrections")
+@app.get("/api/shipments/{shipment_id}/corrections", dependencies=[Depends(require_api_key)])
 def corrections(shipment_id: str) -> dict:
     """The append-only trail: every value a human changed, and what the model said."""
     rec = reconciler()
@@ -376,7 +496,7 @@ def corrections(shipment_id: str) -> dict:
     }
 
 
-@app.get("/api/shipments/{shipment_id}/raw/{name}", response_class=PlainTextResponse)
+@app.get("/api/shipments/{shipment_id}/raw/{name}", response_class=PlainTextResponse, dependencies=[Depends(require_api_key)])
 def get_raw(shipment_id: str, name: str) -> PlainTextResponse:
     """One persisted model body, for the transparency panel.
 
@@ -402,7 +522,7 @@ def get_raw(shipment_id: str, name: str) -> PlainTextResponse:
 TERMINAL_STATES = frozenset({"done", "partial", "failed"})
 
 
-@app.get("/api/shipments/{shipment_id}/events")
+@app.get("/api/shipments/{shipment_id}/events", dependencies=[Depends(require_api_key)])
 async def shipment_events(shipment_id: str) -> StreamingResponse:
     """Server-sent events: the report each time it settles, then a close.
 
@@ -444,7 +564,7 @@ async def shipment_events(shipment_id: str) -> StreamingResponse:
     )
 
 
-@app.post("/api/shipments/{shipment_id}/retry")
+@app.post("/api/shipments/{shipment_id}/retry", dependencies=[Depends(require_api_key)])
 async def retry_document(shipment_id: str, body: RetryRequest) -> dict:
     report = await reconciler().retry_document(shipment_id, body.document_id)
     if report is None:
@@ -452,7 +572,7 @@ async def retry_document(shipment_id: str, body: RetryRequest) -> dict:
     return {"shipment_id": shipment_id, "state": report.state}
 
 
-@app.get("/api/shipments/{shipment_id}/export")
+@app.get("/api/shipments/{shipment_id}/export", dependencies=[Depends(require_api_key)])
 def export_zip(shipment_id: str) -> Response:
     rec = reconciler()
     report = rec.get(shipment_id)
@@ -468,12 +588,38 @@ def export_zip(shipment_id: str) -> Response:
     )
 
 
-@app.get("/api/shipments")
+@app.get("/api/shipments/{shipment_id}/report.pdf",
+         dependencies=[Depends(require_api_key)])
+def get_report_pdf(shipment_id: str) -> Response:
+    """The same report, laid out for print and filing.
+
+    Rendered from the Report model rather than converted from the web page, so
+    what an auditor files is the verdict, the reason, the provenance line and
+    the corrections trail -- not whatever a browser happened to be styling.
+    """
+    rec = reconciler()
+    report = rec.get(shipment_id)
+    if report is None:
+        raise HTTPException(404, "unknown shipment id")
+    try:
+        pdf = render_pdf(report)
+    except Exception as exc:  # noqa: BLE001
+        # A failed artifact is not a failed reconciliation; say which one broke.
+        raise HTTPException(500, f"PDF rendering failed: {type(exc).__name__}")
+    filename = f"reconciliation_{shipment_id}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/shipments", dependencies=[Depends(require_api_key)])
 def list_shipments() -> dict:
     return {"shipments": reconciler().store.list_shipments()}
 
 
-@app.get("/api/fixture/{name}")
+@app.get("/api/fixture/{name}", dependencies=[Depends(require_api_key)])
 async def load_fixture(name: str) -> JSONResponse:
     """Server-side fixture load: reads bundled images and creates a shipment.
 
@@ -508,7 +654,7 @@ async def load_fixture(name: str) -> JSONResponse:
     )
 
 
-@app.get("/page/{shipment_id}/{path:path}")
+@app.get("/page/{shipment_id}/{path:path}", dependencies=[Depends(require_api_key)])
 def serve_page(shipment_id: str, path: str) -> FileResponse:
     """Serve normalized page images used as evidence."""
     rec = reconciler()

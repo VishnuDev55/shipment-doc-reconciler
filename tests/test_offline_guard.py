@@ -2,8 +2,9 @@
 
 Without this file the guard is load-bearing but unverified: a refactor could
 stop patching something and the suite would go quietly back to being offline
-"by convention". These tests assert the wall exists, and that it does not
-extend to loopback, which in-process transport depends on.
+"by convention". These tests assert the wall exists, and that the one thing it
+used to let through -- any local port at all -- is now closed, because a local
+listener turned out to be a route to the internet.
 """
 
 from __future__ import annotations
@@ -59,10 +60,33 @@ def test_gethostbyname_is_refused():
 
 
 def test_loopback_resolution_is_still_allowed():
-    # The guard must not over-block: refusing loopback would break binding an
-    # ephemeral port, and makes the failure mode indistinguishable from a bug.
+    """Resolving a loopback name is permitted and puts nothing on a wire.
+
+    The gate that matters is the connect, not the lookup: asyncio resolves
+    'localhost' for its own plumbing, and refusing that would make a blocked
+    test look exactly like a broken guard.
+    """
     assert socket.getaddrinfo("127.0.0.1", 0)
     assert socket.getaddrinfo("localhost", 0)
+
+
+def test_a_loopback_port_this_process_never_bound_is_refused():
+    """The hole this file exists to close, pinned.
+
+    On 2026-10-03 a process listening on 127.0.0.1 was measured forwarding
+    straight to the public internet: a live-mode client inside the guarded suite
+    completed a real HTTPS request to a provider and only ever connected to
+    loopback, so the old blanket "allow loopback" rule waved it through. A local
+    port this test did not bind is now refused on the same grounds as a remote
+    host.
+    """
+    with pytest.raises(AssertionError, match="zero"):
+        socket.create_connection(("127.0.0.1", 2080), timeout=1)
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    with pytest.raises(AssertionError, match="zero"):
+        probe.connect(("127.0.0.1", 443))
+    probe.close()
 
 
 def test_loopback_connection_still_works():

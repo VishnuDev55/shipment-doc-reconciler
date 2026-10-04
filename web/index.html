@@ -116,6 +116,7 @@
 
         <div class="row-actions">
           <a id="export" class="btn btn-primary" href="#" download>Download reconciliation ZIP</a>
+          <a id="export-pdf" class="btn btn-quiet" href="#" download>Pdf report</a>
           <button type="button" id="copy-link" class="btn btn-quiet" hidden>Copy link to this run</button>
           <span class="spacer"></span>
           <label class="switch">
@@ -211,6 +212,18 @@
       is an environment setting (<code>DEMO_MODE=true</code>), not a toggle here.</p>
 
     <p id="config-locked" class="alert" hidden></p>
+
+    <div class="field" id="apikey-field" hidden>
+      <label for="cfg-apikey">API key</label>
+      <input id="cfg-apikey" class="input" type="password" autocomplete="off"
+             spellcheck="false" placeholder="this instance is protected by API_KEYS">
+      <button id="apikey-submit" class="btn btn-primary" type="button">Unlock</button>
+      <p class="hint">Sent once to <code>/api/session</code>, which returns a
+        short browser session so the report, the evidence images and the live
+        progress stream keep working without repeating a secret in every
+        request. Held in memory for this tab only — never written to storage,
+        and never included in a report, log or export.</p>
+    </div>
 
     <div class="field" id="token-field" hidden>
       <label for="cfg-token">Config token</label>

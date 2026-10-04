@@ -73,6 +73,18 @@ class Settings(BaseSettings):
     # possible but closed.
     config_token: str = Field(default="", alias="CONFIG_TOKEN")
 
+    # Comma-separated keys that let this app be exposed as a real API rather than
+    # only a demo UI: every data-bearing route then requires one of them in
+    # `X-API-Key` or `Authorization: Bearer`. Blank means open, which is right
+    # for a laptop and for the keyless hosted demo, and wrong for anything
+    # reachable by others -- a shipment report is other people's commercial data.
+    # Compared in constant time and never echoed back or logged.
+    api_keys: str = Field(default="", alias="API_KEYS")
+
+    @property
+    def api_key_list(self) -> list[str]:
+        return [k.strip() for k in (self.api_keys or "").split(",") if k.strip()]
+
     # A model's opinion on comparisons the deterministic engine called
     # ambiguous, and a draft email describing the discrepancies. Both are
     # additive: neither can change a status, a verdict or a shipment state.

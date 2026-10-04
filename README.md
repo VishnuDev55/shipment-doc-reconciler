@@ -102,6 +102,7 @@ browser  index.html + app.js + app.css (hand-rolled tokens)   no build step
 |  FastAPI  app/main.py                                                    |
 |    POST /api/shipments              GET  /api/shipments/{id}/report      |
 |    POST /api/shipments/{id}/retry   GET  /api/shipments/{id}/export (zip)|
+|    GET  /api/shipments/{id}/report.pdf      GET  /api/shipments/{id}/events|
 |    GET  /api/config                 POST /api/config   (GUI Configure)   |
 |    GET  /api/health                 GET  /api/fixtures                   |
 |    GET  /api/shipments              GET  /page/{id}/{path}  (evidence)   |
@@ -601,6 +602,10 @@ docker run -p 8000:8000 -e DEMO_MODE=true shipment-doc-reconciler   # keyless ca
 ```
 
 The image declares a `HEALTHCHECK` and runs as an unprivileged user;
+The whole surface is HTTP: [`docs/API.md`](docs/API.md) is the endpoint
+reference, the `API_KEYS` contract, and working curl / Python / JavaScript
+clients for a run.
+
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) covers Render, Fly/Railway, what the
 health endpoint does and does not claim, and why there is no hosted URL yet.
 
@@ -810,6 +815,8 @@ single new idea to the demo.
 report.json    full machine-readable report, with evidence and version tags
 report.csv     one row per field per document — pivots cleanly in a spreadsheet
 report.html    standalone, self-contained: inline CSS, evidence images embedded
+report.pdf     the same report laid out for print and filing (also served
+               on its own at /api/shipments/{id}/report.pdf)
                as data URIs. No CDN, no network. Opens straight out of the zip.
 README.txt     what this is
 pages/         the normalized page images used as evidence
@@ -863,6 +870,8 @@ new test in the wrong shape could have spent real credits in CI.
 | `test_client.py` | payload shape, probe, ladder call counts, backoff, cache |
 | `test_pipeline.py` | all three fixtures end to end through DEMO_MODE |
 | `test_api.py` | real HTTP against the FastAPI app, ZIP contents, traversal |
+| `test_api_auth.py` | the API-key gate, the session cookie, and a scan proving no data route ships unprotected |
+| `test_pdf.py` | the PDF's text layer, its provenance wording, and markup injected from a document |
 | `test_config.py` | runtime Configure: masking, client rebuild, 400/403 refusals |
 | `test_live_fixtures.py` | captured **live** responses; transcription and confidence quirks pinned |
 | `test_providers.py` | two-provider routing, cache isolation, reasoning fields, summary safety |
@@ -990,7 +999,8 @@ scripts/
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
 tests/                 619 tests across 21 files (+ conftest.py socket guard)
-docs/                  AUDIT.md (findings, evidence) · DEPLOYMENT.md (deploy + health semantics)
+docs/                  AUDIT.md (findings, evidence) · DEPLOYMENT.md (deploy + health
+                       semantics) · API.md (HTTP reference, auth, curl/Python/JS clients)
 ```
 
 The three-layer cache is deliberate. Each fixture document has a **NVIDIA** live

@@ -75,6 +75,10 @@ const state = {
   health: null,
   config: null,
   configToken: '',
+  // An API key for a protected instance. Memory only, for this tab:
+  // localStorage would put the thing that guards other people's shipments
+  // where any script on this origin can read it.
+  apiKey: '',
   reviewer: '',
   clearedKeys: new Set(),
 };
@@ -90,13 +94,20 @@ document.addEventListener('DOMContentLoaded', () => {
   wireDrawer();
 
   loadHealth();
-  loadFixtures();
-  loadHistory();
 
-  const params = new URLSearchParams(location.search);
-  const wanted = params.get('demo');
-  if (wanted) runFixture(wanted);
-  else if (params.get('run')) openRun(params.get('run'));
+  // A protected instance answers 401 for everything data-bearing, so the boot
+  // sequence asks before it loads: history, fixtures and the demo shortcut all
+  // wait for the unlock that may never come.
+  ensureAccess().then((granted) => {
+    if (!granted) return;
+    loadFixtures();
+    loadHistory();
+
+    const params = new URLSearchParams(location.search);
+    const wanted = params.get('demo');
+    if (wanted) runFixture(wanted);
+    else if (params.get('run')) openRun(params.get('run'));
+  });
 });
 
 // ---------------------------------------------------------------------
@@ -473,6 +484,7 @@ function showResults() {
   $('#empty').hidden = true;
   $('#results').hidden = false;
   $('#export').hidden = true;
+  if ($('#export-pdf')) $('#export-pdf').hidden = true;
   $('#copy-link').hidden = false;
   history.replaceState(null, '', '?run=' + encodeURIComponent(state.shipmentId));
 }
@@ -629,6 +641,11 @@ function renderReport(report) {
   renderCounts(s);
   $('#export').hidden = false;
   $('#export').href = `/api/shipments/${report.shipment_id}/export`;
+  const pdf = $('#export-pdf');
+  if (pdf) {
+    pdf.hidden = false;
+    pdf.href = `/api/shipments/${report.shipment_id}/report.pdf`;
+  }
 
   renderNarrative(report);
   renderBriefing(report);
@@ -1251,6 +1268,7 @@ async function copyRunLink() {
 
 function wireDrawer() {
   buildSegmented($('#provider-seg'), PROVIDERS, 'nvidia', (v) => { state.formProvider = v; });
+  wireApiKey();
   const token = $('#cfg-token');
   token.addEventListener('input', () => {
     // Memory only, for this tab. Saving a config token to localStorage would
@@ -1264,7 +1282,56 @@ function wireDrawer() {
 function configHeaders(extra = {}) {
   const headers = { ...extra };
   if (state.configToken) headers['X-Config-Token'] = state.configToken;
+  if (state.apiKey) headers['X-API-Key'] = state.apiKey;
   return headers;
+}
+
+function wireApiKey() {
+  const field = $('#cfg-apikey');
+  const submit = $('#apikey-submit');
+  if (!field || !submit) return;
+  field.addEventListener('input', () => { state.apiKey = field.value; });
+  submit.addEventListener('click', async () => {
+    const key = (field.value || '').trim();
+    if (!key) { setStatus('Paste an API key first.', true); return; }
+    setStatus('Opening a session…');
+    try {
+      const res = await fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+      if (res.status === 401) throw new Error('that key is not valid here');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      // The cookie is now set, so forget the key itself: it has no further use
+      // in this tab, and holding it invites it into a later request log.
+      state.apiKey = '';
+      field.value = '';
+      closeDrawer();
+      setStatus('Unlocked.', false, true);
+      loadHealth();
+      loadFixtures();
+      loadHistory();
+    } catch (err) {
+      setStatus('Could not unlock: ' + err.message, true);
+    }
+  });
+}
+
+/** Ask for a key only when the instance actually refuses to answer without one. */
+async function ensureAccess() {
+  try {
+    await getJSON('/api/fixtures');
+    return true;
+  } catch (err) {
+    if (err.status !== 401) { showError(err.message); return false; }
+    $('#drawer').hidden = false;
+    $('#scrim').hidden = false;
+    $('#apikey-field').hidden = false;
+    $('#cfg-apikey').focus();
+    setStatus('This instance is protected. Enter an API key to continue.', true);
+    return false;
+  }
 }
 
 async function openDrawer() {
@@ -1417,8 +1484,19 @@ function setStatus(msg, bad, ok) {
 // ---------------------------------------------------------------------
 
 async function getJSON(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || ('HTTP ' + res.status));
+  // Headers as well as the cookie, so a client that never posted /api/session
+  // still works once it has supplied a key.
+  const res = await fetch(url, { headers: configHeaders() });
+  if (!res.ok) {
+    const err = new Error((await res.json().catch(() => ({}))).detail
+                          || ('HTTP ' + res.status));
+    // The status travels as a number, not inside the message: callers decide on
+    // 401 by identity, because the server's own wording has no reason to
+    // contain the digits -- and one real deployment shipped a silent unlock
+    // panel on exactly that assumption.
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 

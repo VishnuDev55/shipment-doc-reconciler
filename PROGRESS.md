@@ -637,3 +637,81 @@ snake_case leaks, no page-level overflow, and a new field's correction round-tri
 
 **Still unverified:** CI has never run (no remote), and no hosted deployment was
 made from this machine.
+
+
+---
+
+## Phase 2B — PDF report and a keyed HTTP API — 2026-10-03
+
+**`app/pdf.py` renders from the Report model, not from the web page.** The UI
+leans on CSS xhtml2pdf silently drops (grid, flex, custom properties), so
+"print the HTML" would have produced a mangled artifact that happened to contain
+the right words. This is tables all the way down: verdict and why, every field
+with each document's verbatim value beside its canonical form, the risk score
+with every contribution, cross-field findings, the corrections trail, and the
+prompt/normalizer/comparator versions that produced it. Served at
+`GET /api/shipments/{id}/report.pdf` and included in the export ZIP — where a
+failed render is disclosed in `README.txt` rather than left as a file the reader
+assumes was never promised.
+
+**Two honesty bugs found by reading the PDF's own text layer back.** The
+provenance line said "extracted by a live model call made during this run" while
+`live_calls` was 0 — `result_source == "live"` means *model-produced*, not
+*model-produced now*, because DEMO_MODE replays captures. And the value column
+flagged every legitimately absent field as "low confidence 0.00", which is what
+absence costs, not uncertainty. Both now read the fields that actually carry the
+claim. A third was cosmetic but visible: `→` has no glyph in the renderer's
+built-in Courier and came out blank in the one column an auditor checks by eye,
+so the arrow is ASCII.
+
+**`API_KEYS` turns the app into a keyed service.** Comma-separated, blank means
+open (the keyless demo stays as it was). Any configured key is accepted via
+`X-API-Key` or `Authorization: Bearer`, compared in constant time, and never
+echoed in a response — a 401 that repeats the caller's key would put it in
+somebody's access log. `/api/health` stays open so a load balancer can poll
+without a secret, and it reports `api_protected` so the UI knows to ask.
+
+**Query-string auth was deliberately not implemented**, even though it would
+have made the download links trivial: a URL is logged by proxies, kept in browser
+history and leaked in `Referer`. That decision forced the next one — a browser
+cannot put a header on an `<img>`, an `EventSource` or a download, so
+`POST /api/session` trades a key for a short `HttpOnly; SameSite=Strict` nonce
+cookie and the key is then forgotten. Sessions live in process memory on
+purpose: a cookie that survived a restart would be a credential nobody could
+revoke.
+
+**The offline guard had a hole, and it was not in a test.** While running the
+suite, `test_a_live_mode_client_cannot_escape_to_the_network` failed: a
+live-mode client had completed a real HTTPS request to
+`integrate.api.nvidia.com` and received HTTP 200 — from inside the guarded
+suite. The reason was the guard's own design. It allowed loopback ("so a test can
+bind an ephemeral port"), and something on this machine listens on 127.0.0.1 and
+forwards to the internet. The request never resolved a hostname through
+`socket.getaddrinfo` and never connected to a non-loopback address, so the wall
+was waved through while the guarantee was false.
+
+Refusing loopback outright took out every API test: Starlette's `TestClient`
+starts an anyio blocking portal, and on Windows that portal *is* a loopback
+socket pair. The distinction that matters is not the address but who opened it,
+so `conftest.py` now records every port the process binds and permits a
+connection only to one of those. An external listener on loopback is refused on
+the same grounds as a remote host. Resolving a loopback *name* is still allowed,
+because that puts nothing on a wire and asyncio does it for its own plumbing.
+Pinned as `test_a_loopback_port_this_process_never_bound_is_refused`.
+
+**Verified:** 655 tests, lint clean, selfcheck green. Against a live instance
+started with `API_KEYS` set: health open and reporting `api_protected: true`,
+401 with no key and with a wrong key, 200 with either configured key and with
+`Bearer`, no key material in any 401 body, session issued/accepted/revoked, the
+evidence route 200 with a session and 401 without, the report finishing with 10
+fields, and `report.pdf` returning 12,869 bytes of `%PDF-` — also present inside
+the export ZIP. In the browser: the unlock panel appears on a protected
+instance, the key opens a session, the fixtures and a 10-row report render behind
+it, and the key field is cleared from memory afterwards.
+
+**Not verified here, stated plainly:** the browser's own *download* of the PDF
+could not be observed on this machine — the local interception layer answers
+`204` to binary fetches, and it does the same to the pre-existing ZIP link, so
+the failure is the environment rather than the route. The server side of both is
+verified above.
+

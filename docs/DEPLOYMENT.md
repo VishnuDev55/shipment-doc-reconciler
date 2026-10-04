@@ -40,6 +40,7 @@ The committed blueprint is the **keyless demo**:
 ```yaml
 DEMO_MODE: "true"          # replays the bundled cache
 GUI_CONFIG_ENABLED: "false"  # no anonymous writes to process-global keys
+API_KEYS: ""               # set this before exposing the API to anyone
 RUNS_DIR: /tmp/shipment-runs # ephemeral on the free tier, by design
 ```
 
