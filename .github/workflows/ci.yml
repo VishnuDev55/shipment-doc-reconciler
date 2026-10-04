@@ -66,13 +66,13 @@ jobs:
         # scripts/evaluate.py; they were fixed, so the gate stayed hard instead
         # of being downgraded to a warning. Scope note: `make lint` covers
         # "app scripts tests"; CI is stricter and adds fixtures/.)
-        run: python -m pyflakes app scripts tests fixtures
+        run: python -m pyflakes app scripts tests tests_e2e fixtures
 
       - name: Lint (ruff) -- BLOCKING, measured 0 findings
         # Same explicit scope as `make ruff`: first-party directories plus
         # pyproject.toml itself, so an ad-hoc scratch .py at the repo root can
         # neither redden this gate nor be quietly excluded from it.
-        run: python -m ruff check app scripts tests fixtures pyproject.toml
+        run: python -m ruff check app scripts tests tests_e2e fixtures pyproject.toml
 
       - name: "Type check (mypy) -- BASELINE NOT ZERO: 36 errors in 9 files; NOT a pass"
         # Non-strict and non-blocking on purpose: the number is the baseline to
@@ -122,6 +122,45 @@ jobs:
           name: coverage-report
           path: .coverage
           if-no-files-found: warn
+
+  browser:
+    # The UI is built from textContent in a 1,500-line script with no framework
+    # and no build step, so the only way to know it still renders is to render it.
+    # Separate job, separate directory, separate guarantee: these tests open real
+    # sockets to a real uvicorn, which is exactly what tests/ forbids.
+    name: Browser tests (chromium, DEMO_MODE)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dev extras (includes playwright)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Install the chromium build this playwright version drives
+        # --with-deps because ubuntu-latest has no browser system libraries by
+        # default. Without this step the suite fails at launch, loudly, which is
+        # the intended behaviour: a silently skipped UI test is worse than none.
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run them
+        run: python -m pytest tests_e2e -q -p no:cacheprovider
+
+      - name: Keep the server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-server-logs
+          path: |
+            test-results/
+            pytest-of-*/**/e2e-*/server.log
+          if-no-files-found: ignore
 
   docker:
     runs-on: ubuntu-latest

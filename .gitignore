@@ -30,6 +30,11 @@ venv/
 htmlcov/
 coverage.xml
 
+# Browser-test output (tests_e2e/). Generated per run; the tests themselves are
+# committed, their screenshots and playwright reports are not.
+test-results/
+playwright-report/
+
 # Editors / OS
 .vscode/
 .idea/

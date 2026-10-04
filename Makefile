@@ -1,6 +1,6 @@
 PY := python3
 
-.PHONY: help setup setup-runtime fixtures dev run test lint ruff type coverage check probe probe-live probe-diff capture-summaries migrate dist clean docker compose
+.PHONY: help setup setup-runtime fixtures dev run test lint ruff type coverage check e2e probe probe-live probe-diff capture-summaries migrate dist clean docker compose
 
 help:
 	@echo "make setup       install runtime + dev tooling (what a contributor wants)"
@@ -9,11 +9,12 @@ help:
 	@echo "make dev       run the app in DEMO_MODE with autoreload"
 	@echo "make run       run the app (reads .env; set DEMO_MODE=false for live)"
 	@echo "make test      run the test suite (zero API calls)"
-	@echo "make lint      pyflakes over app/ scripts/ tests/"
-	@echo "make ruff      ruff over app/ scripts/ tests/ fixtures/ (never --fix)"
+	@echo "make lint      pyflakes over app/ scripts/ tests/ tests_e2e/"
+	@echo "make ruff      ruff over the first-party tree (never --fix)"
 	@echo "make type      mypy app -- prints the baseline, does not gate"
 	@echo "make coverage  pytest under coverage; floor 88 vs measured 90"
 	@echo "make check     the CI gate: lint + ruff + type + test"
+	@echo "make e2e       browser tests over the UI (needs: python -m playwright install chromium)"
 	@echo "make probe     self-check the demo pipeline end to end"
 	@echo "make probe-live     verify BOTH providers live (vision + Nebius summary)"
 	@echo "make probe-diff     live extractions diffed vs the authored cache"
@@ -46,7 +47,7 @@ test:
 	$(PY) -m pytest tests/ -q
 
 lint:
-	$(PY) -m pyflakes app scripts tests
+	$(PY) -m pyflakes app scripts tests tests_e2e
 
 # Ruff is configured in pyproject.toml. NEVER add --fix or ruff format here: the
 # measured baseline (92 findings) was resolved by dropping and scoping rules, not
@@ -55,7 +56,7 @@ lint:
 # scratch .py left at the repo root by an ad-hoc script cannot turn this gate red
 # or, worse, get silently excluded from it. Measured state: 0 findings.
 ruff:
-	$(PY) -m ruff check app scripts tests fixtures pyproject.toml
+	$(PY) -m ruff check app scripts tests tests_e2e fixtures pyproject.toml
 
 # Informational, by design. Measured baseline: 36 errors in 9 files (worst:
 # app/compare/__init__.py with 26). This prints the number and always exits 0, so
@@ -76,6 +77,14 @@ coverage:
 # never fails the build (see above); the other three are real gates. Measured
 # state: lint 0 findings, ruff 0 findings, mypy 36 errors, test all green.
 check: lint ruff type test
+
+# Deliberately NOT part of `check` or of `pytest tests/`: these start a real
+# uvicorn process and a real browser, so they cannot live inside the session that
+# guarantees zero network calls. Run them separately. If chromium is missing the
+# suite fails at launch with a playwright error naming the install command; there
+# is no silent skip, because a silently skipped UI test is worse than none.
+e2e:
+	$(PY) -m pytest tests_e2e -q -p no:cacheprovider
 
 probe:
 	$(PY) scripts/selfcheck.py

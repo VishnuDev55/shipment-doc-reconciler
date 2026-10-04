@@ -48,3 +48,15 @@ coverage==7.16.2
 
 # Git hooks (.pre-commit-config.yaml). Never installed into the image.
 pre-commit==4.6.2
+
+# Browser tests for the UI, in tests_e2e/. Deliberately the last thing in this
+# file: they are opt-in (`make e2e`), they are NOT part of `pytest tests/`, and
+# the offline guarantee in tests/conftest.py must never have to reason about them.
+#
+# The pip package alone is not enough -- it needs a browser binary, installed
+# separately with `python -m playwright install chromium`. On this machine the
+# binary already existed (shared with an IDE's browser tooling) and chromium
+# 1223 was the build this pip version drives. CI must run the install step; the
+# e2e job in .github/workflows/ci.yml does.
+playwright==1.60.0
+pytest-playwright==0.7.1

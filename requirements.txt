@@ -18,7 +18,7 @@
 #                           the dev tools, which the image must not get).
 #
 # Pins were taken from `python -m pip list --format=freeze` in the project venv
-# (Python 3.11.15, the same minor as `FROM python:3.11-slim`), recorded 2026-10-05.
+# (Python 3.11.15, the same minor as `FROM python:3.11-slim`), recorded 2026-10-04.
 # Every line below is a DIRECT import, verified by AST-scanning all 70 .py files
 # in app/, scripts/, tests/ and fixtures/ -- no transitive package is listed.
 #

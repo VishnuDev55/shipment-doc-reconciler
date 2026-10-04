@@ -24,19 +24,19 @@
 #   .venv/Scripts/python.exe -m pip install -r requirements.lock.txt
 #
 # Note the lockfile is NOT what the Dockerfile installs: it contains the dev
-# tools (pytest, ruff, mypy, coverage, pyflakes, pre-commit and their deps),
+# tools (pytest, ruff, mypy, coverage, pyflakes, pre-commit, playwright and
+# their deps),
 # which must stay out of the production image. It is a diagnostic and
 # reproducibility record. To get a deployable runtime-only lock, create a clean
 # venv from requirements.txt alone and freeze that.
 #
-# Environment captured: Python 3.11.15 on Windows, 2026-10-05.
+# Environment captured: Python 3.11.15 on Windows, 2026-10-04.
 # `pip check` in that environment: "No broken requirements found."
 # Body is verbatim `pip freeze` output -- unannotated on purpose, so it can be
 # diffed against a fresh freeze and re-generated without hand editing. The
-# 13 direct runtime packages and 7 direct dev packages are named in
+# 13 direct runtime packages and 9 direct dev packages are named in
 # requirements.txt and requirements-dev.txt respectively.
 # =============================================================================
-
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3
 aiosignal==1.4.0
@@ -60,13 +60,14 @@ distlib==0.4.3
 fastapi==0.141.1
 filelock==4.0.10
 frozenlist==1.8.0
+greenlet==3.5.6
 h11==0.16.0
 html5lib==1.1
-httpcore==1.0.9
 httpcore2==2.13.1
+httpcore==1.0.9
 httptools==0.8.0
-httpx==0.28.1
 httpx2==2.13.1
+httpx==0.28.1
 identify==2.6.20
 idna==3.20
 iniconfig==2.3.0
@@ -83,33 +84,40 @@ packaging==26.3
 pathspec==1.1.1
 pillow==12.3.0
 platformdirs==4.12.3
+playwright==1.60.0
 pluggy==1.6.0
 pre_commit==4.6.2
 propcache==0.5.4
 pycparser==3.0
-pydantic==2.13.5
 pydantic-settings==2.15.0
+pydantic==2.13.5
 pydantic_core==2.46.5
+pyee==13.0.1
 pyflakes==4.0.1
 Pygments==2.21.0
-pyHanko==0.37.0
 pyhanko-certvalidator==0.32.1
+pyHanko==0.37.0
 pypdf==6.19.0
 pypdfium2==5.13.0
-pytest==9.1.1
 pytest-asyncio==1.4.0
+pytest-base-url==2.1.0
+pytest-playwright==0.7.1
+pytest==8.4.2
 python-bidi==0.6.11
 python-discovery==1.6.1
 python-dotenv==1.2.3
 python-multipart==0.0.32
+python-slugify==8.0.4
 PyYAML==6.0.3
 RapidFuzz==3.14.6
 reportlab==5.0.1
+requests==2.34.2
 ruff==0.16.10
 six==1.17.0
 sniffio==1.3.1
 starlette==1.7.0
 svglib==2.2.0
+text-unidecode==1.3
 tinycss2==1.5.1
 truststore==0.10.4
 typing-inspection==0.4.4
@@ -117,6 +125,7 @@ typing_extensions==4.16.0
 tzdata==2026.4
 tzlocal==5.4.4
 uritools==6.1.3
+urllib3==2.8.0
 uvicorn==0.53.0
 virtualenv==21.14.5
 watchfiles==1.3.0

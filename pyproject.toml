@@ -75,6 +75,8 @@ dev = [
     "mypy==2.4.0",
     "coverage==7.16.2",
     "pre-commit==4.6.2",
+    "playwright==1.60.0",
+    "pytest-playwright==0.7.1",
 ]
 
 # Declared so `pip install -e .` / `pip install .` works. Only app/ is a
@@ -156,7 +158,7 @@ build-backend = "setuptools.build_meta"
 [tool.ruff]
 target-version = "py311"
 line-length = 120  # documentation of the measured convention; E501 is off (above)
-src = ["app", "scripts", "tests", "fixtures"]
+src = ["app", "scripts", "tests", "tests_e2e", "fixtures"]
 # runs/ is the filesystem database and .live_runcache/.probe_cache are script
 # scratch; none are gitignored-but-scannable by default in every environment,
 # so they are named here too.

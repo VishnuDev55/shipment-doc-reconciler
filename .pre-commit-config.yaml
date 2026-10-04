@@ -44,8 +44,8 @@ repos:
   - repo: local
     hooks:
       - id: pyflakes
-        name: "pyflakes (app scripts tests fixtures)"
-        entry: python -m pyflakes app scripts tests fixtures
+        name: "pyflakes (app scripts tests tests_e2e fixtures)"
+        entry: python -m pyflakes app scripts tests tests_e2e fixtures
         language: python
         additional_dependencies: ["pyflakes==4.0.1"]
         pass_filenames: false
@@ -58,7 +58,7 @@ repos:
         # plus pyproject.toml itself (ruff validates its own rule-code spelling
         # there). Not `.`: a scratch .py at the repo root must not break commits,
         # and excluding it by name would be worse than not scanning it.
-        entry: python -m ruff check app scripts tests fixtures pyproject.toml
+        entry: python -m ruff check app scripts tests tests_e2e fixtures pyproject.toml
         language: python
         additional_dependencies: ["ruff==0.16.10"]
         pass_filenames: false

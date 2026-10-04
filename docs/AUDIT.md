@@ -180,7 +180,7 @@ accumulates every report in memory forever.
 miss (`app/cache.py:92`). Fine for a demo; it is the scaling ceiling, and no
 index or lock guards concurrent writes to one run.
 
-### R7 — no HTTP hardening at all · P1, closed 2026-10-05
+### R7 — no HTTP hardening at all · P1, closed 2026-10-04
 Zero `add_middleware`, `CORSMiddleware`, security headers or rate limiting
 anywhere in `app/`. `pillow` decompression-bomb limits are not set. PDF pages are
 capped at 6 (`app/config.py:71`) but image dimensions are not capped before
@@ -192,7 +192,7 @@ under a byte cap, an explicit pixel ceiling plus magic-byte sniffing replaced th
 suffix trust, and `HEALTHCHECK` has been in the Dockerfile since Phase 1 — so the
 last sentence above is no longer true even as a historical one.
 
-### R8 — supply chain and reproducibility · P1, closed 2026-10-05
+### R8 — supply chain and reproducibility · P1, closed 2026-10-04
 `requirements.txt` is entirely ranged with no lockfile; `openai>=1.40,<4` spans
 two major versions and `python-multipart>=0.0.9` is unbounded above. Test-only
 deps (`pytest`, `httpx`) sit in the runtime file, so the production image installs
