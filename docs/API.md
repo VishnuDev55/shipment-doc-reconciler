@@ -55,6 +55,18 @@ would be a credential with no way to revoke it.
 `GET /api/health` reports `"api_protected": true|false`, which is how the UI
 knows to ask for a key before it asks for anything else.
 
+### Headers and cross-origin calls
+
+Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: no-referrer` and a same-origin `Content-Security-Policy`. The
+policy allows inline styles on purpose: the exported report embeds its own CSS so
+it opens anywhere, which is the feature rather than an oversight.
+
+Cross-origin calls are refused by default — no `CORS_ORIGINS`, no
+`Access-Control-Allow-Origin`. Listing origins there lets a specific site's
+JavaScript call the API with a user's session cookie attached. That is a
+deployment decision made at startup, not a per-request one.
+
 ---
 
 ## The shape of a run
@@ -247,9 +259,13 @@ this shape exists to prevent.
 - **No accounts, no per-user quota.** One shared process, one shared key set.
   `actor` on a correction is free text, recorded because an unattributed change
   is harder to defend to an auditor — not because it authenticates anyone.
-- **No rate limiting yet.** Put the service behind a reverse proxy that does it,
-  or keep `API_KEYS` off a public network. This is listed as pending work rather
-  than claimed.
+- **Rate limiting covers the endpoint that costs money, and nothing else.**
+  `RUN_LIMIT_PER_MINUTE` (default 30) bounds `POST /api/shipments` per API key,
+  falling back to the peer address; over that you get `429` with `Retry-After`.
+  Reading reports is deliberately unlimited, because the browser polls it every
+  second and throttling that would break the UI to protect an endpoint that costs
+  nothing. It is a per-process sliding window: behind a reverse proxy, set it to
+  `0` and limit there instead.
 - **No webhooks.** Poll the report, or hold the SSE stream.
 - **No persistence guarantee across restarts.** Runs live under `RUNS_DIR`
   (default `./runs`) as plain files; mount a volume if they must survive.

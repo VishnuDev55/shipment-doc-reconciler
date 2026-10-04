@@ -110,6 +110,19 @@ class Settings(BaseSettings):
     # commercial documents and disk is not free.
     run_ttl_hours: int = Field(default=0, alias="RUN_TTL_HOURS")
 
+    # Requests per minute per client to POST /api/shipments -- the only endpoint
+    # that spends money, since each run fans out to a vision model per document.
+    # Reading reports is unlimited on purpose: the browser polls it every second
+    # and throttling that would only break the UI. 0 disables it, which is what
+    # you want behind a reverse proxy that rate-limits properly.
+    run_limit_per_minute: int = Field(default=30, alias="RUN_LIMIT_PER_MINUTE")
+
+    # Comma-separated origins allowed to call the API from a browser. Empty --
+    # the default -- sends no CORS headers at all, so the app stays same-origin
+    # only. This is not a security boundary for the API key; it decides whether
+    # some other site's JavaScript can ride a user's session.
+    cors_origins: str = Field(default="", alias="CORS_ORIGINS")
+
     # Reports held in process memory so a poll does not re-read disk. Bounded:
     # an instance that has served 50,000 shipments should not still be holding
     # all 50,000.

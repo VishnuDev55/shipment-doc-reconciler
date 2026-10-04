@@ -283,3 +283,111 @@ async def test_a_rejected_document_is_logged_by_shipment(tmp_path, caplog):
         sid, _ = await rec.create_shipment([("notes.txt", None, b"hello")])
     assert any(sid in r.message and "notes.txt" in r.message
                for r in caplog.records), [r.message for r in caplog.records]
+
+
+# ---------------------------------------------------------------------------
+# R7: the endpoint that costs money is the one that is bounded
+# ---------------------------------------------------------------------------
+
+
+def test_limiter_allows_up_to_the_limit_then_blocks():
+    from app.limits import RateLimiter
+
+    limiter = RateLimiter(limit=3, window_seconds=60)
+    assert [limiter.check("a")[0] for _ in range(4)] == [True, True, True, False]
+    # A different client is a different budget.
+    assert limiter.check("b")[0] is True
+
+
+def test_limiter_recovers_when_the_window_passes():
+    import time as _time
+
+    from app.limits import RateLimiter
+
+    limiter = RateLimiter(limit=1, window_seconds=0.05)
+    assert limiter.check("a")[0] is True
+    allowed, retry_in = limiter.check("a")
+    assert not allowed and 0 < retry_in <= 0.06
+    _time.sleep(0.06)
+    assert limiter.check("a")[0] is True
+
+
+def test_a_limit_of_zero_disables_the_limiter_rather_than_blocking_all():
+    from app.limits import RateLimiter
+
+    limiter = RateLimiter(limit=0)
+    assert not limiter.enabled
+    assert all(limiter.check("a")[0] for _ in range(50))
+
+
+def _upload():
+    return [("files", (IMG.name, IMG.read_bytes(), "image/png"))]
+
+
+def test_create_shipment_is_rate_limited(tmp_path):
+    configure(Reconciler(settings_for(tmp_path, run_limit_per_minute=2)))
+    client = TestClient(app)
+    assert client.post("/api/shipments", files=_upload()).status_code == 201
+    assert client.post("/api/shipments", files=_upload()).status_code == 201
+    res = client.post("/api/shipments", files=_upload())
+    assert res.status_code == 429
+    assert "Retry-After" in res.headers
+    assert "2 per minute" in res.json()["detail"]
+    # The rejection must not name the caller's key back at them.
+    assert "nvapi-" not in res.text
+
+
+def test_reading_a_report_is_never_rate_limited(tmp_path):
+    """Throttling the poll would break the UI to protect an endpoint that costs
+    nothing."""
+    configure(Reconciler(settings_for(tmp_path, run_limit_per_minute=1)))
+    client = TestClient(app)
+    sid = client.get("/api/fixture/shipment_clean").json()["shipment_id"]
+    for _ in range(20):
+        assert client.get(f"/api/shipments/{sid}/report").status_code == 200
+
+
+def test_health_is_not_rate_limited_even_at_zero(tmp_path):
+    configure(Reconciler(settings_for(tmp_path, run_limit_per_minute=1)))
+    client = TestClient(app)
+    for _ in range(10):
+        assert client.get("/api/health").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# R7: headers, and the absence of CORS by default
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("path", ["/", "/api/health", "/api/fixtures"])
+def test_security_headers_are_present(tmp_path, path):
+    configure(Reconciler(settings_for(tmp_path)))
+    client = TestClient(app)
+    res = client.get(path)
+    assert res.status_code == 200
+    assert res.headers["x-content-type-options"] == "nosniff"
+    assert res.headers["x-frame-options"] == "DENY"
+    assert res.headers["referrer-policy"] == "no-referrer"
+    csp = res.headers["content-security-policy"]
+    assert "default-src 'self'" in csp and "object-src 'none'" in csp
+
+
+def test_the_content_policy_still_allows_what_the_app_needs(tmp_path):
+    """A CSP that breaks the page is worse than none. The UI loads its own
+    script and stylesheet from /static, the evidence images are data URIs, and
+    the progress stream is an EventSource on the same origin."""
+    configure(Reconciler(settings_for(tmp_path)))
+    client = TestClient(app)
+    csp = client.get("/").headers["content-security-policy"]
+    for directive in ("script-src 'self'", "style-src 'self' 'unsafe-inline'",
+                      "img-src 'self' data:", "connect-src 'self'"):
+        assert directive in csp, directive
+
+
+def test_no_cors_headers_by_default(tmp_path):
+    """Same-origin only unless the deployment says otherwise -- and the API key
+    is not a browser credential, so widening this is a real decision."""
+    configure(Reconciler(settings_for(tmp_path)))
+    client = TestClient(app)
+    res = client.get("/api/health", headers={"Origin": "https://elsewhere.test"})
+    assert "access-control-allow-origin" not in res.headers

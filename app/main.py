@@ -32,6 +32,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import PROJECT_ROOT, _usable, get_settings
 from .correct import CorrectionError, active_corrections, correction_trail
+from .limits import RateLimiter
 from .export import build_zip, fixture_manifest
 from .pdf import render_pdf
 from .models import (ConfigUpdate, CorrectionRequest, Report, RetryRequest, SessionRequest)
@@ -55,6 +56,42 @@ app = FastAPI(
 )
 
 _reconciler: Reconciler | None = None
+
+# Budget for the one endpoint that spends money. Owned per process, and reset
+# whenever a new reconciler is injected, so an unrelated test cannot be the
+# reason a 429 appeared.
+_limiter = RateLimiter()
+
+
+def _limiter_for() -> RateLimiter:
+    limit = active_settings().run_limit_per_minute
+    if _limiter.limit != limit:
+        _limiter.limit = limit
+        _limiter.reset()
+    return _limiter
+
+
+def _client_key(request: Request) -> str:
+    """Who to charge the budget to.
+
+    The API key when one was supplied, because that is the only identity that
+    exists here; otherwise the peer address, taking the first hop of
+    X-Forwarded-For since a proxy is the normal way to reach this app. A shared
+    key is one budget by design -- if it is being shared, that is the deployment
+    problem to fix, not something to hide here.
+    """
+    key = (request.headers.get("x-api-key") or "").strip()
+    if not key:
+        auth = (request.headers.get("authorization") or "").strip()
+        if auth[:7].lower() == "bearer ":
+            key = auth[7:].strip()
+    if key:
+        return "key:" + key[-12:]
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return "ip:" + forwarded.split(",")[0].strip()
+    client = request.client
+    return "ip:" + (client.host if client else "unknown")
 
 
 def reconciler() -> Reconciler:
@@ -181,6 +218,46 @@ def close_session(request: Request, response: Response) -> dict:
     _sessions.pop(token, None)
     response.delete_cookie("sdr_session", path="/")
     return {"session": "closed"}
+
+
+# Cross-origin calls are opt-in and decided at startup: which origins may call
+# from a browser is deployment configuration, not something to renegotiate per
+# request, and an unset CORS_ORIGINS leaves the app same-origin only.
+_allowed_origins = [o.strip() for o in get_settings().cors_origins.split(",") if o.strip()]
+if _allowed_origins:
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_allowed_origins,
+        allow_credentials=True,  # the session cookie is how a browser auths
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["X-API-Key", "X-Config-Token", "Content-Type"],
+    )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """The minimum that makes an accidentally public deployment less damaging.
+
+    nosniff stops a browser deciding an uploaded document is a script;
+    X-Frame-Options stops a click-jacking frame around the Configure drawer;
+    no-referrer keeps a shipment id out of the site the page links onward to.
+
+    The Content-Security-Policy is same-origin for scripts and allows inline
+    styles on purpose: the exported report embeds its own CSS so it opens
+    anywhere, which is the feature rather than an oversight to close.
+    """
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; connect-src 'self'; font-src 'self'; "
+        "object-src 'none'; base-uri 'self'; form-action 'self'"
+    )
+    return response
 
 
 if STATIC_DIR.is_dir():
@@ -423,10 +500,20 @@ async def _read_capped(upload: UploadFile, limit: int) -> bytes:
 
 @app.post("/api/shipments", dependencies=[Depends(require_api_key)])
 async def create_shipment(
+    request: Request,
     files: list[UploadFile] = File(...),
     doc_types: str = Form(""),
 ) -> JSONResponse:
     """Upload 1-5 documents for one shipment. Returns the shipment id to poll."""
+    limiter = _limiter_for()
+    allowed, retry_in = limiter.check(_client_key(request))
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"too many shipments: {limiter.limit} per minute. Retry in "
+                   f"{max(1, int(retry_in) + 1)}s.",
+            headers={"Retry-After": str(max(1, int(retry_in) + 1))},
+        )
     declared: list[str | None] = []
     if doc_types:
         try:
