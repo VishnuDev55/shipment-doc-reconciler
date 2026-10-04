@@ -1,0 +1,143 @@
+# Architecture
+
+What the system is, where the boundaries are, and which rules may not be broken.
+This is the document to read before changing anything; the module docstrings carry
+the detail, and this carries the shape.
+
+---
+
+## The one decision everything else follows from
+
+A vision model transcribes. Deterministic Python decides.
+
+```
+bytes ──ingest──▶ page JPEGs ──model──▶ verbatim strings ──▶ normalizers ──▶ compare_key
+                     │                                                    │
+                     └──────────── evidence images ───────────────────────┴──▶ report
+```
+
+The model's entire output surface is a JSON object of strings and booleans
+(`app/models.py:ExtractedField`). It never receives a number to add, a unit to
+convert, or a judgement to make, and it is never asked which document disagrees.
+Every comparison in the report is a pure function of normalized values, so a
+verdict can be reproduced, unit-tested, and argued with — and a model that
+hallucinates a plausible total cannot produce a plausible *verdict*.
+
+Seven invariants enforce this. They are not style preferences; each one is a
+failure mode that was observed or reasoned out, and each is pinned by a test.
+
+| # | Invariant | Where it is enforced |
+|---|---|---|
+| 1 | The model never does arithmetic | `app/models.py` types every value as `str \| None`; normalizers own parsing |
+| 2 | `canonical` (for humans) and `compare_key` (for the engine) stay separate | `NormalizedField`; `app/compare/__init__.py` compares keys only |
+| 3 | Never convert currencies; never guess an absent field | `app/normalize/money.py` returns a hard conflict across currencies; `present=false` is preserved end to end |
+| 4 | Text inside documents is data, never instructions | prompt rule 5 (`app/prompt.py`); values reach the UI through `textContent` only |
+| 5 | The test suite makes zero network calls | `tests/conftest.py` patches the socket layer for the session |
+| 6 | Be honest about live vs cached vs authored | `source` on every document, `result_source`/`live_calls` on every run, restated in the PDF and the UI |
+| 7 | Never leak API keys | keys are compared, not stored; masked in `/api/config`; absent from reports, ZIPs, PDFs and error bodies |
+
+---
+
+## Module map
+
+**Contract**
+- `fields.py` — the ten fields, five document types, per-type expectations and surface hints. The single source: schema, prompt, normalizer dispatch, comparator table, UI rows and fixtures all derive from it. Adding a field means editing this file.
+- `models.py` — Pydantic v2 models: the extraction contract, the normalized/comparison types, and the persisted report.
+- `config.py` — settings plus the three version tags (`PROMPT_VERSION`, `NORMALIZER_VERSION`, `COMPARATOR_VERSION`, and `LINEITEMS_PROMPT_VERSION` for the second contract).
+
+**Getting pixels into the model**
+- `ingest.py` — bytes → canonical JPEGs. Magic-byte sniffing, an explicit pixel ceiling, EXIF orientation, one long-edge size. Everything downstream, including the cache key, works on these images rather than on the upload.
+- `prompt.py` — the system contract, the user turn, the page markers, and the two fallback rungs.
+- `client.py` — transport, backoff, the capability probe, the five-rung extraction ladder, and the line-item read. `providers.py` resolves endpoints.
+- `discovery.py` — asks each host what it actually serves before trusting a configured model name.
+
+**Getting truth out of strings**
+- `parse.py` — rungs 1–3 (load, repair, coerce). One unreadable field never fails a document.
+- `normalize/` — one module per kind: `number`, `money`, `weight`, `quantity`, `container` (ISO 6346), `hs_code`, `party`, `categorical`.
+- `compare/__init__.py` — the tolerance table and per-kind comparators. Frozen constants, no model.
+- `rules.py` — cross-field sanity that no single-field comparison can see (net above gross, weight-basis confusion).
+- `scoring.py` — a 0–100 risk score where every point traces to a named rule.
+- `lineitems.py` — opt-in goods-line matching. Exact, never fuzzy.
+
+**Optional model calls, all additive**
+- `summary.py` / `narrative_cache.py` — an executive summary. `adjudicate.py` — a second opinion on genuinely ambiguous comparisons. Neither can change a status, and both are marked superseded when a human corrects a value underneath them.
+- `consensus.py` — a second provider reads the same pages; disagreement is a review marker, not a verdict.
+
+**Around the edges**
+- `orchestrator.py` — the run: fan-out, report assembly, SSE publishing, corrections, bounded memory.
+- `store.py` — filesystem as the database. `export.py` / `pdf.py` — the artifacts.
+- `main.py` — FastAPI: routes, auth, session cookie, security headers, rate limit.
+- `limits.py` — a sliding window on the one endpoint that spends money.
+- `web/` — one HTML file, one stylesheet, one script. No framework, no build step, no CDN.
+
+---
+
+## Why the frontend is still one file
+
+`web/app.js` is ~1,600 lines with nine commented section dividers. Splitting it
+into ES modules was measured, not assumed to be a good idea: slicing at the
+section boundaries and computing the cross-chunk reference graph produced modules
+that are mutually cyclic — `report ↔ run` (rendering calls `poll`, the run loop
+calls `renderReport`), `run ↔ intake`, `net ↔ config` (the transport needs
+`configHeaders`, the drawer needs `getJSON`), and a longer loop through
+`rail → net → config → rail`. A cycle-tolerant module system would still load it,
+but the dependency story would be strictly worse than "one file, one scope", and
+the refactor would touch a UI currently verified by 12 browser tests.
+
+`core` — the constants, `state`, `$` and `el` — is the one genuinely clean leaf,
+and is the only piece worth extracting on its own. (Getting that answer required
+fixing the analysis: a first pass reported a `core → report` edge that turned out
+to be the `showRaw: false` property on `state` matching the `showRaw()` function
+name. Word-boundary matching over source text is not a dependency graph.)
+
+A genuine modularisation needs an action/event seam between rendering and
+run-control first — a redesign, not a split. It is deliberately not done here.
+If you pick it up, start by breaking `report → poll` and `net → config`, not by
+moving code.
+
+---
+
+## Concurrency and state
+
+One process-global `Reconciler` (`app/main.py:configure/reconciler`) holds the
+clients, the in-memory report cache (an `OrderedDict` bounded by
+`MAX_REPORTS_IN_MEMORY`), and the running tasks. A shipment's documents are read
+with `asyncio.gather` behind a semaphore (`MAX_CONCURRENCY`).
+
+Two things that look like bugs and are not:
+- The shared client cannot carry a per-run raw-output directory, so `raw_dir` is a
+  *parameter* on every call. A constructor argument would send two concurrent
+  runs' evidence to whichever directory was created first.
+- The capability probe is guarded by an `asyncio.Lock` created in `__init__`. A
+  lazily-created lock looked initialised because `getattr(self, "__probe_lock")`
+  never sees the name-mangled attribute — the concurrency test caught it.
+
+CPU-bound work (PDF rasterisation, image decoding, disk writes) runs through
+`run_in_threadpool`; on the event loop it would stall every other shipment.
+
+## Failure policy
+
+A document that fails is marked failed, still rendered, and retryable on its own.
+It never aborts the shipment and never cancels its siblings. A 2-of-3 result is
+useful; a 500 is not. The same rule applies downward: a cache write failure does
+not lose a successful extraction, and a narrative failure does not change a
+verdict.
+
+## Storage
+
+`runs/{shipment_id}/` holds `report.json`, the page images, `raw/` model bodies
+and the export artifacts. There is no database, deliberately: a run is a document
+about documents, and a directory a person can `ls` survives the app.
+
+---
+
+## Where to look for a specific thing
+
+| Question | File |
+|---|---|
+| Why does "12.450,00 kg" equal "12,450.00 KGS"? | `app/normalize/weight.py`, then `docs/NORMALIZATION.md` |
+| What tolerance made this a conflict rather than a warning? | `app/compare/__init__.py`, constants at the top |
+| What did the model actually say? | `runs/{id}/raw/`, and the transparency panel in the UI |
+| Can a cache entry from an older prompt be served? | `app/cache.py` — the key includes the prompt version; the authored tier filters on it |
+| Which routes need a key? | `app/main.py`, `require_api_key`, and `docs/API.md` |
+| What is measured vs claimed? | `docs/EVAL.md` (generated) and `docs/AUDIT.md` (annotated with what has since closed) |

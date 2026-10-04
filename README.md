@@ -1,13 +1,29 @@
 # Shipment Doc Reconciler
 
 Cross-checks a shipment's paperwork. Upload 2–5 trade documents (commercial
-invoice, packing list, bill of lading) as scans or phone photos, and the app
-extracts six shipment-level fields from each, normalizes them deterministically,
-and flags where the documents disagree — with the source line quoted as evidence.
+invoice, packing list, bill of lading, certificate of origin) as scans or phone
+photos, and the app extracts ten shipment-level fields from each, normalizes them
+deterministically, and flags where the documents disagree — with the source line
+quoted as evidence.
 
 **Engineering audit:** [`docs/AUDIT.md`](docs/AUDIT.md) records what was verified,
 what is broken, and what is deferred, with `file:line` evidence for every claim.
 Read it before trusting anything below the quick start.
+
+## Documentation
+
+| Read | For |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | the shape of the system, the seven invariants and where each is enforced |
+| [`docs/NORMALIZATION.md`](docs/NORMALIZATION.md) | every rule and threshold that decides whether two printings of a fact agree |
+| [`docs/PROVIDERS.md`](docs/PROVIDERS.md) | what NVIDIA and Nebius actually do, measured by calling them |
+| [`docs/EVAL.md`](docs/EVAL.md) | measured accuracy, generated from captured model output — and its limits |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | the threat model, including the four things not protected |
+| [`docs/API.md`](docs/API.md) | the HTTP surface, auth contract, curl/Python/JS clients |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | deploy paths, health semantics, what is *not* verified here |
+| [`docs/adr/`](docs/adr/) | nine decision records, including two reversed by measurement |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | setup, the gates, the rules that are not negotiable |
+| [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) | ten minutes offline, plus the questions and the honest answers |
 
 ## How this meets the two hackathon requirements
 
@@ -491,9 +507,20 @@ that, and a report can never present an inference as a host declaration.
 catalog, so the default model is verified live and `model_selection` reports
 `configured`.
 
-**Still unverified: Nebius.** No Token Factory key was available, so its
-`?verbose=true` modality handling is tested against replayed payloads only. Run
-`make probe-live` with a Nebius key to confirm.
+**Verified against the live Nebius host too, and it corrected a bug.** Token
+Factory puts its capability string at `architecture.modality` under
+`?verbose=true`; `parse_catalog` was reading a top-level `modality` that neither
+host returns, so **0 of 25 Nebius models appeared image-capable** and a host that
+*states* its capabilities was being decided by a name guess. Measured after the
+fix: 25 models, 25 declaring, 6 image-capable, and the retired Nemotron vision
+entry now resolves to `openbmb/MiniCPM-V-4_5` as a declared capability.
+
+The tests were part of the problem: they asserted payload shapes neither host
+returns, so the suite stayed green while the live path found nothing. They now use
+captured shapes, and a `text->embedding` row is pinned as ineligible for both
+roles. **What is still unverified about Nebius:** nothing about its catalog — but
+its summary-model behaviour is exercised far more lightly than its vision path, and
+`make probe-live` remains the way to re-confirm either.
 
 ### Line by line, when the totals agree and the shipment is still wrong
 
@@ -594,8 +621,9 @@ catalog pick the same model. `GET /api/models` reports the current decision and
 
 **What the real hosts publish** is now recorded above, under **Verified against
 the live NVIDIA host** — including the fact that NVIDIA publishes no modality at
-all, which is why `Selection.inferred` exists. Only the Nebius side remains
-unverified, for want of a Token Factory key; `make probe-live` closes that gap.
+all, which is why `Selection.inferred` exists, and the Nebius `architecture.modality`
+reading that was wrong until it was measured against the live catalog. Both sides
+have been checked against a real host; `make probe-live` re-checks them.
 
 ### The adjudicator: a second opinion, never a second decision
 
@@ -1048,9 +1076,15 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 619 tests across 21 files (+ conftest.py socket guard)
-docs/                  AUDIT.md (findings, evidence) · DEPLOYMENT.md (deploy + health
-                       semantics) · API.md (HTTP reference, auth, curl/Python/JS clients)
+tests/                 772 offline tests across 26 files (+ conftest.py socket guard)
+tests_e2e/             12 browser tests; a real uvicorn and real chromium, and the
+                       only suite allowed to open a socket. `pytest tests/` cannot
+                       collect it; run `make e2e`.
+docs/                  ARCHITECTURE.md (shape + invariants) · NORMALIZATION.md (every
+                       rule and threshold) · PROVIDERS.md (what each host really does)
+                       · EVAL.md (generated accuracy) · SECURITY.md (threat model) ·
+                       AUDIT.md (findings, evidence) · DEPLOYMENT.md · API.md ·
+                       adr/ (nine decision records)
 ```
 
 The three-layer cache is deliberate. Each fixture document has a **NVIDIA** live

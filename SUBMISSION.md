@@ -9,14 +9,15 @@
 ## What it is
 
 Upload the paperwork for one shipment — commercial invoice, packing list, bill
-of lading — as scans or phone photos, and the app reads six shipment-level
-fields out of each document, converts them to a common basis in deterministic
-Python, and reports where the documents **disagree**, with the source line
-quoted as evidence.
+of lading, certificate of origin — as scans or phone photos, and the app reads
+ten shipment-level fields out of each document, converts them to a common basis
+in deterministic Python, and reports where the documents **disagree**, with the
+source line quoted as evidence.
 
 It answers the question that currently gets answered by a human opening three
-PDFs and eyeballing them: *do these three documents actually describe the same
-shipment?*
+PDFs and eyeballing them: *do these documents actually describe the same
+shipment?* And, with `ENABLE_LINE_ITEMS` on, the sharper one behind it: *which
+line differs, when every total agrees?*
 
 ---
 
