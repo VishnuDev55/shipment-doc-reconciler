@@ -1,31 +1,69 @@
-# Runtime
-fastapi>=0.115,<1
-uvicorn[standard]>=0.30,<1
-python-multipart>=0.0.9
-pydantic>=2.7,<3
-pydantic-settings>=2.3,<3
-openai>=1.40,<4
-python-dotenv>=1.0
+# =============================================================================
+# RUNTIME dependencies -- pinned. This is what the Dockerfile installs, so
+# nothing in here is test-only or lint-only. That is the fix for docs/AUDIT.md
+# finding R8 ("Test-only deps (pytest, httpx) sit in the runtime file, so the
+# production image installs the test suite's dependencies").
+#
+# WHICH FILE IS WHICH, and why three exist
+#   requirements.txt        this file. Direct runtime deps, exact pins. Use it
+#                           for the production image and for `make setup`.
+#   requirements-dev.txt    this file plus the lint/type/test tools. Use it for
+#                           development and CI (`-r requirements.txt` at its top).
+#   requirements.lock.txt   full `pip freeze` of the validated environment:
+#                           every transitive package too, at the exact version
+#                           the passing suite actually ran against. The two
+#                           ranged files above cannot answer "what did we test";
+#                           this one can. It is a reproducibility record, not
+#                           something the Dockerfile installs (it also contains
+#                           the dev tools, which the image must not get).
+#
+# Pins were taken from `python -m pip list --format=freeze` in the project venv
+# (Python 3.11.15, the same minor as `FROM python:3.11-slim`), recorded 2026-10-05.
+# Every line below is a DIRECT import, verified by AST-scanning all 70 .py files
+# in app/, scripts/, tests/ and fixtures/ -- no transitive package is listed.
+#
+# Two corrections against the previous version of this file:
+#   * httpx was classed as a test dependency in docs/AUDIT.md R8. It is not:
+#     app/discovery.py:244 constructs httpx.AsyncClient to probe provider model
+#     catalogs. Removing it from the runtime file would break model discovery in
+#     the container.
+#   * xhtml2pdf was commented here as "Fixture generation only". It is not:
+#     app/pdf.py:274 imports it and app/main.py:36 wires render_pdf into the PDF
+#     export endpoint. It is a runtime dependency.
+#
+# `pip check` on the resulting environment reports no broken requirements.
+# =============================================================================
+
+# HTTP layer
+# python-multipart is required for UploadFile/File() in app/main.py; FastAPI
+# does not install it by default.
+fastapi==0.141.1
+starlette==1.7.0
+uvicorn[standard]==0.53.0
+python-multipart==0.0.32
+
+# Models and settings
+pydantic==2.13.5
+pydantic-settings==2.15.0
+
+# Providers. openai is pinned to the 3.x line that the suite was validated on;
+# the previous `openai>=1.40,<4` spanned two majors (docs/AUDIT.md R8).
+openai==3.19.2
+httpx==0.28.1
+
+# Config
+python-dotenv==1.2.3
 
 # Ingestion: Pillow for images, pypdfium2 for PDFs. Both ship manylinux wheels
-# with no system dependencies — no poppler, no apt packages — which is what
-# keeps the Docker build a single clean stage.
-pillow>=10.3
-pypdfium2>=4.30
+# with their codecs vendored -- no poppler, no apt packages -- which is what
+# keeps the Docker build a single clean stage (see the Dockerfile header audit).
+pillow==12.3.0
+pypdfium2==5.13.0
 
-# Normalization
-rapidfuzz>=3.9
+# Normalization: fuzzy party-name matching in app/compare/__init__.py.
+# rapidfuzz 3.14.6 declares Requires-Python >=3.11, which is what sets the
+# requires-python floor in pyproject.toml.
+rapidfuzz==3.14.6
 
-# Fixture generation only (HTML -> PDF -> image), also pure wheels
-xhtml2pdf>=0.2.16
-
-# Tests
-pytest>=8.2
-pytest-asyncio>=0.23
-httpx>=0.27
-
-# Lint. `make lint` has always invoked pyflakes without declaring it, so the
-# command the README advertises failed on a fresh clone. Deliberately not
-# upgraded to ruff/mypy here: that changes the whole toolchain and is tracked as
-# its own item in docs/AUDIT.md.
-pyflakes>=3.1,<4
+# Report rendering: HTML -> PDF (app/pdf.py, used by the export endpoint).
+xhtml2pdf==0.2.20

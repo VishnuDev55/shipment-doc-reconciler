@@ -19,6 +19,17 @@ __pycache__/
 venv/
 *.egg-info/
 
+# Local-only output of the dev tools declared in requirements-dev.txt. None of
+# these are artifacts to commit: mypy/ruff caches are regenerable keyed on
+# content, and .coverage/htmlcov is a snapshot of one machine's run. The
+# reproducibility record that IS committed is requirements.lock.txt.
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
 # Editors / OS
 .vscode/
 .idea/

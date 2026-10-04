@@ -1,0 +1,86 @@
+# =============================================================================
+# pre-commit -- three gates: pyflakes, ruff, mypy.
+#
+# NO HOOK HERE REWRITES FILES. Deliberately:
+#   * no `ruff format`, no `ruff --fix` (the repo is not reformatted by tooling;
+#     the measured ruff baseline in pyproject.toml was resolved by dropping and
+#     scoping rules, never by editing source),
+#   * no black/autoflake/isort/add-trailing-newline/end-of-file-fixer/
+#     trailing-whitespace -- every one of those rewrites the file it inspects,
+#   * no `--fix` flag on ruff anywhere in this file.
+#
+# WHY `language: python` AND NOT `language: system`
+#   Measured on this machine: `python` on PATH is a different interpreter (an
+#   unrelated tool's venv without pyflakes installed), so a `language: system`
+#   hook ran the wrong python and died with "No module named pyflakes". With
+#   `language: python`, pre-commit builds each hook env from the interpreter that
+#   launches pre-commit (i.e. the project venv, 3.11.15) and rewrites the
+#   `python` in `entry` to point at that env, so the hooks are correct even when
+#   the venv is not activated. The pins below must stay in sync with
+#   requirements-dev.txt; run pre-commit from the project venv so the hook envs
+#   are built on the same interpreter CI uses:
+#     .venv/Scripts/python.exe -m pip install pre-commit
+#     .venv/Scripts/python.exe -m pre_commit install
+#     .venv/Scripts/python.exe -m pre_commit run --all-files
+#
+# Measured behaviour of each hook on the current tree:
+#   pyflakes  PASSES -- 0 findings over app/ scripts/ tests/ fixtures/.
+#             (It reported 3 findings in scripts/evaluate.py for ~13 minutes
+#             while that file was being written; fixed before this config
+#             settled. The hook is kept blocking, not excluded.)
+#   ruff      PASSES -- 0 findings, after a measured 92-finding baseline was
+#             dropped globally (60, 5 rules) or scoped per-file (32, 19 rules).
+#             See pyproject.toml for the table. F -- the pyflakes-equivalent
+#             family -- carries no ignore at all, so ruff is a strict superset
+#             of the pyflakes hook above.
+#   mypy      reports 36 errors in 9 files -- informational only (see the hook).
+# =============================================================================
+
+minimum_pre_commit_version: "3.5.0"
+ci:
+  skip: [mypy]  # CI runs mypy as its own step with continue-on-error; not duplicated as a blocking hook
+
+repos:
+  - repo: local
+    hooks:
+      - id: pyflakes
+        name: "pyflakes (app scripts tests fixtures)"
+        entry: python -m pyflakes app scripts tests fixtures
+        language: python
+        additional_dependencies: ["pyflakes==4.0.1"]
+        pass_filenames: false
+        always_run: true
+        types: [python]
+
+      - id: ruff
+        name: "ruff check (config from pyproject.toml; no --fix)"
+        # Explicit scope, identical to `make ruff` -- first-party directories
+        # plus pyproject.toml itself (ruff validates its own rule-code spelling
+        # there). Not `.`: a scratch .py at the repo root must not break commits,
+        # and excluding it by name would be worse than not scanning it.
+        entry: python -m ruff check app scripts tests fixtures pyproject.toml
+        language: python
+        additional_dependencies: ["ruff==0.16.10"]
+        pass_filenames: false
+        always_run: true
+        types: [python]
+
+      - id: mypy
+        name: "mypy app -- BASELINE NOT ZERO (informational, run manually)"
+        entry: python -m mypy app
+        language: python
+        additional_dependencies: ["mypy==2.4.0"]
+        pass_filenames: false
+        always_run: true
+        require_serial: true
+        # Measured: `verbose: true` does NOT make a hook non-blocking -- with it
+        # set, pre-commit still reported "Failed" and exited 1. Since the honest
+        # mypy baseline is 36 errors in 9 files (32 when run in this isolated
+        # hook env, because fastapi/starlette have no stubs there and mypy falls
+        # back to Any), a blocking hook would make every commit impossible until
+        # app/ is typed -- out of scope here. `stages: [manual]` keeps the hook
+        # configured and runnable without it gating anything:
+        #   python -m pre_commit run --hook-stage manual mypy
+        # CI runs mypy as its own step with continue-on-error instead.
+        stages: [manual]
+        verbose: true

@@ -180,19 +180,33 @@ accumulates every report in memory forever.
 miss (`app/cache.py:92`). Fine for a demo; it is the scaling ceiling, and no
 index or lock guards concurrent writes to one run.
 
-### R7 — no HTTP hardening at all · P1
+### R7 — no HTTP hardening at all · P1, closed 2026-10-05
 Zero `add_middleware`, `CORSMiddleware`, security headers or rate limiting
 anywhere in `app/`. `pillow` decompression-bomb limits are not set. PDF pages are
 capped at 6 (`app/config.py:71`) but image dimensions are not capped before
 resize. No `HEALTHCHECK` instruction in the Dockerfile (Render compensates via
 `healthCheckPath`, `render.yaml:46`).
 
-### R8 — supply chain and reproducibility · P1
+*Closed.* Security headers and an opt-in CORS block are wired, uploads are read
+under a byte cap, an explicit pixel ceiling plus magic-byte sniffing replaced the
+suffix trust, and `HEALTHCHECK` has been in the Dockerfile since Phase 1 — so the
+last sentence above is no longer true even as a historical one.
+
+### R8 — supply chain and reproducibility · P1, closed 2026-10-05
 `requirements.txt` is entirely ranged with no lockfile; `openai>=1.40,<4` spans
 two major versions and `python-multipart>=0.0.9` is unbounded above. Test-only
 deps (`pytest`, `httpx`) sit in the runtime file, so the production image installs
 the test suite's dependencies. Two different clones can resolve differently and
 only one is tested.
+
+*Closed.* The file is pinned, split runtime/dev, and mirrored by
+`requirements.lock.txt` and `pyproject.toml`. **One part of this finding is now
+wrong in a way worth knowing before repeating it:** `httpx` is not a test-only
+dependency. `app/discovery.py` constructs `httpx.AsyncClient` to read provider
+model catalogs, so moving it into the dev file would break model discovery inside
+the container. It *was* test-only when this was written — discovery came later —
+so the finding is not sloppy, it is simply predating the code. Check an import
+graph, not a memory, before classifying a dependency.
 
 ### R9 — the "verified live" claims are dated and currently uncheckable · P1
 `providers.py:27`, `:32` and `:36-38` record model choices as "Verified live
@@ -219,7 +233,7 @@ availability on both hosts changes without notice, and
   (`app/client.py:281-308`), so probe outcomes cannot be correlated with a run.
 - **No structured logging, no request/shipment ID in log lines, no error
   taxonomy.** There is nothing to grep when a production run misbehaves.
-- **No `docs/`, no CI, no CHANGELOG, no ADRs** — decisions like "two providers",
+- **No `docs/`, no CI, no CHANGELOG, no ADRs** *(partly overtaken: `docs/` and a two-job CI workflow exist now; the CHANGELOG and the ADRs do not)* — decisions like "two providers",
   "no OCR fallback", "filesystem database", "deterministic comparison" and the
   ISO 6346 arbitration exist only as code comments and as prose in `SUBMISSION.md`,
   which is a hackathon artifact, not an engineering reference.

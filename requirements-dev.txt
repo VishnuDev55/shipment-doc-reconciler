@@ -1,0 +1,50 @@
+# =============================================================================
+# DEVELOPMENT dependencies -- pinned. Lint, type-check, test and hook tooling.
+# Nothing the app needs at runtime lives here; that is requirements.txt, which
+# this file pulls in wholesale via the `-r` line below.
+#
+# CI installs this file (`python -m pip install -r requirements-dev.txt`), which
+# is equivalent to `pip install -e ".[dev]"` -- the [project.optional-dependencies]
+# dev extra in pyproject.toml mirrors these same pins. Prefer this file: it is
+# pinned, needs no build step, and works on a fresh clone.
+#
+# WHY BOTH THIS FILE AND THE dev EXTRA EXIST
+#   pyproject.toml is the package definition and carries ranged floors; the two
+#   requirements files are the resolved, pinned answer for a reproducible
+#   environment. requirements.lock.txt records the full transitive graph.
+#
+# Keep these pins in sync with the dev extra in pyproject.toml.
+# =============================================================================
+
+-r requirements.txt
+
+# Test runner. pytest-asyncio is required because pytest.ini sets
+# `asyncio_mode = auto`; the suite is async end to end.
+pytest==9.1.1
+pytest-asyncio==1.4.0
+
+# httpx is used by the tests (tests/test_client.py, tests/test_discovery.py,
+# tests/test_providers.py) but is NOT listed here: app/discovery.py imports it
+# too, so it arrives as a runtime dependency from requirements.txt.
+
+# Lint. `make lint` runs pyflakes and docs/AUDIT.md (finding B2, verification
+# log line "Lint | pyflakes | 0 findings") declares it. Note the version
+# correction: the previous requirements.txt bounded `pyflakes>=3.1,<4`, but the
+# interpreter the suite was validated on has 4.0.1 installed, so the declared
+# range did not describe this environment -- `make setup` would have silently
+# downgraded the linter. Pinned to what is actually in use.
+pyflakes==4.0.1
+
+# Lint, superset of pyflakes (see the measured baseline in pyproject.toml:
+# 92 findings, 60 dropped globally and 32 scoped per-file, 0 reported today).
+ruff==0.16.10
+
+# Static typing. Non-strict; measured baseline is 36 errors in 9 files, so the
+# gate is a warning in CI and in `make type`.
+mypy==2.4.0
+
+# Coverage. Measured: 90% of app/ (fail_under = 88 in pyproject.toml).
+coverage==7.16.2
+
+# Git hooks (.pre-commit-config.yaml). Never installed into the image.
+pre-commit==4.6.2
