@@ -43,7 +43,7 @@ The question a reviewer actually asks: with this provider's errors in, does the 
 
 - field observations compared: **75**
 - exact on the comparison key: **75 / 75 (100.0%)**
-- verbatim as printed: **74 / 75 (98.7%)**
+- verbatim as printed: **72 / 75 (96.0%)**
 - printed but missed: **0**
 - invented (not on the document): **0**
 
@@ -56,7 +56,7 @@ The question a reviewer actually asks: with this provider's errors in, does the 
 | HS code | 6 | 6 | 100% | 6 | 0 | 0 |
 | Consignee | 12 | 12 | 100% | 12 | 0 | 0 |
 | Invoice value | 3 | 3 | 100% | 2 | 0 | 0 |
-| Incoterms | 3 | 3 | 100% | 3 | 0 | 0 |
+| Incoterms | 3 | 3 | 100% | 1 | 0 | 0 |
 | PO number | 3 | 3 | 100% | 3 | 0 | 0 |
 | Country of origin | 9 | 9 | 100% | 9 | 0 | 0 |
 

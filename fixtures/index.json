@@ -12,7 +12,7 @@
             "invoice_clean.png"
           ],
           "pages": 1,
-          "cache_key": "14bad46cf3b57de771f80aaae0e50310"
+          "cache_key": "758772d83aefe0430c9c1de2814c6e3e"
         },
         {
           "doc_type": "packing_list",
@@ -48,7 +48,7 @@
             "invoice_conflict.png"
           ],
           "pages": 1,
-          "cache_key": "86190940cfa223b9adc756ee127f8d2b"
+          "cache_key": "34d939e6e04ecb6f298c65574b1aeda4"
         },
         {
           "doc_type": "packing_list",
@@ -84,7 +84,7 @@
             "invoice_messy.png"
           ],
           "pages": 1,
-          "cache_key": "040d56b974c75d4edae5d14bca315547"
+          "cache_key": "3267fd234f9982b100249afb36f2c9f2"
         },
         {
           "doc_type": "packing_list",

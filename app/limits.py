@@ -17,11 +17,19 @@ from collections import defaultdict
 
 
 class RateLimiter:
-    """Allow `limit` events per `window_seconds` per key. limit <= 0 disables it."""
+    """Allow `limit` events per `window_seconds` per key. limit <= 0 disables it.
 
-    def __init__(self, limit: int = 30, window_seconds: float = 60.0):
+    `clock` is injectable so the window can be tested by moving time forward
+    rather than by sleeping. A wall-clock test with a short window passes on an
+    idle machine and fails under suite load, which measures the scheduler and not
+    the limiter. Production callers never pass it.
+    """
+
+    def __init__(self, limit: int = 30, window_seconds: float = 60.0,
+                 clock=time.monotonic):
         self.limit = limit
         self.window = window_seconds
+        self._clock = clock
         self._events: dict[str, list[float]] = defaultdict(list)
 
     @property
@@ -33,7 +41,7 @@ class RateLimiter:
         disabled limiter, and prunes as it goes so an idle key costs nothing."""
         if self.limit <= 0:
             return True, 0.0
-        now = time.monotonic()
+        now = self._clock()
         bucket = self._events[key]
         cutoff = now - self.window
         while bucket and bucket[0] <= cutoff:

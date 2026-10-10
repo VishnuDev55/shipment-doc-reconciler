@@ -1,9 +1,9 @@
 {
-  "cache_key": "040d56b974c75d4edae5d14bca315547",
+  "cache_key": "34d939e6e04ecb6f298c65574b1aeda4",
   "model": "hand-authored-fixture",
   "prompt_version": "extract-v4",
   "page_sha256": [
-    "077218f6a820aed4602071944d784170792e8afdc3de43779849d246eb617c08"
+    "4de89e14bcfe251353ee6ab65eb8b9b54898f6ff16022ab1a0d60d34e75239a4"
   ],
   "response": {
     "doc_type": "commercial_invoice",
@@ -11,17 +11,17 @@
     "fields": {
       "quantity": {
         "present": true,
-        "value": "1,200 pieces",
-        "evidence_text": "Total quantity 1,200 pieces",
+        "value": "100 CARTONS",
+        "evidence_text": "Total quantity 100 CARTONS",
         "page_index": 1,
-        "confidence": 0.96
+        "confidence": 0.97
       },
       "gross_weight": {
         "present": true,
-        "value": "12.450,00 kg",
-        "evidence_text": "Total gross weight 12.450,00 kg",
+        "value": "12,450.00 KGS",
+        "evidence_text": "Total gross weight 12,450.00 KGS",
         "page_index": 1,
-        "confidence": 0.93
+        "confidence": 0.96
       },
       "net_weight": {
         "present": false,
@@ -39,31 +39,31 @@
       },
       "hs_code": {
         "present": true,
-        "value": "8517.62.0090",
-        "evidence_text": "HS code 8517.62.0090",
+        "value": "8517.62.00",
+        "evidence_text": "HS code 8517.62.00",
         "page_index": 1,
-        "confidence": 0.94
+        "confidence": 0.95
       },
       "consignee_name": {
         "present": true,
-        "value": "Nordwind Industrial Supply GmbH",
-        "evidence_text": "Consignee Nordwind Industrial Supply GmbH",
+        "value": "Nordwind Industrial Supply",
+        "evidence_text": "Consignee Nordwind Industrial Supply",
         "page_index": 1,
         "confidence": 0.98
       },
       "invoice_value": {
         "present": true,
-        "value": "FOB NINGBO USD 8,420.00",
-        "evidence_text": "TOTAL AMOUNT FOB NINGBO USD 8,420.00",
+        "value": "USD 8,420.00",
+        "evidence_text": "TOTAL AMOUNT USD 8,420.00",
         "page_index": 1,
-        "confidence": 0.9
+        "confidence": 0.97
       },
       "incoterms": {
         "present": true,
-        "value": "FOB Ningbo (Incoterms 2020)",
-        "evidence_text": "Terms of delivery FOB Ningbo (Incoterms 2020)",
+        "value": "CIF Hamburg (Incoterms 2020)",
+        "evidence_text": "Terms of delivery CIF Hamburg (Incoterms 2020)",
         "page_index": 1,
-        "confidence": 0.95
+        "confidence": 0.96
       },
       "po_number": {
         "present": true,
@@ -74,10 +74,10 @@
       },
       "country_of_origin": {
         "present": true,
-        "value": "Made in P.R.C.",
-        "evidence_text": "Country of origin Made in P.R.C.",
+        "value": "China",
+        "evidence_text": "Country of origin China",
         "page_index": 1,
-        "confidence": 0.88
+        "confidence": 0.95
       }
     }
   },

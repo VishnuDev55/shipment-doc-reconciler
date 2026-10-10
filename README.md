@@ -986,12 +986,27 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 | Base64 data URIs | ✅ accepted on both |
 | Checksum arbitration on live output | ✅ flagged the planted bad container number |
 | Cross-page evidence (`page_index`) | ✅ live model reported page 2 correctly |
-| Extraction determinism | ✅ two independent calls on one page were byte-identical |
+| Extraction determinism | ⚠️ **not guaranteed.** Two calls on one page were byte-identical, but a 6-call re-capture on 2026-10-10 moved NVIDIA's `incoterms` *value* on 2 of 3 invoices and shortened 2 evidence *quotes*. Nebius was byte-stable across the same re-capture. `compare_key` exactness (75/75) and every shipment verdict were unchanged. |
 | Pricing / context / rate limits | ✅ live `GET /v1/models?verbose=true` (Nebius) |
 | `nvidia/nemotron-nano-12b-v2-vl` (brief's model) | ❌ **410 Gone on build.nvidia.com**, 404 on Nebius |
 | `docker build` | ⚠️ **never run** — no Docker daemon in this sandbox |
 
 ### Live findings that changed the code
+
+- **Re-capturing the same contract moved the verbatim score.** On 2026-10-10 the
+  three invoice pages were re-captured on both providers after a fixture
+  correction. NVIDIA's answers came back different on two of them: the
+  `incoterms` value dropped its parenthetical (`FOB Ningbo (Incoterms 2020)` →
+  `FOB Ningbo`), and two evidence quotes came back shortened to the value alone
+  (`CONSIGNEE Nordwind Industrial Supply GmbH` → `Nordwind Industrial Supply
+  GmbH`). Nebius was byte-stable on all three. Measured effect: NVIDIA verbatim
+  **74/75 → 72/75**, `compare_key` exact **unchanged at 75/75**, and no shipment
+  verdict moved. Two things follow. Verbatim accuracy is a property of a capture
+  run, not a stable capability of the model, so `docs/EVAL.md` should be read as
+  "these captures", not "this model". And the evidence verifier cannot demand
+  that a quote reproduce its printed line exactly — the model does not even agree
+  with itself on how much of the line to copy — so matching is substring-or-fuzzy
+  against the page, with the *value* checked separately.
 
 - **Both providers reject the `json_schema` shape their docs show.** Nebius:
   422 `json_schema.name: Field required`. NVIDIA: 400 "missing field name".

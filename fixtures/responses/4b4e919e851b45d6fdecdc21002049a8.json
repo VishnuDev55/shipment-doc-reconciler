@@ -1,10 +1,10 @@
 {
-  "cache_key": "e9237d7385a6ba8c586b83430be75429",
+  "cache_key": "4b4e919e851b45d6fdecdc21002049a8",
   "provider": "nebius",
   "model": "openbmb/MiniCPM-V-4_5",
   "prompt_version": "extract-v4",
   "page_sha256": [
-    "f1b8b32aa4fcfad5f3fb594fddaefc5b4a9d927fb0e17fbe433ac135ae9a6fc8"
+    "4de89e14bcfe251353ee6ab65eb8b9b54898f6ff16022ab1a0d60d34e75239a4"
   ],
   "response": {
     "doc_type": "commercial_invoice",

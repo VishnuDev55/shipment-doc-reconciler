@@ -300,15 +300,28 @@ def test_limiter_allows_up_to_the_limit_then_blocks():
 
 
 def test_limiter_recovers_when_the_window_passes():
-    import time as _time
+    """The window is advanced by hand rather than by sleeping.
 
+    This test used a 50 ms window and a 60 ms sleep. It passed alone and failed
+    under full-suite load, because that measures how the scheduler happened to
+    run rather than whether the limiter prunes -- and a gate that is green only
+    when the machine is idle gets ignored the first time it goes red in anger.
+    """
     from app.limits import RateLimiter
 
-    limiter = RateLimiter(limit=1, window_seconds=0.05)
+    clock = {"t": 1000.0}
+    limiter = RateLimiter(limit=1, window_seconds=60.0, clock=lambda: clock["t"])
+
     assert limiter.check("a")[0] is True
+
     allowed, retry_in = limiter.check("a")
-    assert not allowed and 0 < retry_in <= 0.06
-    _time.sleep(0.06)
+    assert allowed is False
+    assert 0 < retry_in <= 60.0, retry_in
+
+    clock["t"] += 59.0                      # still inside the window
+    assert limiter.check("a")[0] is False
+
+    clock["t"] += 2.0                       # now outside it
     assert limiter.check("a")[0] is True
 
 

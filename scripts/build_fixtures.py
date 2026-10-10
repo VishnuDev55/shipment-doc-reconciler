@@ -12,7 +12,12 @@ For each document in each shipment:
      exactly the same code path a live run would take.
 
 Degradation is seeded, so re-running this script reproduces byte-identical
-PNGs and therefore stable cache keys.
+PNGs and therefore stable cache keys. The one exception is the multi-page
+image-only PDFs PIL writes for 2-page documents: PIL stamps a CreationDate and
+ModDate into them, so their bytes change on every run even when the embedded page
+images do not. That is cosmetic — cache keys are taken from the re-encoded JPEGs
+the ingester produces, never from the PDF's bytes — but it does mean `git status`
+after a re-run shows those PDFs as modified when nothing that matters changed.
 """
 
 from __future__ import annotations

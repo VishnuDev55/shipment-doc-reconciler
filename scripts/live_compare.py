@@ -5,6 +5,7 @@ every extraction is a genuine API call, then diffs the live response against
 the hand-authored cache entry for the same document.
 
     DEMO_MODE=false NEBIUS_MODEL=<vision-model> python scripts/live_compare.py
+    python scripts/live_compare.py --only invoice_clean,invoice_conflict --seed-cache
     python scripts/live_compare.py --diff-only   # re-check captures, no API calls
 
 Writes real live responses into fixtures/live_responses/<provider>/ so they can
@@ -170,19 +171,32 @@ async def main() -> int:
     print(f"json mode: {mode}\n")
 
     targets = json.loads((ROOT / "fixtures" / "index.json").read_text())["shipments"]
+    # --only invoice_clean,invoice_messy  ->  re-capture just those documents.
+    # Without it a one-page change costs 24 calls; with it, 6. The provenance
+    # guards below are unchanged: a filtered run still refuses to label anything
+    # it did not receive from a live call.
+    only: set[str] = set()
+    for i, arg in enumerate(sys.argv):
+        if arg == "--only" and i + 1 < len(sys.argv):
+            only = {s.strip() for s in sys.argv[i + 1].split(",") if s.strip()}
+    if only:
+        print(f"filtering to: {', '.join(sorted(only))}")
     total_diffs = 0
     calls = 0
     not_captured = 0
 
-    # All nine documents, not the interesting two: a captured fixture set that
-    # only covers conflicts cannot show what a clean shipment looks like from a
-    # given model, and that is the baseline every difference is measured against.
+    # Every document by default, not the interesting two: a captured fixture set
+    # that only covers conflicts cannot show what a clean shipment looks like
+    # from a given model, and that is the baseline every difference is measured
+    # against. --only narrows this deliberately, and says so in the summary.
     for name in ("shipment_clean", "shipment_conflict", "shipment_messy"):
         print("=" * 74)
         print(name)
         print("=" * 74)
         for doc in targets[name]["documents"]:
             fname = doc["files"][0]
+            if only and Path(fname).stem not in only:
+                continue
             try:
                 res = await run_doc(client, fname, doc["doc_type"])
             except Exception as exc:  # noqa: BLE001

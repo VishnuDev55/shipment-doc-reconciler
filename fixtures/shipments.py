@@ -61,7 +61,7 @@ SHIPMENTS: dict[str, dict] = {
                     consignee_addr=s["consignee_addr"], po_no=PO_NO,
                     lines=[
                         ("CNC aluminium housing, type H-40", "600", "pieces", "4.85", "2,910.00"),
-                        ("Stainless fastener set, M6", "600", "pieces", "9.18", "5,510.00"),
+                        ("Stainless fastener set, M6", "500", "pieces", "11.02", "5,510.00"),
                     ],
                     qty_total="100 CARTONS",
                     weight_total="12,450.00 KGS",
@@ -153,7 +153,7 @@ SHIPMENTS: dict[str, dict] = {
                     "gross_weight": ("12,450.00 KGS", "Gross weight (kg) 12,450.00 KGS", 1, 0.95),
                     "net_weight": ("11,600.00 KGS", "Net weight (kg) 11,600.00 KGS", 1, 0.95),
                     "container_number": None,
-                    "hs_code": ("8517.62.00", "HS code 8517.62.00", 1, 0.96),
+                    "hs_code": ("8517.62.00", "8517.62.00 P", 1, 0.96),
                     "consignee_name": (CONSIGNEE, "2. Consignee Nordwind Industrial Supply GmbH", 1, 0.97),
                     "invoice_value": None,
                     "incoterms": None,
@@ -197,7 +197,7 @@ SHIPMENTS: dict[str, dict] = {
                     consignee_addr=s["consignee_addr"], po_no=PO_NO,
                     lines=[
                         ("CNC aluminium housing, type H-40", "600", "pieces", "4.85", "2,910.00"),
-                        ("Stainless fastener set, M6", "600", "pieces", "9.18", "5,510.00"),
+                        ("Stainless fastener set, M6", "500", "pieces", "11.02", "5,510.00"),
                     ],
                     qty_total="100 CARTONS", weight_total="12,450.00 KGS",
                     incoterm="CIF Hamburg (Incoterms 2020)",
@@ -294,7 +294,7 @@ SHIPMENTS: dict[str, dict] = {
                     "gross_weight": ("12,450.00 KGS", "Gross weight (kg) 12,450.00 KGS", 1, 0.95),
                     "net_weight": ("11,600.00 KGS", "Net weight (kg) 11,600.00 KGS", 1, 0.95),
                     "container_number": None,
-                    "hs_code": ("8517.62.00", "HS code 8517.62.00", 1, 0.96),
+                    "hs_code": ("8517.62.00", "8517.62.00 P", 1, 0.96),
                     "consignee_name": (CONSIGNEE, "2. Consignee Nordwind Industrial Supply GmbH", 1, 0.97),
                     "invoice_value": None,
                     "incoterms": None,
@@ -335,7 +335,7 @@ SHIPMENTS: dict[str, dict] = {
                     consignee_addr=s["consignee_addr"], po_no=PO_NO,
                     lines=[
                         ("CNC aluminium housing, type H-40", "600", "pieces", "4.85", "2,910.00"),
-                        ("Stainless fastener set, M6", "600", "pieces", "9.18", "5,510.00"),
+                        ("Stainless fastener set, M6", "500", "pieces", "11.02", "5,510.00"),
                     ],
                     qty_total="1,200 pieces",
                     weight_total="12.450,00 kg",  # European decimal comma
@@ -434,7 +434,7 @@ SHIPMENTS: dict[str, dict] = {
                     "gross_weight": ("12,450.00 KGS", "Gross weight (kg) 12,450.00 KGS", 1, 0.95),
                     "net_weight": ("11,600.00 KGS", "Net weight (kg) 11,600.00 KGS", 1, 0.95),
                     "container_number": None,
-                    "hs_code": ("8517.62", "HS code 8517.62", 1, 0.96),
+                    "hs_code": ("8517.62", "8517.62 P", 1, 0.96),
                     "consignee_name": (CONSIGNEE, "2. Consignee Nordwind Industrial Supply GmbH", 1, 0.97),
                     "invoice_value": None,
                     "incoterms": None,
