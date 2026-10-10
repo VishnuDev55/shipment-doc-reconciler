@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import re
 
-from .compare import LOW_CONFIDENCE
+from .compare import LOW_CONFIDENCE, package_basis
 from .models import (
     Comparison,
     InternalCheck,
@@ -117,7 +117,7 @@ SEVERITY_TABLE: dict[str, str] = {
 
 
 _MONEY_RE = re.compile(r"^money:([A-Z]{3}|UNKNOWN):")
-_COUNT_RE = re.compile(r"^count:(-?\d+(?:\.\d+)?):")
+_COUNT_RE = re.compile(r"^count:(-?\d+(?:\.\d+)?):(.*)$")
 
 
 def _lookup(key: str) -> str | None:
@@ -136,24 +136,32 @@ def _stated_currencies(comp: Comparison) -> set[str]:
     return out
 
 
-def _same_count_different_words(comp: Comparison) -> bool:
-    """True when the numbers agree and only the package words differ.
+def _difference_of_basis(comp: Comparison) -> bool:
+    """True when the counts are not a real disagreement about the goods.
+
+    Two shapes qualify, and both are the engine's own "worth a glance" cases:
+    the same number printed with different package words, and one document
+    counting items while another counts the boxes they ship in -- which is a
+    difference of basis, not of fact, whatever the two numbers are.
 
     Both halves are read from the compare keys and the confidence the model
-    reported, not from the reason text: a reason is prose we format, and keying
+    reported, never from the reason text: a reason is prose we format, and keying
     a severity off a sentence would break the day someone improves the sentence.
     """
-    counts = set()
+    counts, bases = set(), set()
     for value in comp.values:
         if not value.compare_key:
             continue
+        if value.confidence < LOW_CONFIDENCE:
+            return False                 # a doubtful read is not a formatting quirk
         match = _COUNT_RE.match(value.compare_key)
         if match is None:
             return False
-        if value.confidence < LOW_CONFIDENCE:
-            return False
         counts.add(match.group(1))
-    return len(counts) == 1
+        bases.add(package_basis(match.group(2)))
+    if len(counts) == 1:
+        return True
+    return bases == {"item", "package"}
 
 
 def _comparison_finding(comp: Comparison) -> SeverityFinding | None:
@@ -169,7 +177,7 @@ def _comparison_finding(comp: Comparison) -> SeverityFinding | None:
         else:
             row = code = "comparison:invoice_value:conflict"
     elif comp.field == "quantity" and comp.status == "suspicious" \
-            and _same_count_different_words(comp):
+            and _difference_of_basis(comp):
         row = code = "comparison:quantity:suspicious:basis"
     else:
         code = f"comparison:{comp.field}:{comp.status}"

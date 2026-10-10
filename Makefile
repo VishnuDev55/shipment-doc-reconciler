@@ -1,6 +1,6 @@
 PY := python3
 
-.PHONY: help setup setup-runtime fixtures dev run test lint ruff type coverage check e2e probe probe-live probe-diff capture-summaries migrate dist clean docker compose
+.PHONY: help setup setup-runtime fixtures dev run test lint ruff type coverage check e2e probe probe-live probe-diff planted planted-check planted-write capture-summaries migrate dist clean docker compose
 
 help:
 	@echo "make setup       install runtime + dev tooling (what a contributor wants)"
@@ -15,6 +15,7 @@ help:
 	@echo "make coverage  pytest under coverage; floor 88 vs measured 90"
 	@echo "make check     the CI gate: lint + ruff + type + test"
 	@echo "make e2e       browser tests over the UI (needs: python -m playwright install chromium)"
+	@echo "make planted     score the engine against the planted-error bundle (free, offline)"
 	@echo "make probe     self-check the demo pipeline end to end"
 	@echo "make probe-live     verify BOTH providers live (vision + Nebius summary)"
 	@echo "make probe-diff     live extractions diffed vs the authored cache"
@@ -88,6 +89,18 @@ e2e:
 
 probe:
 	$(PY) scripts/selfcheck.py
+
+# The planted-error bundle: 19 shipments whose ground truth is authored in
+# fixtures/planted.py. Free and offline -- every response is hand-authored -- so
+# unlike probe-diff this spends nothing.
+planted:
+	$(PY) scripts/evaluate_planted.py
+
+planted-check:
+	$(PY) scripts/evaluate_planted.py --check
+
+planted-write:
+	$(PY) scripts/evaluate_planted.py --write
 
 probe-live:
 	$(PY) scripts/probe_live.py

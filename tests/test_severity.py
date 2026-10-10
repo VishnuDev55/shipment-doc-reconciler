@@ -167,12 +167,31 @@ def test_a_low_confidence_read_of_a_matching_count_is_not_a_basis_difference():
     assert severity_of(report, "comparison")["comparison:quantity:suspicious"] == "warning"
 
 
-def test_a_count_difference_whatever_the_words_is_a_warning():
+def test_a_basis_difference_is_informational_even_when_the_counts_differ():
+    """1,200 pieces against 130 cartons proves nothing about either document.
+
+    The numbers are not comparable, which is why the engine calls it suspicious
+    rather than conflicting -- and a severity that ignored that would turn a
+    difference of basis into a warning about the cargo. The banner still says
+    review, because the verdict floor holds regardless of this level.
+    """
     report = report_with(quantity=stated("quantity", [
         ("d1", "Invoice", "count:1200:piece"),
         ("d2", "Packing list", "count:1300:carton"),
     ], status="suspicious"))
-    assert severity_of(report, "comparison")["comparison:quantity:suspicious"] == "warning"
+    assert severity_of(report, "comparison")[
+        "comparison:quantity:suspicious:basis"] == "info"
+
+
+def test_two_package_words_counting_the_same_boxes_differently_is_a_warning():
+    """Cartons and pallets are both packaging, so 100 of one against 130 of the
+    other is a disagreement about the shipment, not about how it is described."""
+    report = report_with(quantity=stated("quantity", [
+        ("d1", "Invoice", "count:100:carton"),
+        ("d2", "Packing list", "count:130:pallet"),
+    ], status="suspicious"))
+    assert severity_of(report, "comparison")[
+        "comparison:quantity:suspicious"] == "warning"
 
 
 def test_a_field_only_one_document_stated_is_shown_but_never_blocks():

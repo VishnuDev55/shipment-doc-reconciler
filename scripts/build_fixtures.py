@@ -22,9 +22,11 @@ after a re-run shows those PDFs as modified when nothing that matters changed.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import random
+import shutil
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -35,10 +37,11 @@ sys.path.insert(0, str(ROOT))
 from PIL import Image, ImageFilter  # noqa: E402
 
 from app.cache import cache_key  # noqa: E402
-from app.config import PROMPT_VERSION  # noqa: E402
+from app.config import LINEITEMS_PROMPT_VERSION, PROMPT_VERSION  # noqa: E402
 from app.ingest import ingest  # noqa: E402
 from app.models import extraction_json_schema  # noqa: E402
 from app.textlayer import page_texts_from_pdf, save_sidecar  # noqa: E402
+from fixtures.planted import CASES, extraction, line_items, render_page  # noqa: E402
 from fixtures.shipments import SHIPMENTS  # noqa: E402
 
 IMAGE_DIR = ROOT / "fixtures" / "images"
@@ -47,6 +50,12 @@ CACHE_DIR = ROOT / "fixtures" / "responses"
 # fixture set has something to check a quoted line against that is not the model
 # that wrote the quote; see app/textlayer.py.
 TEXT_DIR = ROOT / "fixtures" / "text"
+
+# The planted-error bundle, in its own tree: it is scored, not shown.
+PLANTED_DIR = ROOT / "fixtures" / "planted"
+PLANTED_IMG = PLANTED_DIR / "images"
+PLANTED_TEXT = PLANTED_DIR / "text"
+PLANTED_CACHE = PLANTED_DIR / "responses"
 
 
 def html_to_pdf_bytes(html: str) -> bytes:
@@ -201,6 +210,114 @@ def save_pages_as_pdf(pages: list[Image.Image], out: Path) -> None:
 AUTHORED_LABEL = "hand-authored-fixture"
 
 
+def build_planted() -> int:
+    """The planted-error bundle: pages, text sidecars and authored responses.
+
+    A separate directory tree on purpose. These fixtures exist to be scored, and
+    mixing them into the demo cache would let a test set answer a demo question.
+    Both the scalar and the goods-line contract are authored here, because three
+    of the four arithmetic rules read the rows -- and a bundle that could not
+    exercise them would report a clean run for the wrong reason.
+
+    Pages are written once and shared by content. Most cases reuse the same
+    invoice, and a cache key is a hash of the page images, so a page that appears
+    in six shipments has exactly one response for it. That is also why a case that
+    claims a value its page does not print has to differ from an otherwise
+    identical page in some *printed* way (see `invented_note`): two authored
+    responses for one set of page hashes would make the score depend on which file
+    the cache happened to read first.
+    """
+    for directory in (PLANTED_IMG, PLANTED_TEXT, PLANTED_CACHE):
+        if directory.is_dir():
+            shutil.rmtree(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+
+    model = AUTHORED_LABEL
+    index: dict[str, dict] = {}
+    written = 0
+
+    for case in CASES:
+        docs = []
+        for doc_type, doc in case["docs"]:
+            html = render_page(doc_type, doc)
+            stem = "page_" + hashlib.sha256(html.encode()).hexdigest()[:12]
+
+            if not (PLANTED_IMG / f"{stem}.manifest.json").is_file():
+                pdf = html_to_pdf_bytes(html)
+                pages = [degrade(p, random.Random(stem)) for p in pdf_to_pages(pdf)]
+                sidecar = [replace(t, source="fixture_sidecar")
+                           for t in page_texts_from_pdf(pdf, max_pages=max(len(pages), 1))]
+                if sidecar:
+                    save_sidecar(PLANTED_TEXT / f"{stem}.json", sidecar)
+                if len(pages) == 1:
+                    upload = f"{stem}.png"
+                    pages[0].save(PLANTED_IMG / upload, "PNG", optimize=True)
+                else:
+                    upload = f"{stem}.pdf"
+                    save_pages_as_pdf(pages, PLANTED_IMG / upload)
+
+                ingested = ingest(upload, (PLANTED_IMG / upload).read_bytes())
+                hashes = [p.sha256 for p in ingested]
+                _write_authored(
+                    PLANTED_CACHE / f"{cache_key(hashes, model)}.json", model,
+                    PROMPT_VERSION, hashes,
+                    build_extraction(doc_type, extraction(doc), len(ingested)),
+                )
+                items = line_items(doc)
+                if items is not None:
+                    _write_authored(
+                        PLANTED_CACHE / f"{cache_key(hashes, model, prompt_version=LINEITEMS_PROMPT_VERSION)}.json",
+                        model, LINEITEMS_PROMPT_VERSION, hashes, {"items": items},
+                    )
+                (PLANTED_IMG / f"{stem}.manifest.json").write_text(json.dumps(
+                    {"doc_type": doc_type, "file": upload, "pages": len(ingested)},
+                    indent=2))
+                written += 1
+
+            manifest = json.loads(
+                (PLANTED_IMG / f"{stem}.manifest.json").read_text())
+            docs.append({"doc_type": doc_type, "file": manifest["file"],
+                         "pages": manifest["pages"]})
+
+        index[case["name"]] = {
+            "group": case["group"], "category": case["category"],
+            "expect": case["expect"], "note": case["note"], "documents": docs,
+        }
+
+    (PLANTED_DIR / "index.json").write_text(json.dumps(
+        {
+            "generated_by": "scripts/build_fixtures.py",
+            "prompt_version": PROMPT_VERSION,
+            "lineitems_prompt_version": LINEITEMS_PROMPT_VERSION,
+            "model": model,
+            "note": (
+                "Hand-authored planted-error set. The pages, their text and the "
+                "model responses all come from fixtures/planted.py, and no entry "
+                "here was produced by a model or by an API call. Pages are stored "
+                "once and shared by content hash."
+            ),
+            "cases": index,
+        },
+        indent=2,
+    ))
+    return written
+
+
+def _write_authored(path: Path, model: str, prompt_version: str,
+                    hashes: list[str], response: dict) -> None:
+    path.write_text(json.dumps({
+        "cache_key": path.stem,
+        "model": model,
+        "prompt_version": prompt_version,
+        "page_sha256": hashes,
+        "response": response,
+        "_provenance": (
+            "HAND-AUTHORED fixture response. Not produced by any model. Seeds "
+            "DEMO_MODE for the planted-error evaluation so it runs offline."
+        ),
+    }, indent=2))
+
+
 def main() -> int:
     model = AUTHORED_LABEL
     _reset_output_dirs()
@@ -301,6 +418,9 @@ def main() -> int:
         )
     )
     print(f"\n{written} documents rendered; cache written to {CACHE_DIR}")
+    planted = build_planted()
+    print(f"{planted} planted-error documents rendered under "
+          f"{PLANTED_DIR.relative_to(ROOT)}")
     return 0
 
 

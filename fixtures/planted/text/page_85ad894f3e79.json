@@ -1,0 +1,80 @@
+[
+  {
+    "index": 1,
+    "lines": [
+      "BILL OF LADING",
+      "BILL OF LADING \u2014 planted-error test set, synthetic data",
+      "DOCUMENT NO. BOL-2026-0912",
+      "DATE 2026-04-02",
+      "TOTAL QUANTITY 100 CARTONS",
+      "TOTAL GROSS WEIGHT 12,450.00 KGS",
+      "TOTAL NET WEIGHT 11,600.00 KGS",
+      "CONTAINER NO. MSKU3067328",
+      "CONSIGNEE Nordwind Industrial Supply GmbH",
+      "Synthetic test data for the planted-error evaluation. Not a real shipment, company, or transaction."
+    ],
+    "source": "fixture_sidecar",
+    "boxes": [
+      [
+        0.05923,
+        0.04694,
+        0.30025,
+        0.06186
+      ],
+      [
+        0.05819,
+        0.08405,
+        0.41685,
+        0.09352
+      ],
+      [
+        0.05811,
+        0.12276,
+        0.36391,
+        0.13071
+      ],
+      [
+        0.05811,
+        0.15237,
+        0.33366,
+        0.16017
+      ],
+      [
+        0.05743,
+        0.19186,
+        0.3597,
+        0.2002
+      ],
+      [
+        0.05743,
+        0.22138,
+        0.35974,
+        0.23067
+      ],
+      [
+        0.05743,
+        0.25088,
+        0.35974,
+        0.26017
+      ],
+      [
+        0.05777,
+        0.28039,
+        0.359,
+        0.28832
+      ],
+      [
+        0.05777,
+        0.30989,
+        0.48363,
+        0.31991
+      ],
+      [
+        0.05775,
+        0.3605,
+        0.63263,
+        0.3694
+      ]
+    ]
+  }
+]

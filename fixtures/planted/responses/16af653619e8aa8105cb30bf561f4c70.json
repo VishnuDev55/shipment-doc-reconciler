@@ -1,0 +1,37 @@
+{
+  "cache_key": "16af653619e8aa8105cb30bf561f4c70",
+  "model": "hand-authored-fixture",
+  "prompt_version": "lineitems-v2",
+  "page_sha256": [
+    "26dabd4926e29ffed3246cb8a1213cc27c31872e7aef6f0d56c5d86828ddc29a"
+  ],
+  "response": {
+    "items": [
+      {
+        "description": "CNC aluminium housing, type H-40",
+        "sku": "",
+        "quantity": "600",
+        "unit": "pieces",
+        "unit_price": "4.85",
+        "line_total": "2,910.00",
+        "gross_weight": "",
+        "net_weight": "",
+        "evidence_text": "CNC aluminium housing, type H-40 600 pieces 4.85 2,910.00",
+        "page_index": 1
+      },
+      {
+        "description": "Stainless fastener set, M6",
+        "sku": "",
+        "quantity": "500",
+        "unit": "pieces",
+        "unit_price": "11.02",
+        "line_total": "5,510.00",
+        "gross_weight": "",
+        "net_weight": "",
+        "evidence_text": "Stainless fastener set, M6 500 pieces 11.02 5,510.00",
+        "page_index": 1
+      }
+    ]
+  },
+  "_provenance": "HAND-AUTHORED fixture response. Not produced by any model. Seeds DEMO_MODE for the planted-error evaluation so it runs offline."
+}

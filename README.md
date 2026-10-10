@@ -18,6 +18,7 @@ Read it before trusting anything below the quick start.
 | [`docs/NORMALIZATION.md`](docs/NORMALIZATION.md) | every rule and threshold that decides whether two printings of a fact agree |
 | [`docs/PROVIDERS.md`](docs/PROVIDERS.md) | what NVIDIA and Nebius actually do, measured by calling them |
 | [`docs/EVAL.md`](docs/EVAL.md) | measured accuracy, generated from captured model output — and its limits |
+| [`docs/PLANTED.md`](docs/PLANTED.md) | the planted-error bundle: what the engine catches, what it does not, and the one miss declared in advance |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | the threat model, including the four things not protected |
 | [`docs/API.md`](docs/API.md) | the HTTP surface, auth contract, curl/Python/JS clients |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | deploy paths, health semantics, what is *not* verified here |
@@ -564,7 +565,7 @@ stages already produced and assigning each a level from one table.
 |---|---|
 | **CRITICAL** | container number, consignee, HS code (first six digits), or an invoice value stated in two currencies |
 | **WARNING** | any other cross-document conflict, a suspicious reading, a document that could not be read, an internal arithmetic failure, a withdrawn unverified value, a cross-field rule at `risk`/`warn` |
-| **INFO** | a counting-basis difference, same count printed with different package words, a field only one document stated, a check that did not run, a goods line one document printed alone |
+| **INFO** | a difference of counting basis (items against cartons, whatever the two numbers are), the same count printed with different package words, a field only one document stated, a check that did not run, a goods line one document printed alone |
 
 `SEVERITY_TABLE` in that one file is the only place a level is decided -- tuning
 severity is editing a dict, not chasing conditions. It is a table of *levels*, not
@@ -596,6 +597,48 @@ text layer, so the evidence check in the section above cannot run on it at all -
 that shipment can read `ready` with a value on it that no document prints. The
 banner's own caveat line says this in the same words, and the informational count
 beside it is how you can see how much of the report was never compared.
+
+### Scored against ground truth the bundle declares in advance
+
+`fixtures/planted.py` holds 19 synthetic shipments whose right answer is written
+down before anything runs: 3 clean, 5 tricky-but-correct, 9 with **exactly one
+planted error**, and 1 case the engine cannot catch. They read 43 document slots
+off 21 distinct pages -- identical paperwork is rendered once, because a cache key
+is a hash of the page images and one page can only carry one authored answer. `scripts/evaluate_planted.py`
+runs all of them through the real pipeline and prints what it found:
+
+```
+planted errors caught   9/9
+false alarms            0/9  (clean + tricky shipments not called ready)
+designed miss           1 declared
+wall clock              2.4s for 19 shipments (43 documents)
+API calls made          0  (provenance: authored)
+approximate cost        $0.00 -- every response is hand-authored, so this run
+                        measures the engine, not a model
+```
+
+Two numbers, deliberately never averaged. **Caught** asks whether a wrong
+shipment was stopped; **false alarms** asks whether a right one was. The second
+decides whether anyone keeps using the tool, which is why a bundle that only
+reported the first would be worthless.
+
+The tricky group is the one that earns its place: pounds against kilos, a
+European decimal comma, national HS digits beyond the harmonised six, a legal
+suffix dropped, 1,200 pieces against 100 cartons. Each was a real defect found
+during this project's development, and each is now a case that fails if it comes
+back. `--check` makes the whole bundle a gate; `--write` regenerates
+[`docs/PLANTED.md`](docs/PLANTED.md), which carries the per-case table and the
+reasons.
+
+**The miss is part of the score, not a footnote to it.** `miss_inside_tolerance`
+plants a 600 g gap on a 12,450 kg shipment. The engine's absolute band is 1 kg —
+chosen because two re-weighs of a container rarely agree to the gram — so the
+report says the paperwork agrees, and it is wrong about the cargo. That is the
+price of a tolerance, and a bundle with no miss in it is measuring its own code.
+
+Everything here is authored, including the model responses, so the run is
+reproducible and free. It says nothing about live accuracy; `docs/EVAL.md`
+measures that from captured responses, and the two must not be confused.
 
 ### Corrections a human can make, and undo
 
@@ -1070,7 +1113,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-905 passed in ~36s
+919 passed in ~37s
 ```
 
 ~36 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api`,
@@ -1138,8 +1181,9 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 905 unit tests, plus 19 in a real browser |
+| Normalizers, comparators, parse ladder | ✅ 919 unit tests, plus 19 in a real browser |
 | The status banner never contradicts the verdict or the risk strip | ✅ pinned from both directions, and proved to fail: flipping the container row from critical to warning breaks 6 tests, and removing the verdict floor breaks 2 |
+| The engine against known ground truth | ✅ 9/9 planted errors caught, 0/9 false alarms on clean and tricky paperwork, 1 miss declared in advance — `docs/PLANTED.md`, 0 API calls |
 | The evidence highlight lands on the right words | ✅ screenshot-verified in chromium (the rectangle and the image share one box), and proved to fail: dropping the verbatim-line restriction breaks the fuzzy test, and stopping the chip from passing its box breaks the browser suite |
 | `runs/{id}/report.json` is the same bytes on Windows and in the container | ✅ was not — pydantic writes unescaped non-ASCII, and `write_text()` used the locale codec, so an em dash landed as `0x97`. Encoding is now pinned to utf-8 on write and read |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
@@ -1257,17 +1301,21 @@ fixtures/
   responses/           36 entries / 12 documents:
                          12 nvidia live . 12 nebius live . 12 hand-authored
   responses/narratives/  3 real AI summaries, keyed on verdict signature
+  planted/               the scored bundle: 19 shipments over 43 document slots
+                         on 21 distinct pages, each case declaring its ground
+                         truth in fixtures/planted.py
   live_responses/      captured live responses + raw bodies (incl. a
                        duplicate call kept as a determinism datapoint)
 scripts/
   build_fixtures.py    render -> degrade -> ingest -> author cache -> text sidecars
   selfcheck.py         demo rehearsal, zero API calls
   evaluate.py          accuracy against the captured live responses
+  evaluate_planted.py  score the engine against the planted-error bundle
   probe_live.py        verify BOTH providers against the real APIs
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 905 offline tests across 32 files (+ conftest.py socket guard)
+tests/                 919 offline tests across 33 files (+ conftest.py socket guard)
 tests_e2e/             19 browser tests; a real uvicorn and real chromium, and the
                        only suite allowed to open a socket. `pytest tests/` cannot
                        collect it; run `make e2e`.
@@ -1275,7 +1323,7 @@ docs/                  ARCHITECTURE.md (shape + invariants) · NORMALIZATION.md 
                        rule and threshold) · PROVIDERS.md (what each host really does)
                        · EVAL.md (generated accuracy) · SECURITY.md (threat model) ·
                        AUDIT.md (findings, evidence) · DEPLOYMENT.md · API.md ·
-                       adr/ (eight decision records)
+                       adr/ (nine decision records)
 ```
 
 The three-layer cache is deliberate. Each fixture document has a **NVIDIA** live

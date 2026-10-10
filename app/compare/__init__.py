@@ -101,7 +101,7 @@ def _currency_from_compare_key(compare_key: str | None) -> str | None:
 _ITEM_UNITS = {"piece", "set", "unit"}
 
 
-def _package_basis(unit: str | None) -> str:
+def package_basis(unit: str | None) -> str:
     if unit is None or unit == "unknown":
         return "unknown"
     return "item" if unit in _ITEM_UNITS else "package"
@@ -198,7 +198,7 @@ def _compare_count(
     # Only "individual items vs packaging" is a benign difference of basis.
     # Two different *packaging* types (100 cartons vs 20 pallets) is a real
     # conflict, because both documents are counting the same physical boxes.
-    bases = {_package_basis(u) for u in units}
+    bases = {package_basis(u) for u in units}
     if len(bases) == 2 and "item" in bases and "package" in bases:
         return "suspicious", (
             f"different package basis, so the counts are not directly comparable "

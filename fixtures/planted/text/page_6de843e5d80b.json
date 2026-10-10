@@ -1,0 +1,80 @@
+[
+  {
+    "index": 1,
+    "lines": [
+      "PACKING LIST",
+      "PACKING LIST \u2014 planted-error test set, synthetic data",
+      "DOCUMENT NO. PL-2026-0912",
+      "DATE 2026-04-02",
+      "TOTAL QUANTITY 100 CARTONS",
+      "TOTAL GROSS WEIGHT 14,250.00 KGS",
+      "TOTAL NET WEIGHT 11,600.00 KGS",
+      "CONSIGNEE Nordwind Industrial Supply GmbH",
+      "COUNTRY OF ORIGIN China",
+      "Synthetic test data for the planted-error evaluation. Not a real shipment, company, or transaction."
+    ],
+    "source": "fixture_sidecar",
+    "boxes": [
+      [
+        0.05923,
+        0.04694,
+        0.27191,
+        0.06188
+      ],
+      [
+        0.05824,
+        0.08406,
+        0.40494,
+        0.09352
+      ],
+      [
+        0.05811,
+        0.12286,
+        0.35215,
+        0.13071
+      ],
+      [
+        0.05811,
+        0.15237,
+        0.33366,
+        0.16017
+      ],
+      [
+        0.05743,
+        0.19186,
+        0.3597,
+        0.2002
+      ],
+      [
+        0.05743,
+        0.22138,
+        0.35974,
+        0.23067
+      ],
+      [
+        0.05743,
+        0.25088,
+        0.35974,
+        0.26017
+      ],
+      [
+        0.05777,
+        0.28039,
+        0.48363,
+        0.2904
+      ],
+      [
+        0.05777,
+        0.30989,
+        0.296,
+        0.31783
+      ],
+      [
+        0.05775,
+        0.3605,
+        0.63263,
+        0.3694
+      ]
+    ]
+  }
+]
