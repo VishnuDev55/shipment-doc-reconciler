@@ -24,7 +24,9 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
+from .normalize.money import normalize_money
 from .normalize.quantity import normalize_quantity
+from .normalize.weight import normalize_weight
 
 # Words that appear on almost every goods line and carry no identity. Removing
 # them is what lets "100 CTN CNC HOUSING" and "CNC HOUSING (100 CARTONS)" fold
@@ -57,11 +59,24 @@ def fold_description(text: str) -> str:
 
 @dataclass
 class LineItem:
-    """One transcribed line. `raw_*` is what the document printed."""
+    """One transcribed line. `raw_*` is what the document printed.
+
+    The price and weight columns exist for the arithmetic checks in
+    ``app.mathcheck``, which look at one document's internal consistency. They are
+    parsed through the same normalizers as everything else -- the model supplies
+    strings, Python does the arithmetic, and a value the document did not print
+    stays an empty string rather than becoming a zero.
+    """
 
     raw_description: str = ""
     raw_sku: str = ""
     raw_quantity: str = ""
+    raw_unit_price: str = ""
+    raw_line_total: str = ""
+    raw_gross_weight: str = ""
+    raw_net_weight: str = ""
+    raw_evidence_text: str = ""
+    page_index: int = 1
 
     @property
     def description(self) -> str:
@@ -84,6 +99,29 @@ class LineItem:
     def unit(self) -> str:
         result = normalize_quantity(self.raw_quantity)
         return (result.unit or "").upper()
+
+    @property
+    def unit_price(self) -> tuple[float | None, str | None]:
+        """(amount, currency) or (None, None) when the row prints no price."""
+        result = normalize_money(self.raw_unit_price)
+        return result.amount, result.currency
+
+    @property
+    def line_total(self) -> tuple[float | None, str | None]:
+        result = normalize_money(self.raw_line_total)
+        return result.amount, result.currency
+
+    @property
+    def gross_kg(self) -> float | None:
+        return normalize_weight(self.raw_gross_weight).value_kg
+
+    @property
+    def net_kg(self) -> float | None:
+        return normalize_weight(self.raw_net_weight).value_kg
+
+    @property
+    def evidence(self) -> str:
+        return self.raw_evidence_text or self.raw_description
 
     @property
     def label(self) -> str:

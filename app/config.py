@@ -22,7 +22,10 @@ COMPARATOR_VERSION = "cmp-v1"
 # carry its own version tag or its cache entries land in the scalar namespace:
 # the key is a hash of (prompt_version, provider, model, pages), and the
 # hand-authored fallback tier matches on page hashes alone.
-LINEITEMS_PROMPT_VERSION = "lineitems-v1"
+#   * "lineitems-v2" adds the price and per-row weight columns, so a v1 response
+#     cannot answer a v2 lookup -- it would silently return rows with no amounts,
+#     and the arithmetic checks would read that as "nothing to check".
+LINEITEMS_PROMPT_VERSION = "lineitems-v2"
 
 
 class Settings(BaseSettings):
@@ -156,6 +159,22 @@ class Settings(BaseSettings):
     # while proving nothing. Below ~85 the check starts accepting lines that are
     # merely similar, which is the failure it exists to catch.
     evidence_min_ratio: int = Field(default=90, alias="EVIDENCE_MIN_RATIO", ge=0, le=100)
+
+    # --- Internal arithmetic tolerances (app/mathcheck.py) -----------------
+    # Money is absolute, not relative. A percentage of a large invoice is bigger
+    # than a rounding error -- 0.5 % of 5,508 is 27 -- so a relative band would
+    # have passed the defect this project found in its own fixture data, where a
+    # row printed 5,510.00 for a product of 5,508.00. Two cents allows for the
+    # per-line rounding a real invoice does; it does not allow for being wrong.
+    math_tolerance_money: float = Field(default=0.02, alias="MATH_TOLERANCE_MONEY", ge=0)
+    math_tolerance_weight_rel: float = Field(
+        default=0.005, alias="MATH_TOLERANCE_WEIGHT_REL", ge=0)
+    math_tolerance_weight_kg: float = Field(
+        default=1.0, alias="MATH_TOLERANCE_WEIGHT_KG", ge=0)
+    # Net may equal gross only if the packaging weighs nothing, which is
+    # impossible for cartons on pallets. Same constant the cross-document rule
+    # uses, so the two cannot disagree about what "impossible" means.
+    math_min_net_margin_kg: float = Field(default=0.0, alias="MATH_MIN_NET_MARGIN_KG")
 
     # Price per million tokens, used only to annotate the transparency panel.
     # Zero means "not configured", and the panel then declines to show a cost at

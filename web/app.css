@@ -712,6 +712,25 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
    lines reads as two parts, which is the exact error this table exists to catch. */
 #lineitems tbody th { min-width: 6.5rem; }
 
+/* Internal arithmetic. A not_run row is greyed rather than hidden: the point of
+   listing it is that nothing was checked, and hiding it would suggest the
+   opposite. */
+.mathchecks { list-style: none; margin: .4rem 0 0; padding: 0; display: grid; gap: .45rem; }
+.mathchecks li {
+  background: var(--surface-sunk);
+  padding: .5rem .7rem;
+  display: flex; flex-wrap: wrap; gap: .45rem; align-items: baseline;
+  border-left: 3px solid var(--ink-3);
+}
+.mathchecks li.math-fail { border-left-color: var(--bad); background: var(--bad-soft); }
+.math-state {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--ink-3); border: 1px solid currentColor; padding: .05rem .3rem;
+}
+.math-fail .math-state { color: var(--bad); }
+.math-doc { color: var(--ink-3); font-size: .8rem; }
+.math-detail { flex: 1 1 100%; font-size: .85rem; }
+
 /* Unverified evidence. The field was removed from the comparison, so the row has
    to read as a subtraction a person can inspect -- value, the quote that failed,
    and why -- rather than as a value that was simply never there. */

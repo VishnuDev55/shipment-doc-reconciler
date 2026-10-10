@@ -401,6 +401,11 @@ def build_zip(report: Report, run_dir: Path | None) -> bytes:
             f"demo_mode   : {report.run.demo_mode}\n"
             + (f"excluded    : {len(report.unverified)} field(s) quoted a line that is "
                "not printed on the document\n") if report.unverified else ""
+            + (f"arithmetic  : {sum(1 for c in report.internal_checks if c.status == 'fail')} "
+               f"failing, {sum(1 for c in report.internal_checks if c.status == 'not_run')} "
+               "not run of "
+               f"{len(report.internal_checks)} internal check(s)\n")
+            if report.internal_checks else ""
             + "\n"
             "report.html  standalone, self-contained view (opens anywhere)\n"
             + pdf_note +

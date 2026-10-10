@@ -651,6 +651,7 @@ function renderReport(report) {
   renderNarrative(report);
   renderBriefing(report);
   renderComparison(report);
+  renderMath(report);
   renderUnverified(report);
   renderDocuments(report);
   renderTransparency(report);
@@ -979,6 +980,47 @@ function renderLineItems(report) {
     + (li.usage && li.usage.total ? ` · ${li.usage.total} tokens` : '')
     + (li.latency_ms ? ` · ${(li.latency_ms / 1000).toFixed(1)}s` : '')
     + ' · matching is exact, in Python; nothing here changes the verdict above.';
+}
+
+/**
+ * Arithmetic inside a single document.
+ *
+ * `not_run` is rendered, not omitted. A card that only appears when something
+ * failed would let an unchecked shipment look identical to a clean one, which is
+ * the exact confusion this app is built to prevent.
+ */
+const MATH_LABEL = {
+  line_total_math: 'quantity × unit price = line amount',
+  line_total_sum: 'the goods lines add up to the stated total',
+  row_weight_sum: 'the per-row weights add up to the stated total weight',
+  net_above_gross_in_document: 'net weight is not above gross weight',
+};
+
+function renderMath(report) {
+  const card = $('#math-card');
+  const checks = report.internal_checks || [];
+  card.hidden = checks.length === 0;
+  if (!checks.length) return;
+
+  const list = $('#math-list');
+  list.textContent = '';
+  checks.filter((c) => c.status !== 'pass').forEach((c) => {
+    const li = el('li', 'math-' + c.status);
+    li.appendChild(el('span', 'math-state', c.status === 'fail' ? 'fails' : 'not run'));
+    li.appendChild(el('b', null, MATH_LABEL[c.code] || c.code));
+    li.appendChild(el('span', 'math-doc', c.document_label));
+    li.appendChild(el('span', 'math-detail', c.detail || ''));
+    list.appendChild(li);
+  });
+
+  const passed = checks.filter((c) => c.status === 'pass').length;
+  const failed = checks.filter((c) => c.status === 'fail').length;
+  const skipped = checks.filter((c) => c.status === 'not_run').length;
+  $('#math-meta').textContent =
+    `${passed} check(s) passed, ${failed} failed, ${skipped} not run.`
+    + (skipped ? ' Checks that did not run are not checks that passed — three of '
+      + 'these need the goods lines, which are read only when ENABLE_LINE_ITEMS '
+      + 'is on.' : '');
 }
 
 /**

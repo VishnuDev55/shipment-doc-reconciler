@@ -374,7 +374,9 @@ def _coerce_line_item(raw: Any, index: int, issues: list[str]) -> ExtractedLineI
     except ValidationError as exc:
         issues.append(f"item {index}: dropped ({exc.errors()[0]['type']})")
         return None
-    if not (item.description.strip() or item.sku.strip() or item.quantity.strip()):
+    if not (item.description.strip() or item.sku.strip() or item.quantity.strip()
+            or item.unit_price.strip() or item.line_total.strip()
+            or item.gross_weight.strip() or item.net_weight.strip()):
         issues.append(f"item {index}: dropped, every cell blank")
         return None
     return item

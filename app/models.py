@@ -192,6 +192,13 @@ class ExtractedLineItem(BaseModel):
     `quantity` keeps the unit the document printed ("60 CTNS") because the unit
     is part of what gets compared: 60 pieces and 6 cartons are the same goods on
     different bases, and stripping the unit would hide that.
+
+    The price and weight columns exist because the documents print them. An
+    invoice row carries a unit price and an amount; a packing-list row carries a
+    gross and a net weight per package. Those are what make an arithmetic check
+    *inside one document* possible, which is the only place a wrong line total can
+    be caught when every document agrees with the others. A field the document
+    does not print stays an empty string; nothing here is derived or inferred.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -199,11 +206,26 @@ class ExtractedLineItem(BaseModel):
     description: str = ""
     sku: str = ""
     quantity: str = ""
+    unit_price: str = ""
+    line_total: str = ""
+    gross_weight: str = ""
+    net_weight: str = ""
+    evidence_text: str = ""
+    page_index: int = Field(default=1, ge=1)
 
-    @field_validator("description", "sku", "quantity", mode="before")
+    @field_validator("description", "sku", "quantity", "unit_price", "line_total",
+                     "gross_weight", "net_weight", "evidence_text", mode="before")
     @classmethod
     def _stringify(cls, v: object) -> str:
         return "" if v is None else str(v)
+
+    @field_validator("page_index", mode="before")
+    @classmethod
+    def _page_to_int(cls, v: object) -> int:
+        try:
+            return max(1, int(v))          # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 1
 
 
 class LineItemsResponse(BaseModel):
@@ -240,8 +262,47 @@ def line_items_json_schema() -> dict:
                     "printed (e.g. '60 CTNS', '1,200 PCS'). '' when the row has none."
                 ),
             },
+            "unit_price": {
+                "type": "string",
+                "description": (
+                    "The printed price per unit on this row, verbatim, with any currency mark "
+                    "as printed. '' when the document prints no price column for this row."
+                ),
+            },
+            "line_total": {
+                "type": "string",
+                "description": (
+                    "The printed amount / line-total column for this row, verbatim. Copy what "
+                    "is printed even if you believe it is arithmetically wrong -- do NOT "
+                    "correct it. '' when the document prints none."
+                ),
+            },
+            "gross_weight": {
+                "type": "string",
+                "description": (
+                    "The printed gross weight for this row or package, verbatim, with the unit "
+                    "as printed. '' when the document prints no per-row weight."
+                ),
+            },
+            "net_weight": {
+                "type": "string",
+                "description": (
+                    "The printed net weight for this row or package, verbatim, with the unit as "
+                    "printed. '' when the document prints no per-row weight."
+                ),
+            },
+            "evidence_text": {
+                "type": "string",
+                "description": "The complete printed row this came from, copied verbatim.",
+            },
+            "page_index": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "1-based page number where this row was printed.",
+            },
         },
-        "required": ["description", "sku", "quantity"],
+        "required": ["description", "sku", "quantity", "unit_price", "line_total",
+                     "gross_weight", "net_weight", "evidence_text", "page_index"],
     }
     return {
         "type": "object",
@@ -306,6 +367,26 @@ class FieldVerification(BaseModel):
         the documents and implies it checked them.
         """
         return self.state == "unverified"
+
+
+class InternalCheck(BaseModel):
+    """One arithmetic rule applied to one document, on that document's own terms.
+
+    `not_run` is a state and not an omission. A report that simply leaves a check
+    out is indistinguishable from one that ran it and found nothing, and the
+    difference decides whether an empty findings list means "the paperwork adds
+    up" or "nobody looked".
+    """
+
+    code: str
+    document_id: str
+    document_label: str
+    status: Literal["pass", "fail", "not_run"] = "pass"
+    detail: str = ""
+    fields: list[FieldKey] = Field(default_factory=list)
+    # The printed rows involved, so a failure can be checked by eye against the
+    # page rather than argued with.
+    evidence: list[str] = Field(default_factory=list)
 
 
 class UnverifiedField(BaseModel):
@@ -728,6 +809,9 @@ class Report(BaseModel):
     # Fields removed from the comparison because their evidence was not on the
     # page. Computed with the comparisons, so it can never disagree with them.
     unverified: list[UnverifiedField] = Field(default_factory=list)
+    # Arithmetic inside each document. Needs the opt-in goods-line read for three
+    # of its four rules, so it carries `not_run` records when that did not happen.
+    internal_checks: list[InternalCheck] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

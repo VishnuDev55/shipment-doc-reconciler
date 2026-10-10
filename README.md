@@ -497,6 +497,42 @@ The threshold is `EVIDENCE_MIN_RATIO` (default 90, rapidfuzz `partial_ratio`). I
 is not 100 on purpose: demanding an exact reproduction would fail honest quotes
 while proving nothing about the value.
 
+### Arithmetic inside a single document
+
+Cross-document comparison asks whether the papers agree. It cannot ask whether a
+paper is *self-consistent*, and a shipment can pass the first and fail the second:
+every document can repeat the same wrong total and agree perfectly. So
+`app/mathcheck.py` checks each document against itself, in pure Python:
+
+| Check | What it proves |
+|---|---|
+| `line_total_math` | quantity x unit price equals the printed line amount |
+| `line_total_sum` | the goods lines add up to the stated invoice total |
+| `row_weight_sum` | the per-row weights add up to the stated gross and net |
+| `net_above_gross_in_document` | a document's own net weight is not above its gross |
+
+Three of the four need the goods lines, so they need `ENABLE_LINE_ITEMS=true`. The
+fourth needs only two fields every document already states, and runs on every
+shipment regardless.
+
+**`not_run` is a status, not an omission.** Each line-dependent rule records
+`pass`, `fail` or `not_run` per document, and the report, the PDF and the
+exported README all print the not-run rows. A list that contained only passes
+would let a shipment where nothing was checked look identical to one where
+everything was.
+
+Tolerances are in config, and the money one is deliberately absolute:
+`MATH_TOLERANCE_MONEY=0.02`. A relative band would have missed the defect this
+project found in its own fixture data -- a row printing `600 x 9.18 = 5,510.00`
+where the product is 5,508.00 -- because 0.5 % of 5,508 is 27.
+
+A line printed in a currency the total is not stated in **fails rather than
+being added**, because adding unconverted columns is meaningless and converting
+them is forbidden. And a row whose price has an ambiguous separator (`2.675`,
+which the normalizer reads as 2675) is **set aside and named**, not judged:
+reporting a reading limit as an arithmetic error in the document would be
+attributing our own ambiguity to somebody else's paperwork.
+
 ### Corrections a human can make, and undo
 
 Every value in the comparison table has a **Correct** button. Change it and the

@@ -188,6 +188,34 @@ def _sanity(report: Report) -> str:
 here cannot change a verdict above.</p><ul>{items}</ul>"""
 
 
+def _internal_checks(report: Report) -> str:
+    """Arithmetic inside each document, including what was never checked.
+
+    The not_run rows are printed on purpose. A printed report that shows only
+    passing checks cannot be distinguished from one where the checks never
+    happened, and the reader has no way to know which they are holding.
+    """
+    checks = report.internal_checks
+    if not checks:
+        return ""
+    failed = [c for c in checks if c.status == "fail"]
+    skipped = [c for c in checks if c.status == "not_run"]
+    passed = [c for c in checks if c.status == "pass"]
+    rows = "".join(
+        f"<tr><td>{esc(c.document_label)}</td><td>{esc(c.code.replace('_', ' '))}</td>"
+        f"<td>{esc(c.status)}</td><td class='small'>{esc(c.detail)}</td></tr>"
+        for c in (failed + skipped + passed)
+    )
+    return f"""<h2>Arithmetic inside each document</h2>
+<p class="small">Each document checked against itself: lines that multiply out,
+lines that add up to the stated total, per-row weights that sum, net under gross.
+{len(passed)} passed, {len(failed)} failed, {len(skipped)} not run. A check that
+did not run is not a check that passed; three of these need the goods lines, read
+only when line-item extraction is enabled.</p>
+<table><thead><tr><th>Document</th><th>Check</th><th>Status</th>
+<th>Detail</th></tr><tbody>{rows}</tbody></table>"""
+
+
 def _unverified(report: Report) -> str:
     """Fields removed because their quoted line is not on the page.
 
@@ -308,7 +336,7 @@ def report_html(report: Report) -> str:
     """The printable HTML. Exposed because it is the thing tests can read."""
     body = "".join([
         _header(report), _risk(report), _comparisons(report), _unverified(report),
-        _sanity(report),
+        _internal_checks(report), _sanity(report),
         _line_items(report), _corrections(report), _model_prose(report),
         _documents(report),
     ])

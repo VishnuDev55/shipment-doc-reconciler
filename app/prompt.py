@@ -169,6 +169,28 @@ numbers", or a column headed "Item No." / "Qty". For each row give:
   "quantity": the quantity printed on that row, verbatim, with the unit exactly
               as printed ("60 CTNS", "1,200 PCS", "25 pallets"). Empty string
               when the row prints none.
+  "unit_price": the price per unit printed on that row, verbatim, with any
+              currency mark as printed. Empty string when there is no price
+              column.
+  "line_total": the amount / line-total column printed on that row, verbatim.
+  "gross_weight": the gross weight printed on that row or package, verbatim,
+              with its unit. Empty string when the row prints none.
+  "net_weight": the net weight printed on that row or package, verbatim, with
+              its unit. Empty string when the row prints none.
+  "evidence_text": the complete printed row, copied verbatim.
+  "page_index": the 1-based page that row is printed on.
+
+Copy every column that exists on the row, and leave an empty string for every
+column the document does not print. Never leave a column out because you think
+it should not be there.
+
+THE MOST IMPORTANT RULE FOR THIS TASK
+Copy "line_total" exactly as printed EVEN IF YOU THINK IT IS WRONG. If the row
+prints 600 x 9.18 and an amount of 5,510.00, the amount you return is 5,510.00.
+Do not multiply, do not correct, do not "tidy" it. The arithmetic is checked
+separately, in software, and its whole purpose is to notice when the document
+disagrees with itself -- which is impossible if you quietly fix the numbers on
+the way past. A corrected value here is a destroyed finding.
 
 RULES specific to this task:
   - Copy each row once. If the description wraps over several printed lines,
@@ -183,7 +205,10 @@ RULES specific to this task:
 
 Output a single JSON object shaped like:
 {{"items": [{{"description": "<as printed>", "sku": "<as printed or empty>",
-              "quantity": "<as printed or empty>"}}]}}
+              "quantity": "<as printed or empty>", "unit_price": "<as printed or empty>",
+              "line_total": "<as printed or empty>", "gross_weight": "<as printed or empty>",
+              "net_weight": "<as printed or empty>", "evidence_text": "<the whole row>",
+              "page_index": 1}}]}}
 
 Return the JSON object now."""
 

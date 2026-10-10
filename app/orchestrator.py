@@ -47,6 +47,7 @@ from .discovery import Catalog, Selection, fetch, resolve
 from .fields import FIELD_LABEL, FIELD_ORDER, FieldKey
 from .ingest import PageImage, ingest
 from .lineitems import LineItem, match_line_items
+from .mathcheck import internal_checks
 from .models import (
     Adjudication,
     Comparison,
@@ -836,6 +837,12 @@ class Reconciler:
         # read off the score.
         report.sanity = sanity_checks(report)
         report.risk = score_report(report)
+        # The within-document arithmetic that needs no goods rows -- a document's
+        # own net against its own gross -- runs on every shipment. The three rules
+        # that do need rows are recorded as not_run here and replaced with real
+        # results below if the opt-in read happens, so an absent check is always
+        # distinguishable from a passed one.
+        report.internal_checks = internal_checks(report, {}, settings=self.settings)
         self.store.write(report)
 
         # After the write above, so the goods lines can only ever be read
@@ -871,6 +878,7 @@ class Reconciler:
         self.store.write(report)
 
         sets: dict[str, list[LineItem]] = {}
+        by_doc: dict[str, list[LineItem]] = {}
         sources: list[str] = []
         # Reason -> the documents it applies to. Four documents that all skipped
         # for the same reason is one sentence, not four, and a reviewer reading a
@@ -907,9 +915,15 @@ class Reconciler:
             for k, v in (out.usage or {}).items():
                 usage[k] = usage.get(k, 0) + int(v or 0)
             sets[label] = [
-                LineItem(raw_description=i.description, raw_sku=i.sku, raw_quantity=i.quantity)
+                LineItem(
+                    raw_description=i.description, raw_sku=i.sku, raw_quantity=i.quantity,
+                    raw_unit_price=i.unit_price, raw_line_total=i.line_total,
+                    raw_gross_weight=i.gross_weight, raw_net_weight=i.net_weight,
+                    raw_evidence_text=i.evidence_text, page_index=i.page_index,
+                )
                 for i in out.items
             ]
+            by_doc[p.doc_id] = sets[label]
             section.item_counts[label] = len(out.items)
             sources.append(out.source)
             if out.status == "failed":
@@ -944,6 +958,11 @@ class Reconciler:
         section.matched = matched.matched
         section.conflicts = matched.conflicts
         section.uncheckable = matched.uncheckable
+
+        # Now that the rows exist, the three line-dependent rules can actually
+        # run. Recomputed from the same rows the matcher used, so the arithmetic
+        # and the line matching can never disagree about what the document said.
+        report.internal_checks = internal_checks(report, by_doc, settings=self.settings)
 
         reason = "; ".join(
             f"{', '.join(labels)}: {message}" for message, labels in problems.items()

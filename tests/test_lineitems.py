@@ -347,7 +347,11 @@ def test_the_schema_is_strict_mode_legal():
     assert schema["required"] == ["items"]
     row = schema["properties"]["items"]["items"]
     assert row["additionalProperties"] is False
-    assert sorted(row["required"]) == ["description", "quantity", "sku"]
+    assert sorted(row["required"]) == sorted(
+        ["description", "sku", "quantity", "unit_price", "line_total",
+         "gross_weight", "net_weight", "evidence_text", "page_index"]), (
+        "the price and weight columns are what make an arithmetic check inside a "
+        "single document possible, so they are part of the contract")
     LineItemsResponse.model_validate({"items": [{"description": "x"}]})
 
 
