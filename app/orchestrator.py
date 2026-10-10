@@ -44,7 +44,7 @@ from .consensus import divergences_between, summarize
 from .config import Settings, get_settings
 from .correct import apply_correction, revert_corrections
 from .discovery import Catalog, Selection, fetch, resolve
-from .fields import FIELD_ORDER, FieldKey
+from .fields import FIELD_LABEL, FIELD_ORDER, FieldKey
 from .ingest import PageImage, ingest
 from .lineitems import LineItem, match_line_items
 from .models import (
@@ -59,12 +59,15 @@ from .models import (
     RunInfo,
     Summary,
     TokenUsage,
+    UnverifiedField,
 )
 from .narrative_cache import NarrativeCache
 from .normalize import normalize_field
 from .providers import summary_endpoint, vision_endpoint
 from .rules import sanity_checks
 from .scoring import score_report
+from .textlayer import PageText, load_sidecar, page_texts_for, save_sidecar
+from .verify import verify_document
 from starlette.concurrency import run_in_threadpool
 
 from .store import RunStore, new_shipment_id
@@ -91,6 +94,7 @@ class PreparedDocument:
         pages: list[PageImage],
         page_paths: list[str],
         declared_doc_type: str | None,
+        page_texts: list[PageText] | None = None,
     ):
         self.doc_id = doc_id
         self.label = label
@@ -98,6 +102,9 @@ class PreparedDocument:
         self.pages = pages
         self.page_paths = page_paths
         self.declared_doc_type = declared_doc_type
+        # What the pages say according to something other than the vision model.
+        # Empty for a photo or a scan, and that absence is a finding in itself.
+        self.page_texts = page_texts or []
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +119,17 @@ def _observations(docs: list[DocumentReport], key: FieldKey) -> list[FieldObserv
             continue
         # A reviewer's correction takes precedence over what the model read,
         # while doc.extraction still holds the model's own answer unchanged.
+        corrected = key in doc.overrides
         extracted = doc.overrides.get(key) or doc.extraction.fields.get(key)
         if extracted is None:
+            continue
+        # A quote that is not on the page is not evidence, and a value built on it
+        # must not be allowed to create a disagreement between documents that
+        # agree. Only `unverified` excludes -- `not_checkable` means nobody could
+        # look, and dropping those would empty every report made from a photo.
+        # A human assertion is not the model's claim, so corrections survive.
+        check = doc.verification.get(key)
+        if check is not None and check.excluded and not corrected:
             continue
         obs.append(
             FieldObservation(
@@ -126,6 +142,36 @@ def _observations(docs: list[DocumentReport], key: FieldKey) -> list[FieldObserv
             )
         )
     return obs
+
+
+def collect_unverified(docs: list[DocumentReport]) -> list[UnverifiedField]:
+    """Every field removed from the comparison, with the quote that caused it.
+
+    Listed beside the report rather than only subtracted from it: a field that
+    quietly disappears is indistinguishable from a field no document printed, and
+    that is how a transcription failure turns into a clean-looking shipment.
+    """
+    out: list[UnverifiedField] = []
+    for doc in docs:
+        if doc.extraction is None:
+            continue
+        for key, check in doc.verification.items():
+            if not check.excluded or key in doc.overrides:
+                continue
+            field = doc.extraction.fields.get(key)
+            if field is None or not field.present:
+                continue
+            out.append(UnverifiedField(
+                document_id=doc.id,
+                document_label=doc.label,
+                field=key,
+                label=FIELD_LABEL[key],
+                value=field.value,
+                evidence_text=field.evidence_text,
+                page_index=field.page_index,
+                reason=check.detail or check.tier,
+            ))
+    return out
 
 
 def build_comparisons(docs: list[DocumentReport]) -> list[Comparison]:
@@ -186,6 +232,9 @@ def refresh_report(report: Report, client: ExtractionClient) -> Report:
     ep = client.endpoint
     report.comparisons = build_comparisons(report.documents)
     report.summary = build_summary(report.documents, report.comparisons)
+    # Derived from the same documents the comparisons were built from, in the
+    # same pass, so the list of excluded fields can never disagree with the table.
+    report.unverified = collect_unverified(report.documents)
     report.state = derive_state(report.documents, report.summary)  # type: ignore[assignment]
     report.run.json_schema_mode = client.json_mode  # type: ignore[assignment]
     report.run.demo_mode = client.settings.demo_mode
@@ -412,6 +461,15 @@ class Reconciler:
         }
     )
 
+    def _text_file(self, shipment_id: str, doc_id: str) -> Path:
+        """Where a document's recovered page text is kept for this run.
+
+        Persisted rather than recomputed: a retry has the upload on disk but
+        should not have to re-parse a PDF, and verification has to give the same
+        answer after a reload as it did on the run that produced the report.
+        """
+        return self.store.dir(shipment_id) / "text" / f"{doc_id}.json"
+
     def reconfigure(self, updates: dict[str, object]) -> None:
         """Apply runtime overrides and rebuild the clients that captured the old ones.
 
@@ -539,9 +597,19 @@ class Reconciler:
     # ------------------------------------------------------------------
 
     async def create_shipment(
-        self, uploads: list[tuple[str, str | None, bytes]]
+        self,
+        uploads: list[tuple[str, str | None, bytes]],
+        page_texts: dict[str, list[PageText]] | None = None,
     ) -> tuple[str, Report]:
-        """uploads: (filename, declared_doc_type_or_None, bytes), max 5."""
+        """uploads: (filename, declared_doc_type_or_None, bytes), max 5.
+
+        `page_texts` supplies a text source for a document that cannot carry one
+        itself. Only the bundled fixtures need it: their pages are degraded
+        rasters, and the text they were rendered from is kept beside them. Passing
+        it in rather than having the pipeline go looking for it keeps the
+        difference between "this document states its own text" and "we generated
+        it" explicit at the call site.
+        """
         if not uploads:
             raise ValueError("no documents supplied")
         if len(uploads) > self.settings.max_documents:
@@ -584,6 +652,19 @@ class Reconciler:
             page_paths = await run_in_threadpool(
                 self.store.save_pages, shipment_id, doc_id, pages
             )
+            # Recover what the pages say from anything other than the model, and
+            # keep it: a later retry has the upload on disk but no reason to
+            # re-parse it, and verification has to survive the reload.
+            texts = await run_in_threadpool(
+                page_texts_for, filename, data,
+                max_pages=self.settings.max_pages_per_document,
+            )
+            if not texts and page_texts:
+                texts = page_texts.get(Path(filename).name) or []
+            if texts:
+                await run_in_threadpool(
+                    save_sidecar, self._text_file(shipment_id, doc_id), texts
+                )
             prepared.append(
                 PreparedDocument(
                     doc_id=doc_id,
@@ -592,6 +673,7 @@ class Reconciler:
                     pages=pages,
                     page_paths=page_paths,
                     declared_doc_type=declared,
+                    page_texts=texts,
                 )
             )
 
@@ -725,6 +807,15 @@ class Reconciler:
             except Exception as exc:  # noqa: BLE001 - one doc must not kill the run
                 res = exc
             apply_outcome(doc, res)
+            # Before anything reads the quotes. Exclusion itself happens in
+            # _observations, so the comparisons published below are already the
+            # filtered ones and no progress state ever shows an unverified field
+            # as though it had been reconciled.
+            if doc.extraction is not None:
+                doc.verification = verify_document(
+                    doc.extraction, p.page_texts,
+                    threshold=self.settings.evidence_min_ratio,
+                )
             if (
                 self.settings.consensus
                 and not isinstance(res, Exception)
@@ -1286,6 +1377,15 @@ class Reconciler:
             res = exc
 
         apply_outcome(target, res)
+        if target.extraction is not None:
+            # Re-verified from the text saved on the first pass, so a retry gives
+            # the same verdict the original run would have. No sidecar means the
+            # document had no text source then either, which stays not_checkable.
+            target.verification = verify_document(
+                target.extraction,
+                load_sidecar(self._text_file(shipment_id, target.id)),
+                threshold=self.settings.evidence_min_ratio,
+            )
         refresh_report(report, self.client)
         self.store.write(report)
         return report

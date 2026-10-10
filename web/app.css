@@ -712,6 +712,24 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
    lines reads as two parts, which is the exact error this table exists to catch. */
 #lineitems tbody th { min-width: 6.5rem; }
 
+/* Unverified evidence. The field was removed from the comparison, so the row has
+   to read as a subtraction a person can inspect -- value, the quote that failed,
+   and why -- rather than as a value that was simply never there. */
+.unverified { list-style: none; margin: .4rem 0 0; padding: 0; display: grid; gap: .5rem; }
+.unverified li {
+  border-left: 3px solid var(--bad);
+  background: var(--surface-sunk);
+  padding: .5rem .7rem;
+  display: flex; flex-wrap: wrap; gap: .45rem; align-items: baseline;
+}
+.uv-doc { color: var(--ink-3); font-size: .8rem; }
+.uv-val { font-weight: 600; }
+.uv-quote {
+  margin: 0; flex: 1 1 100%;
+  color: var(--ink-3); font-style: italic; font-size: .85rem;
+}
+.uv-why { flex: 1 1 100%; font-size: .8rem; color: var(--bad); }
+
 /* Documents collapse: the head is the summary, so it needs the disclosure
  * affordance the browser drops once the element is restyled as a flex row. */
 .doc > summary { cursor: pointer; list-style: none; }

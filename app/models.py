@@ -278,6 +278,54 @@ class NormalizedDocument(BaseModel):
     normalized: dict[FieldKey, NormalizedField] = Field(default_factory=dict)
 
 
+class FieldVerification(BaseModel):
+    """Did the quoted line actually get copied from this document?
+
+    Four states because three would force a lie. `unverified` and `not_checkable`
+    look similar and mean opposite things: the first is "we looked and the quote
+    is not there", the second is "there was nothing to look at". Collapsing them
+    would either drop every field on a phone photo or report an unchecked field
+    as checked.
+    """
+
+    state: Literal["absent", "verified", "unverified", "not_checkable"] = "absent"
+    # Which check passed or failed, and against what source: 'line', 'row',
+    # 'fuzzy', 'quote_absent', 'value_absent', 'no_text_source', suffixed with
+    # the text source ('pdf_text_layer' / 'fixture_sidecar') when one matched.
+    tier: str = ""
+    score: float = 0.0
+    matched_page: int | None = None
+    detail: str = ""
+
+    @property
+    def excluded(self) -> bool:
+        """True only where a check happened and failed.
+
+        `not_checkable` never excludes: a photo has no text layer, and dropping
+        every field of every scan would leave a report that says nothing about
+        the documents and implies it checked them.
+        """
+        return self.state == "unverified"
+
+
+class UnverifiedField(BaseModel):
+    """A field pulled out of the comparison because its evidence was not real.
+
+    It has to be visible somewhere. A field that silently vanishes from the
+    table is indistinguishable from a field no document printed, which would
+    turn a transcription failure into a quiet 'everything agrees'.
+    """
+
+    document_id: str
+    document_label: str
+    field: FieldKey
+    label: str
+    value: str | None = None
+    evidence_text: str = ""
+    page_index: int = 1
+    reason: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Comparison
 # ---------------------------------------------------------------------------
@@ -529,6 +577,10 @@ class DocumentReport(BaseModel):
     # comparison, so the correction is visible as a correction.
     overrides: dict[FieldKey, ExtractedField] = Field(default_factory=dict)
     corrections: list[Correction] = Field(default_factory=list)
+    # Was each quoted line really printed on this document? Empty until something
+    # with a text source has been checked, which is the same as "not checked" and
+    # must be rendered as such, never as a clean bill of health.
+    verification: dict[FieldKey, FieldVerification] = Field(default_factory=dict)
 
 
 class RunInfo(BaseModel):
@@ -673,6 +725,9 @@ class Report(BaseModel):
     briefing: Briefing = Field(default_factory=Briefing)
     # Written after the comparisons are settled, and never read by the engine.
     line_items: LineItemsSection = Field(default_factory=LineItemsSection)
+    # Fields removed from the comparison because their evidence was not on the
+    # page. Computed with the comparisons, so it can never disagree with them.
+    unverified: list[UnverifiedField] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

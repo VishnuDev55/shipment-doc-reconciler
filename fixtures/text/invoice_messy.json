@@ -1,0 +1,38 @@
+[
+  {
+    "index": 1,
+    "lines": [
+      "COMMERCIAL INVOICE",
+      "Invoice document \u2014 synthetic sample",
+      "SHIPPER /",
+      "EXPORTER",
+      "Hanwei Precision Components Co., Ltd.",
+      "88 Jianshe Road, Yinzhou District 315040 Ningbo, Zhejiang, China",
+      "CONSIGNEE Nordwind Industrial Supply GmbH",
+      "Hafenstrasse 12 20457 Hamburg, Germany",
+      "INVOICE NUMBER HW-2026-0914",
+      "INVOICE DATE 2026-04-02",
+      "PURCHASE ORDER PO 4410-DE",
+      "TERMS OF DELIVERY FOB Ningbo (Incoterms 2020)",
+      "COUNTRY OF ORIGIN Made in P.R.C.",
+      "DESCRIPTION OF",
+      "GOODS",
+      "QTY UNIT UNIT PRICE AMOUNT",
+      "CNC aluminium",
+      "housing, type H-40",
+      "600 pieces 4.85 2,910.00",
+      "Stainless fastener",
+      "set, M6",
+      "500 pieces 11.02 5,510.00",
+      "Total quantity 1,200 pieces",
+      "Total gross weight 12.450,00 kg",
+      "HS code 8517.62.0090",
+      "Subtotal 8,420.00",
+      "Freight 0.00",
+      "TOTAL AMOUNT FOB NINGBO USD 8,420.00",
+      "SAY: US DOLLARS EIGHT THOUSAND FOUR HUNDRED TWENTY ONLY",
+      "This document is synthetic test data generated for a hackathon demo. It does not represent a real shipment, company, or transaction."
+    ],
+    "source": "fixture_sidecar"
+  }
+]

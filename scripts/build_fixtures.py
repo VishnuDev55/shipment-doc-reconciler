@@ -26,6 +26,7 @@ import io
 import json
 import random
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,22 +38,31 @@ from app.cache import cache_key  # noqa: E402
 from app.config import PROMPT_VERSION  # noqa: E402
 from app.ingest import ingest  # noqa: E402
 from app.models import extraction_json_schema  # noqa: E402
+from app.textlayer import page_texts_from_pdf, save_sidecar  # noqa: E402
 from fixtures.shipments import SHIPMENTS  # noqa: E402
 
 IMAGE_DIR = ROOT / "fixtures" / "images"
 CACHE_DIR = ROOT / "fixtures" / "responses"
+# The text the renderer had before the rasteriser discarded it. Kept so the
+# fixture set has something to check a quoted line against that is not the model
+# that wrote the quote; see app/textlayer.py.
+TEXT_DIR = ROOT / "fixtures" / "text"
 
 
-def html_to_pages(html: str, *, scale: float = 2.0) -> list[Image.Image]:
+def html_to_pdf_bytes(html: str) -> bytes:
     from xhtml2pdf import pisa
-
-    import pypdfium2 as pdfium
 
     buf = io.BytesIO()
     pisa.CreatePDF(io.StringIO(html), dest=buf)
     pdf = buf.getvalue()
     if len(pdf) < 600:
         raise RuntimeError("render produced a suspiciously small PDF")
+    return pdf
+
+
+def pdf_to_pages(pdf: bytes, *, scale: float = 2.0) -> list[Image.Image]:
+    import pypdfium2 as pdfium
+
     doc = pdfium.PdfDocument(pdf)
     try:
         if len(doc) == 0:
@@ -60,6 +70,10 @@ def html_to_pages(html: str, *, scale: float = 2.0) -> list[Image.Image]:
         return [doc[i].render(scale=scale).to_pil() for i in range(len(doc))]
     finally:
         doc.close()
+
+
+def html_to_pages(html: str, *, scale: float = 2.0) -> list[Image.Image]:
+    return pdf_to_pages(html_to_pdf_bytes(html), scale=scale)
 
 
 def degrade(img: Image.Image, rng: random.Random) -> Image.Image:
@@ -141,6 +155,16 @@ def _reset_output_dirs() -> None:
             print(f"cleared {removed} generated image(s) from {IMAGE_DIR.relative_to(ROOT)}")
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Sidecars belong to the images as much as the images do: a text file that
+    # outlives the page it describes would let the verifier check a quote against
+    # a document that no longer exists, which is the exact failure mode it exists
+    # to catch, in the one place we are supposed to be able to trust.
+    if TEXT_DIR.is_dir():
+        for f in TEXT_DIR.iterdir():
+            if f.is_file() and f.suffix == ".json":
+                f.unlink()
+    TEXT_DIR.mkdir(parents=True, exist_ok=True)
+
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     removed = kept = 0
     for f in CACHE_DIR.glob("*.json"):
@@ -201,8 +225,19 @@ def main() -> int:
         index[shipment_name] = {"documents": []}
 
         for doc_type, doc in shipment["docs"].items():
-            pages = [degrade(p, rng) for p in html_to_pages(doc["html"](shipment))]
+            pdf = html_to_pdf_bytes(doc["html"](shipment))
+            pages = [degrade(p, rng) for p in pdf_to_pages(pdf)]
             stem = Path(doc["filename"]).stem
+
+            # Save the text before the degradation reaches it: this is what the
+            # page said as typeset, and it is the only thing on the fixture side
+            # that the vision model never had a hand in.
+            raw_texts = page_texts_from_pdf(pdf, max_pages=max(len(pages), 1))
+            if raw_texts:
+                save_sidecar(
+                    TEXT_DIR / f"{stem}.json",
+                    [replace(t, source="fixture_sidecar") for t in raw_texts],
+                )
 
             # One document == one upload artifact. A multi-page document is
             # bundled into a PDF, because that is what a user would actually

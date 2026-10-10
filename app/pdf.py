@@ -188,6 +188,31 @@ def _sanity(report: Report) -> str:
 here cannot change a verdict above.</p><ul>{items}</ul>"""
 
 
+def _unverified(report: Report) -> str:
+    """Fields removed because their quoted line is not on the page.
+
+    Printed even though it is the unflattering half of the report: a PDF that
+    shows only the surviving comparisons would let a printed copy claim more than
+    the analysis supports.
+    """
+    items = report.unverified
+    if not items:
+        return ""
+    rows = "".join(
+        f"<tr><td>{esc(u.label)}</td><td>{esc(u.document_label)}</td>"
+        f"<td class='val'>{esc(u.value or '')}</td>"
+        f"<td class='small'>{esc(u.evidence_text)}</td>"
+        f"<td class='small'>{esc(u.reason)}</td></tr>"
+        for u in items
+    )
+    return f"""<h2>Unverified evidence</h2>
+<p class="small">{len(items)} field(s) quoted a line that does not appear on the
+document, so they were excluded from the comparisons above rather than trusted.
+A value nobody printed cannot disagree with another document.</p>
+<table><thead><tr><th>Field</th><th>Document</th><th>Claimed value</th>
+<th>Quoted line</th><th>Why it was dropped</th></tr><tbody>{rows}</tbody></table>"""
+
+
 def _corrections(report: Report) -> str:
     active = [c for d in report.documents for c in d.corrections if not c.reverted_at]
     reverted = [c for d in report.documents for c in d.corrections if c.reverted_at]
@@ -282,7 +307,8 @@ def _documents(report: Report) -> str:
 def report_html(report: Report) -> str:
     """The printable HTML. Exposed because it is the thing tests can read."""
     body = "".join([
-        _header(report), _risk(report), _comparisons(report), _sanity(report),
+        _header(report), _risk(report), _comparisons(report), _unverified(report),
+        _sanity(report),
         _line_items(report), _corrections(report), _model_prose(report),
         _documents(report),
     ])

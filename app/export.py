@@ -77,6 +77,17 @@ def report_csv(report: Report) -> str:
                     comp.reason,
                 ]
             )
+    # The excluded rows go in too. A CSV that only lists what survived would let
+    # somebody pivot a shipment to "no problems" while a value nobody printed sat
+    # quietly outside the file.
+    for u in report.unverified:
+        writer.writerow(
+            [
+                report.shipment_id, u.field, u.label, "", "excluded: evidence not found",
+                u.document_label, "", u.page_index, u.value or "", "", "", "", "", "yes",
+                "", u.reason,
+            ]
+        )
     return buf.getvalue()
 
 
@@ -387,7 +398,10 @@ def build_zip(report: Report, run_dir: Path | None) -> bytes:
             f"vision model: {report.run.model} ({report.run.vision_provider})\n"
             f"summary     : {report.run.summary_model} ({report.run.summary_provider})"
             f" -> {report.narrative.status}\n"
-            f"demo_mode   : {report.run.demo_mode}\n\n"
+            f"demo_mode   : {report.run.demo_mode}\n"
+            + (f"excluded    : {len(report.unverified)} field(s) quoted a line that is "
+               "not printed on the document\n") if report.unverified else ""
+            + "\n"
             "report.html  standalone, self-contained view (opens anywhere)\n"
             + pdf_note +
             "report.json  full machine-readable report incl. evidence and versions\n"

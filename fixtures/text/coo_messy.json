@@ -1,0 +1,30 @@
+[
+  {
+    "index": 1,
+    "lines": [
+      "CERTIFICATE OF ORIGIN",
+      "Form A \u2014 declared by the exporter, verified by the issuing body",
+      "1. CONSIGNOR Hanwei Precision Components Co., Ltd.",
+      "88 Jianshe Road, Yinzhou District 315040 Ningbo, Zhejiang, China",
+      "2. CONSIGNEE Nordwind Industrial Supply GmbH",
+      "Hafenstrasse 12 20457 Hamburg, Germany",
+      "CERTIFICATE NO. ACC-2026-1145503 / 1145503",
+      "ISSUED AT / ON Ningbo, 2026-04-03",
+      "INVOICE REFERENCE HW-2026-0914",
+      "MEANS OF TRANSPORT MV HANWEI EXPRESS VOY 0421W",
+      "2. ITEM NUMBER; DESCRIPTION OF",
+      "PACKAGES AND ARTICLES CONTAINED",
+      "3. HS CODE 4. ORIGIN CRITERION",
+      "MIXED MACHINED PARTS, 100",
+      "CARTONS",
+      "8517.62 P",
+      "Number and kind of packages 100 CARTONS",
+      "Gross weight (kg) 12,450.00 KGS",
+      "Net weight (kg) 11,600.00 KGS",
+      "Country of origin People's Republic of China",
+      "It is hereby certified on the basis of records available that the above goods were produced and manufactured in the country of origin declared above.",
+      "This document is synthetic test data generated for a hackathon demo. It does not represent a real shipment, company, or transaction."
+    ],
+    "source": "fixture_sidecar"
+  }
+]

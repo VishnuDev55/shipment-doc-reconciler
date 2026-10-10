@@ -1,0 +1,31 @@
+[
+  {
+    "index": 1,
+    "lines": [
+      "PACKING LIST",
+      "Packing specification \u2014 synthetic sample",
+      "CONSIGNEE Nordwind Industrial Supply GmbH",
+      "Hafenstrasse 12 20457 Hamburg, Germany",
+      "PACKING LIST NO. PL-2026-0912",
+      "DATE 2026-04-02",
+      "INVOICE REFERENCE HW-2026-0912",
+      "COUNTRY OF ORIGIN China",
+      "CONTAINER NO. MSKU3067322",
+      "MARK / NO. DESCRIPTION PACKAGES GROSS WT NET WT VOLUME",
+      "1-50",
+      "CNC aluminium",
+      "housings",
+      "50 CTN 6,225.00 5,800.00 18.40",
+      "51-100",
+      "Stainless",
+      "fastener sets",
+      "50 CTN 6,225.00 5,800.00 12.10",
+      "TOTAL NO. OF PACKAGES 100 cartons",
+      "TOTAL GROSS WT 12,450.00 KGS",
+      "TOTAL NET WT 11,600.00 KGS",
+      "TOTAL MEASUREMENT 30.50 CBM",
+      "This document is synthetic test data generated for a hackathon demo. It does not represent a real shipment, company, or transaction."
+    ],
+    "source": "fixture_sidecar"
+  }
+]

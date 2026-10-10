@@ -651,6 +651,7 @@ function renderReport(report) {
   renderNarrative(report);
   renderBriefing(report);
   renderComparison(report);
+  renderUnverified(report);
   renderDocuments(report);
   renderTransparency(report);
   renderRisk(report);
@@ -978,6 +979,54 @@ function renderLineItems(report) {
     + (li.usage && li.usage.total ? ` · ${li.usage.total} tokens` : '')
     + (li.latency_ms ? ` · ${(li.latency_ms / 1000).toFixed(1)}s` : '')
     + ' · matching is exact, in Python; nothing here changes the verdict above.';
+}
+
+/**
+ * Which fields were checked against the document's own text, and which could
+ * not be. The second number matters as much as the first: on a phone photo the
+ * app has nothing to compare a quote against, and "not checked" has to be
+ * visible rather than implied by the absence of a warning.
+ */
+function renderUnverified(report) {
+  const card = $('#unverified-card');
+  const list = $('#unverified-list');
+  const items = report.unverified || [];
+
+  let verified = 0, unverified = 0, unchecked = 0, absent = 0;
+  (report.documents || []).forEach((d) => {
+    Object.values(d.verification || {}).forEach((v) => {
+      if (v.state === 'verified') verified++;
+      else if (v.state === 'unverified') unverified++;
+      else if (v.state === 'not_checkable') unchecked++;
+      else absent++;
+    });
+  });
+
+  card.hidden = items.length === 0;
+  list.textContent = '';
+  items.forEach((u) => {
+    const li = el('li');
+    li.appendChild(el('b', null, u.label));
+    li.appendChild(el('span', 'uv-doc', u.document_label));
+    li.appendChild(el('span', 'uv-val mono', u.value || ''));
+    li.appendChild(el('blockquote', 'uv-quote', '“' + (u.evidence_text || '') + '”'));
+    li.appendChild(el('span', 'uv-why', u.reason || 'not found on the page'));
+    list.appendChild(li);
+  });
+
+  const meta = $('#unverified-meta');
+  if (!verified && !unverified && !unchecked) {
+    meta.textContent = '';
+  } else if (unchecked && !verified && !unverified) {
+    meta.textContent = `No text source on any page — every quoted line is unverified `
+      + `by necessity, not by failure. Upload a PDF with an embedded text layer to `
+      + `enable the check.`;
+  } else {
+    meta.textContent = `${verified} quoted line(s) confirmed against the document's `
+      + `own text, ${unverified} not found and excluded`
+      + (unchecked ? `, ${unchecked} not checkable (no text layer on those pages)` : '')
+      + '.';
+  }
 }
 
 function renderBriefing(report) {

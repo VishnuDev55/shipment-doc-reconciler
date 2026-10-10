@@ -441,6 +441,62 @@ precision the model never gave, which is the thing this app is built to refuse.
 Boxes need coordinates in the schema; that is a prompt-contract change, and the
 cache caveat under **Model discovery** applies to it unchanged.
 
+### The quote is checked against the page
+
+A value and the line it claims to come from are both just strings the model
+produced, so until now the evidence column asked for trust rather than earning it.
+`app/verify.py` checks each quoted line against text the model never touched: the
+PDF's own embedded text layer, recovered at ingest by `app/textlayer.py`. A field
+whose quote or value is not on the page is marked **unverified**, removed from the
+comparison, and listed under **Unverified evidence** in the UI, the PDF and the
+CSV. It is never silently dropped.
+
+Four outcomes, because two would force a lie:
+
+| State | Meaning | Effect on the comparison |
+|---|---|---|
+| `verified` | quote and value both found in the page's text | included |
+| `unverified` | a text source exists and the quote or value is not in it | **excluded**, shown as absent |
+| `not_checkable` | no text source — a photo, a scan, a flat image | included, labelled |
+| `absent` | the field reports no value | nothing to check |
+
+The distinction between the middle two is the whole design. Treating "we could not
+look" as "we looked and it failed" would empty every report built from a phone
+photo; treating it as "fine" would claim a check that never happened. So a scan
+keeps its values and says plainly that nothing verified them.
+
+Matching tolerates three things a naive check would wrongly reject, each found in
+our own data rather than imagined: a quote that joins a table's label cell to its
+value cell across a line break, a quote that joins a **column header** to a cell
+(`3. HS CODE 8517.62` — NVIDIA produced exactly this, and rejecting it would have
+discarded a correct extraction), and a value reformatted across number
+conventions (`12.450,00` for a page printing `12,450.00`), which is compared with
+grouping punctuation removed.
+
+**What it cannot catch, and this is the important part:**
+
+- **A real string filed under the wrong field.** Every one of the six fields our
+  Nebius captures "invented" is this shape. The packing list's `po_number` came
+  back as `HW-2026-0913` — that is the *invoice reference*, genuinely printed on
+  that page. A bill of lading's `country_of_origin` came back as `China`, lifted
+  from "Ningbo, China", a port of loading. Both gates pass, because the text
+  really is there. Page text cannot see a misattribution; that is a semantic
+  error, and no threshold change makes it detectable this way.
+- **Anything on a photo or a scanned image.** There is no text layer to check
+  against, so every field on the app's most common real input is `not_checkable`.
+  **Invention on a photo or scan is undetectable by code in this build.** It is
+  not detected here, it is not detected by a confidence score, and the report says
+  so instead of implying otherwise.
+
+Measured against the captures in this repository: all 156 present fields across
+both providers verified — 152 matched a printed line, 3 matched across a row's
+cells, 1 across a header and a cell — and none was fabricated outright. That is a
+statement about those captures, not a general accuracy claim.
+
+The threshold is `EVIDENCE_MIN_RATIO` (default 90, rapidfuzz `partial_ratio`). It
+is not 100 on purpose: demanding an exact reproduction would fail honest quotes
+while proving nothing about the value.
+
 ### Corrections a human can make, and undo
 
 Every value in the comparison table has a **Correct** button. Change it and the

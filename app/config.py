@@ -148,6 +148,15 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = Field(default=180.0, alias="REQUEST_TIMEOUT_SECONDS")
     max_concurrency: int = Field(default=4, alias="MAX_CONCURRENCY")
 
+    # How closely a quoted evidence line has to resemble the page's own text to
+    # count as real, 0-100 (rapidfuzz partial_ratio). 90 is deliberately not 100:
+    # a model that copies "Nordwind Industrial Supply GmbH" from a line reading
+    # "CONSIGNEE Nordwind Industrial Supply GmbH" has told the truth about where
+    # it looked, and demanding an exact reproduction would fail honest quotes
+    # while proving nothing. Below ~85 the check starts accepting lines that are
+    # merely similar, which is the failure it exists to catch.
+    evidence_min_ratio: int = Field(default=90, alias="EVIDENCE_MIN_RATIO", ge=0, le=100)
+
     # Price per million tokens, used only to annotate the transparency panel.
     # Zero means "not configured", and the panel then declines to show a cost at
     # all rather than guess one: a stale rate on an audit screen is worse than no

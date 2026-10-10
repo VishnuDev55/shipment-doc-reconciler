@@ -13,6 +13,9 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
 
 FIELD_COUNT = 10  # app/fields.py: the table has to show every contracted field
 
@@ -222,3 +225,49 @@ def test_a_protected_instance_refuses_the_data_routes_without_a_session(start_se
         body = exc.read().decode()
         assert KEY not in body, "a 401 must not echo anything about the key it refused"
     assert _api(server, "/api/health")["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# evidence verification
+# ---------------------------------------------------------------------------
+
+
+def test_no_unverified_card_appears_when_every_quote_was_confirmed(report_page, app):
+    """The card is a warning, so it must be absent when there is nothing to warn
+    about -- an always-visible empty 'Unverified evidence' panel would train
+    people to ignore the one time it has content."""
+    assert report_page.locator("#unverified-card").is_hidden()
+
+    sid = _shipment_id(report_page)
+    report = _api(app, f"/api/shipments/{sid}/report")
+    checked = [v for d in report["documents"] for v in (d["verification"] or {}).values()]
+    assert checked, "the fixture route should supply a text source, so checks ran"
+    assert [v for v in checked if v["state"] == "unverified"] == []
+
+
+def test_a_photo_upload_reports_its_quotes_as_not_checkable(new_page, start_server):
+    """The honest-empty case for the app's most common real input.
+
+    A degraded fixture image carries no text layer. The report must say the
+    quotes could not be checked, and must not imply they passed.
+    """
+    server = start_server()
+    page = new_page()
+    page.goto(server.base_url + "/")
+    page.wait_for_selector("#dropzone", timeout=20_000)
+
+    upload = REPO / "fixtures" / "images" / "invoice_clean.png"
+    page.set_input_files("#file-input", str(upload))
+    page.wait_for_function(
+        "() => !document.querySelector('#analyze').disabled", timeout=15_000)
+    page.click("#analyze")
+    page.wait_for_selector("#cmp tbody tr", timeout=180_000)
+
+    sid = _shipment_id(page)
+    report = _api(server, f"/api/shipments/{sid}/report")
+    states = [v["state"] for d in report["documents"]
+              for v in (d["verification"] or {}).values()]
+    assert states, "verification should have run and recorded a state per field"
+    assert set(states) <= {"not_checkable", "absent"}, set(states)
+    assert report["unverified"] == [], "nothing may be excluded on an unchecked page"
+    assert page.locator("#unverified-card").is_hidden()

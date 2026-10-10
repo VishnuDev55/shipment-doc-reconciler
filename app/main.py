@@ -37,10 +37,15 @@ from .export import build_zip, fixture_manifest
 from .pdf import render_pdf
 from .models import (ConfigUpdate, CorrectionRequest, Report, RetryRequest, SessionRequest)
 from .orchestrator import Reconciler
+from .textlayer import PageText, load_sidecar
 
 STATIC_DIR = PROJECT_ROOT / "web"
 FIXTURE_INDEX = PROJECT_ROOT / "fixtures" / "index.json"
 FIXTURE_IMAGES = PROJECT_ROOT / "fixtures" / "images"
+# The text each fixture page was rendered from. A degraded PNG carries no text
+# layer, so without this the bundled demo would report every field as
+# "not checkable" and the evidence check could never be seen working offline.
+FIXTURE_TEXT = PROJECT_ROOT / "fixtures" / "text"
 
 app = FastAPI(
     title="Shipment Doc Reconciler",
@@ -738,15 +743,19 @@ async def load_fixture(name: str) -> JSONResponse:
         raise HTTPException(404, f"no bundled fixture named {name!r}")
 
     uploads: list[tuple[str, str | None, bytes]] = []
+    texts: dict[str, list[PageText]] = {}
     for doc in entry["documents"]:
         for fname in doc["files"]:
             path = FIXTURE_IMAGES / Path(fname).name
             if not path.is_file():
                 raise HTTPException(500, f"fixture image missing: {fname}")
             uploads.append((path.name, doc["doc_type"], path.read_bytes()))
+            loaded = load_sidecar(FIXTURE_TEXT / f"{Path(fname).stem}.json")
+            if loaded:
+                texts[path.name] = loaded
 
     rec = reconciler()
-    shipment_id, _ = await rec.create_shipment(uploads)
+    shipment_id, _ = await rec.create_shipment(uploads, page_texts=texts)
     await rec.wait(shipment_id, timeout=600)
     report = rec.get(shipment_id)
     return JSONResponse(

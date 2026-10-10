@@ -1,0 +1,33 @@
+[
+  {
+    "index": 1,
+    "lines": [
+      "BILL OF LADING",
+      "Sea waybill \u2014 synthetic sample",
+      "SHIPPER /",
+      "EXPORTER",
+      "Hanwei Precision Components Co., Ltd.",
+      "88 Jianshe Road, Yinzhou District 315040 Ningbo, Zhejiang, China",
+      "CONSIGNEE Nordwind Industrial Supply GmbH",
+      "Hafenstrasse 12 20457 Hamburg, Germany",
+      "BILL OF LADING NO. HLCUHAM260417782",
+      "DATE OF ISSUE 2026-04-04",
+      "VESSEL / VOYAGE MV HANWEI EXPRESS / 0421W",
+      "PORT OF LOADING Ningbo, China",
+      "PORT OF DISCHARGE Hamburg, Germany",
+      "CONTAINER NO. MSKU3067322",
+      "SEAL NO. CN8892143",
+      "NO. OF CONTAINERS OR",
+      "PACKAGES",
+      "100 CARTONS",
+      "DESCRIPTION OF",
+      "PACKAGES AND GOODS",
+      "CNC ALUMINIUM HOUSINGS AND FASTENER SETS SAID TO CONTAIN",
+      "GROSS WEIGHT 13,200.00 KGS",
+      "NET WEIGHT 11,600.00 KGS",
+      "FREIGHT & CHARGES FREIGHT PREPAID",
+      "This document is synthetic test data generated for a hackathon demo. It does not represent a real shipment, company, or transaction."
+    ],
+    "source": "fixture_sidecar"
+  }
+]
