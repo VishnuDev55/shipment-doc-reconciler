@@ -91,6 +91,12 @@ def report_csv(report: Report) -> str:
     return buf.getvalue()
 
 
+def _slug(label: str) -> str:
+    """A filename from a document label, without letting the label choose it."""
+    keep = "".join(c if c.isalnum() or c in "-_." else "_" for c in label)
+    return keep.strip("_.")[:60] or "document"
+
+
 def _evidence_data_uri(run_dir: Path | None, image_path: str) -> str | None:
     if run_dir is None:
         return None
@@ -226,6 +232,22 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
         for f in report.sanity
     )
 
+    emails_html = "".join(
+        '<div class="draft"><h3>To ' + esc(m.recipient_role) + '</h3>'
+        '<p class="dsub">' + esc(m.subject) + '</p>'
+        '<p class="dmeta">' + esc(m.document_label) + ' &middot; '
+        + str(m.critical) + ' critical, ' + str(m.warning) + ' warning</p>'
+        '<pre>' + esc(m.body) + '</pre></div>'
+        for m in report.correction_emails
+    )
+    emails_block = (
+        '<h2>Correction drafts</h2><p class="sub">Written by rule from the '
+        'critical and warning findings above. No language model was asked, so no '
+        'figure here is one nobody printed. Nothing is sent: a role is named '
+        'because a role is all a document type establishes.</p>' + emails_html
+        if emails_html else ""
+    )
+
     status = report.status_report
     status_items = "".join(
         f'<li class="sev-{esc(f.severity)}"><b>{esc(f.severity)}</b> '
@@ -336,6 +358,13 @@ table.ev td, table.ev th {{ border-bottom:1px solid var(--line); padding:4px 6px
 .pages figure {{ margin:0; }} .pages img {{ max-height:330px; border:1px solid var(--line); }}
 .pages figcaption {{ font-size:11px; color:var(--muted); }}
 .pgwrap {{ position:relative; display:inline-block; overflow:hidden; }}
+.draft {{ border:1px solid #cfd5dd; border-left:4px solid #0e6a63;
+  border-radius:6px; padding:10px 12px; margin:10px 0; }}
+.draft h3 {{ margin:0; font-size:13px; }}
+.draft pre {{ margin:8px 0 0; font-family:inherit; font-size:12px;
+  white-space:pre-wrap; background:#f7f9fb; padding:9px 11px; border-radius:4px; }}
+.dsub {{ margin:3px 0 0; font-weight:600; font-size:12px; }}
+.dmeta {{ margin:2px 0 0; font-size:11px; color:var(--muted); }}
 .pgbox {{ position:absolute; border:2px solid #0e6a63;
   background:rgba(14,106,99,.14); pointer-events:none; border-radius:3px; }}
 footer {{ margin-top:26px; padding-top:12px; border-top:1px solid var(--line);
@@ -396,6 +425,7 @@ table.prov td {{ padding:4px 10px 4px 0; vertical-align:top; }}
  {s.single_source} single-source, {s.absent} absent ·
  {s.documents_ok}/{s.documents_ok + s.documents_failed} documents extracted</div>
 {risk_html}
+{emails_block}
 {sanity_html}
 {narrative_html}
 {briefing_html}
@@ -435,8 +465,15 @@ def build_zip(report: Report, run_dir: Path | None) -> bytes:
         zf.writestr("report.json", report.model_dump_json(indent=2))
         zf.writestr("report.csv", report_csv(report))
         zf.writestr("report.html", standalone_html(report, run_dir))
-        # Imported here, not at the top of the module: app.pdf reads the label tables
-        # out of this module, so a module-level import would be a cycle.
+        # One text file per draft, so the archive carries the letters rather than
+        # only a description of them. Written by rule from the findings, which is
+        # what makes it safe to include: nothing here was composed after the fact.
+        for mail in report.correction_emails:
+            rule = "=" * len(mail.subject)
+            zf.writestr(f"corrections/{_slug(mail.document_label)}.txt",
+                        "\n".join([mail.subject, rule, "", mail.body, ""]))
+        # Imported here, not at the top of the module: app.pdf reads the label
+        # tables out of this module, so a module-level import would be a cycle.
         from .pdf import render_pdf
 
         try:
@@ -449,36 +486,52 @@ def build_zip(report: Report, run_dir: Path | None) -> bytes:
             pdf = None
             pdf_note = ("(report.pdf could not be rendered here: "
                         f"{type(exc).__name__})\n")
-        zf.writestr(
-            "README.txt",
-            "Shipment Doc Reconciler export\n"
-            "================================\n"
-            f"shipment_id : {report.shipment_id}\n"
-            f"state       : {report.state}\n"
-            f"verdict     : {report.summary.verdict}\n"
+        # A list of lines, joined -- not one long concatenation with conditionals
+        # inside it. The previous shape parsed as `(everything + excluded) if
+        # unverified else ""`, so a report with no excluded fields got a README.txt
+        # that started at the blank line below the header: the manifest describing
+        # an export disappeared from the export, on the majority of runs.
+        manifest = [
+            "Shipment Doc Reconciler export",
+            "================================",
+            f"shipment_id : {report.shipment_id}",
+            f"state       : {report.state}",
+            f"verdict     : {report.summary.verdict}",
             f"status      : {report.status_report.banner}"
             f" ({report.status_report.critical} critical, "
             f"{report.status_report.warning} warning, "
-            f"{report.status_report.info} informational)\n"
-            f"vision model: {report.run.model} ({report.run.vision_provider})\n"
-            f"summary     : {report.run.summary_model} ({report.run.summary_provider})"
-            f" -> {report.narrative.status}\n"
-            f"demo_mode   : {report.run.demo_mode}\n"
-            + (f"excluded    : {len(report.unverified)} field(s) quoted a line that is "
-               "not printed on the document\n") if report.unverified else ""
-            + (f"arithmetic  : {sum(1 for c in report.internal_checks if c.status == 'fail')} "
-               f"failing, {sum(1 for c in report.internal_checks if c.status == 'not_run')} "
-               "not run of "
-               f"{len(report.internal_checks)} internal check(s)\n")
-            if report.internal_checks else ""
-            + "\n"
-            "report.html  standalone, self-contained view (opens anywhere)\n"
-            + pdf_note +
-            "report.json  full machine-readable report incl. evidence and versions\n"
-            "report.csv   one row per field per document\n"
-            "pages/       normalized page images used as evidence\n"
-            "raw/         every raw model response, including failed attempts\n",
-        )
+            f"{report.status_report.info} informational)",
+            f"vision model: {report.run.model} ({report.run.vision_provider})",
+            f"summary     : {report.run.summary_model} "
+            f"({report.run.summary_provider}) -> {report.narrative.status}",
+            f"demo_mode   : {report.run.demo_mode}",
+            f"drafts      : {len(report.correction_emails)} written by rule, "
+            "critical and warning findings only",
+        ]
+        if report.unverified:
+            manifest.append(f"excluded    : {len(report.unverified)} field(s) quoted "
+                            "a line that is not printed on the document")
+        if report.internal_checks:
+            manifest.append(
+                f"arithmetic  : "
+                f"{sum(1 for c in report.internal_checks if c.status == 'fail')} "
+                f"failing, "
+                f"{sum(1 for c in report.internal_checks if c.status == 'not_run')} "
+                f"not run of {len(report.internal_checks)} internal check(s)")
+        manifest.append("")
+        manifest.append("report.html  standalone, self-contained view "
+                        "(opens anywhere)")
+        manifest.append(pdf_note.rstrip("\n"))
+        manifest.append("report.json  full machine-readable report incl. evidence "
+                        "and versions")
+        manifest.append("report.csv   one row per field per document")
+        if report.correction_emails:
+            manifest.append(f"corrections/ {len(report.correction_emails)} draft(s) "
+                            "to whoever owes an answer, written by rule")
+        manifest.append("pages/       normalized page images used as evidence")
+        manifest.append("raw/         every raw model response, including failed "
+                        "attempts")
+        zf.writestr("README.txt", "\n".join(manifest) + "\n")
         if run_dir and run_dir.is_dir():
             for sub in ("pages", "raw"):
                 base = run_dir / sub

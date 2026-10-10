@@ -92,7 +92,8 @@ the comparison because their evidence was not printed), `internal_checks[]`
 (arithmetic inside each document, with `not_run` kept distinct from `pass`),
 `line_items` (the opt-in goods-line match, or a statement that it was not asked
 for), `sanity[]`, `risk`, `status_report` (one severity per finding and the
-banner that follows from it), `summary`, `narrative`, `briefing`.
+banner that follows from it), `correction_emails[]` (the drafts that banner
+implies, written by rule with no model call), `summary`, `narrative`, `briefing`.
 
 ---
 

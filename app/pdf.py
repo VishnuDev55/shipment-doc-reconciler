@@ -61,6 +61,10 @@ td.num { text-align: right; }
        width: 16mm; }
 .sev-critical { color: #a11; }
 .sev-warning { color: #9a5b00; }
+.draft { border: 0.8pt solid #999; padding: 2.5mm; margin-bottom: 3mm; }
+.dsub { font-weight: bold; font-size: 8.6pt; margin-top: 1mm; }
+.draft pre { font-family: Helvetica; font-size: 8pt; white-space: pre-wrap;
+             margin: 1.5mm 0 0 0; }
 ul { margin: 1mm 0 0 4mm; padding: 0; }
 li { margin-bottom: 0.8mm; }
 .quote { border-left: 2pt solid #999; padding: 1mm 0 1mm 2.5mm; margin: 1.5mm 0;
@@ -285,6 +289,29 @@ A value nobody printed cannot disagree with another document.</p>
 <th>Quoted line</th><th>Why it was dropped</th></tr><tbody>{rows}</tbody></table>"""
 
 
+def _drafts(report: Report) -> str:
+    """The correction drafts, printed as they will be sent.
+
+    Monospaced and unedited on purpose: a filed copy of a letter has to read like
+    the letter, and a draft re-typeset into prose is a draft that can say
+    something the findings did not.
+    """
+    if not report.correction_emails:
+        return ""
+    blocks = "".join(
+        f"<div class='draft'><b>To {esc(m.recipient_role)}</b>"
+        f"<div class='dsub'>{esc(m.subject)}</div>"
+        f"<div class='small'>{esc(m.document_label)} &middot; {m.critical} critical, "
+        f"{m.warning} warning</div><pre>{esc(m.body)}</pre></div>"
+        for m in report.correction_emails
+    )
+    return f"""<h2>Correction drafts</h2>
+<p class="small">Written by rule from the critical and warning findings above; no
+language model was asked, so no figure here is one nobody printed. Nothing has
+been sent -- a role is named because a role is all a document type establishes,
+and no contact address exists in this report.</p>{blocks}"""
+
+
 def _corrections(report: Report) -> str:
     active = [c for d in report.documents for c in d.corrections if not c.reverted_at]
     reverted = [c for d in report.documents for c in d.corrections if c.reverted_at]
@@ -382,7 +409,8 @@ def report_html(report: Report) -> str:
         _header(report), _status(report), _risk(report), _comparisons(report),
         _unverified(report),
         _internal_checks(report), _sanity(report),
-        _line_items(report), _corrections(report), _model_prose(report),
+        _line_items(report), _drafts(report), _corrections(report),
+        _model_prose(report),
         _documents(report),
     ])
     footer = (

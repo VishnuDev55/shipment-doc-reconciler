@@ -11,8 +11,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
+from app.export import build_zip
 from app.fields import FIELD_ORDER
 from app.main import app, configure
+from app.models import Report
 from app.orchestrator import Reconciler
 
 REPO = Path(__file__).resolve().parents[1]
@@ -155,6 +157,28 @@ def test_zip_export_contains_all_four_artifacts(client):
     assert "cdn." not in html_text and "http://" not in html_text.split("DOCTYPE")[1][:4000]
 
     assert any(n.startswith("pages/") for n in names), "page evidence must ship in the zip"
+
+
+def test_the_export_manifest_survives_a_boring_report(client):
+    """README.txt used to disappear on the majority of runs.
+
+    Its content was one concatenation with conditionals inside it, which parsed as
+    `(everything + excluded) if unverified else ""` -- so a report with no excluded
+    fields got a manifest that began at the blank line under the header. The
+    archive that describes an export stopped describing it, and nothing noticed
+    because the file was still there.
+    """
+    report = Report(shipment_id="plain", created_at="t", updated_at="t")
+    blob = build_zip(report, None)
+    readme = zipfile.ZipFile(io.BytesIO(blob)).read("README.txt").decode()
+
+    assert readme.startswith("Shipment Doc Reconciler export")
+    for line in ("shipment_id :", "verdict     :", "status      :", "demo_mode   :",
+                 "drafts      :"):
+        assert line in readme, line
+    assert "report.json" in readme and "pages/" in readme
+    assert "excluded    :" not in readme, "nothing was excluded on this report"
+    assert "corrections/" not in readme, "this report has no drafts to list"
 
 
 def test_page_images_are_served(client):

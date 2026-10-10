@@ -640,6 +640,42 @@ Everything here is authored, including the model responses, so the run is
 reproducible and free. It says nothing about live accuracy; `docs/EVAL.md`
 measures that from captured responses, and the two must not be confused.
 
+### Correction drafts, written by rule
+
+The report ends with somebody having to fix paperwork, and a reviewer retyping a
+discrepancy into an email is how a wrong number leaves the building.
+`app/correction_email.py` writes the drafts instead, from the severity findings the
+banner already has. **No model is asked** — nothing can be added, softened or
+invented between a verdict and the message a customer receives.
+
+Each draft carries the value as printed, the value the other papers printed, and
+the exact line it was quoted from. Only critical and warning findings are written
+up: an informational item is not a request to change anything, and asking for it
+would train the recipient to skim.
+
+Recipients are **roles, not people** — "the carrier's documentation desk", "the
+seller's documentation desk" — and every draft says on its first line that no
+contact address is on file. A document type establishes who owes the paper; it does
+not establish who to mail, and the app does not pretend otherwise.
+
+Who gets written to is decided by evidence, not by order:
+
+- a **strict majority** names the odd document, and only its party is written to;
+- an **even split** writes to both, and says the report cannot decide between them;
+- unless something on the papers *does* decide it. A container number that fails
+  its own ISO 6346 check digit is inconsistent whatever the other paper says, and
+  that verdict is a field on the comparison (`arbitrated_by`), not a sentence a
+  generator has to parse out of prose.
+
+The drafts ship everywhere the report does: a panel with a copy button in the web
+UI, `corrections/*.txt` in the ZIP, a section in `report.html` and in the PDF. The
+older AI-written briefing is still there, retitled and labelled as the optional
+restatement it is; these are the default.
+
+**What a draft never does is state an expected value.** It reports printings. Where
+a number genuinely is derivable — the product of a quantity and a price — the draft
+says it is *our calculation* and names the document whose own figures produced it.
+
 ### Corrections a human can make, and undo
 
 Every value in the comparison table has a **Correct** button. Change it and the
@@ -1113,7 +1149,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-919 passed in ~37s
+935 passed in ~38s
 ```
 
 ~36 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api`,
@@ -1181,8 +1217,9 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 919 unit tests, plus 19 in a real browser |
+| Normalizers, comparators, parse ladder | ✅ 935 unit tests, plus 21 in a real browser |
 | The status banner never contradicts the verdict or the risk strip | ✅ pinned from both directions, and proved to fail: flipping the container row from critical to warning breaks 6 tests, and removing the verdict floor breaks 2 |
+| Correction drafts name no value no document printed | ✅ asserted over every draft, and the ZIP manifest bug that hid README.txt's header is pinned |
 | The engine against known ground truth | ✅ 9/9 planted errors caught, 0/9 false alarms on clean and tricky paperwork, 1 miss declared in advance — `docs/PLANTED.md`, 0 API calls |
 | The evidence highlight lands on the right words | ✅ screenshot-verified in chromium (the rectangle and the image share one box), and proved to fail: dropping the verbatim-line restriction breaks the fuzzy test, and stopping the chip from passing its box breaks the browser suite |
 | `runs/{id}/report.json` is the same bytes on Windows and in the container | ✅ was not — pydantic writes unescaped non-ASCII, and `write_text()` used the locale codec, so an em dash landed as `0x97`. Encoding is now pinned to utf-8 on write and read |
@@ -1286,6 +1323,7 @@ app/
   lineitems.py         goods-line matching: exact keys, never a fuzzy merge
   scoring.py           the 0-100 strip, every point attributable
   severity.py          the one level table, and the banner that reads it
+  correction_email.py  the drafts it writes, by rule and with no model
   orchestrator.py      gather over documents; report assembly; summary step
   pdf.py               the print-and-file rendering, from the model not the DOM
   export.py            ZIP: report.json + report.csv + report.html + README.txt
@@ -1315,8 +1353,8 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 919 offline tests across 33 files (+ conftest.py socket guard)
-tests_e2e/             19 browser tests; a real uvicorn and real chromium, and the
+tests/                 935 offline tests across 34 files (+ conftest.py socket guard)
+tests_e2e/             21 browser tests; a real uvicorn and real chromium, and the
                        only suite allowed to open a socket. `pytest tests/` cannot
                        collect it; run `make e2e`.
 docs/                  ARCHITECTURE.md (shape + invariants) · NORMALIZATION.md (every

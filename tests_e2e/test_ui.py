@@ -416,3 +416,48 @@ def test_a_photo_shows_the_page_and_says_it_has_no_coordinates(new_page, start_s
     assert "No coordinates available" in note.inner_text()
     assert page.locator(".lb-evidence").inner_text().strip() != ""
     page.close()
+
+
+# ---------------------------------------------------------------------------
+# correction drafts
+# ---------------------------------------------------------------------------
+
+
+def test_the_drafts_a_report_writes_are_copyable_and_unedited(report_page, app):
+    """The panel exists so a reviewer does not retype a discrepancy into an email,
+    which is how a wrong number leaves the building. Two things have to be true in
+    the browser: the text shown is the server's text, and the button hands over
+    that same text rather than something assembled here."""
+    card = report_page.locator("#emails-card")
+    card.wait_for(state="visible", timeout=15_000)
+    drafts = card.locator(".email")
+    assert drafts.count() >= 1
+
+    sid = _shipment_id(report_page)
+    mails = _api(app, f"/api/shipments/{sid}/report")["correction_emails"]
+    assert len(mails) == drafts.count()
+
+    for block in range(drafts.count()):
+        shown = drafts.nth(block)
+        label = shown.locator(".email-meta").inner_text().split(" · ")[0]
+        mail = next(m for m in mails if m["document_label"] == label)
+        # Byte-for-byte: a draft re-composed client-side is a draft that can say
+        # something the findings did not.
+        assert shown.locator(".email-body").inner_text() == mail["body"]
+        assert shown.locator(".email-to").inner_text().startswith("To ")
+        assert "no language model was asked" in mail["body"]
+        assert "No contact address is on file" in mail["body"]
+        assert shown.locator("button").last.inner_text() == "Copy this draft"
+
+
+def test_no_drafts_panel_appears_when_there_is_nothing_to_write(new_page, app):
+    """The panel is a request to somebody. On a clean shipment nobody owes an
+    answer, and a card that said so would be noise that trains people to skip it."""
+    page = new_page()
+    page.goto(app.base_url + "/?demo=shipment_clean")
+    page.wait_for_selector("#results:not([hidden])", timeout=60_000)
+    page.wait_for_function(
+        "() => { const b = document.querySelector('#status-flag');"
+        " return b && /Ready to ship/i.test(b.textContent); }", timeout=60_000)
+    assert page.locator("#emails-card").is_hidden()
+    page.close()

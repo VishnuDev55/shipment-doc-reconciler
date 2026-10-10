@@ -424,6 +424,23 @@ main > *, .panel, .doc, .doc-body { min-width: 0; }
 .finding-detail { flex: 1 1 100%; font-size: .85rem; color: var(--ink-2); }
 .finding-docs { font-size: .78rem; color: var(--ink-3); }
 
+/* Correction drafts: plain text on purpose. A draft a reviewer copies is a draft
+   that must read the same in the mail client as it does here, so nothing about it
+   is styled into meaning. */
+.emails { display: grid; gap: .9rem; }
+.email {
+  border: 1px solid var(--line-strong); border-left: 3px solid var(--accent);
+  border-radius: var(--radius); padding: .8rem .95rem; background: var(--surface);
+}
+.email-to { margin: 0; font-size: .95rem; }
+.email-subject { margin: .2rem 0 0; font-weight: 600; font-size: .88rem; }
+.email-meta { margin: .15rem 0 .6rem; font-size: .78rem; color: var(--ink-3); }
+.email-body {
+  margin: 0; padding: .7rem .8rem; background: var(--surface-sunk);
+  border-radius: var(--radius-sm); font-family: inherit; font-size: .84rem;
+  line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
 .verdict-head {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 1rem; flex-wrap: wrap;

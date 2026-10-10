@@ -321,6 +321,41 @@ def _compare_exact(
     return "conflict", f"values differ: {listed}"
 
 
+def _arbitration(kind: str, status: str, values: list[ComparisonValue]) -> str | None:
+    """Who decided a disagreement, when it was not a vote.
+
+    Recomputed from the normalizer rather than read out of the reason sentence:
+    the reason is prose we format, and a downstream consumer that trusted it would
+    break the day the wording improved. A container number carries its own check
+    digit, so exactly one side failing it settles which paper is inconsistent --
+    and a draft that asked the wrong party to reissue would be a false accusation
+    in a filed artifact.
+    """
+    if kind != "container_number" or status not in ("conflict", "suspicious"):
+        return None
+    from ..normalize.container import normalize_container
+
+    verdicts = [(v, normalize_container(v.canonical or v.raw_value or ""))
+                for v in values if v.compare_key]
+    if not verdicts:
+        return None
+    invalid = [v for v, r in verdicts if not r.check_digit_valid]
+    valid = [v for v, r in verdicts if r.check_digit_valid]
+
+    if status == "conflict":
+        # Two sides, and one of them is internally inconsistent. That settles
+        # which paper is wrong; a vote would not, and on a 1-1 split neither
+        # would the majority.
+        if len({v.compare_key for v, _ in verdicts}) < 2:
+            return None
+        return "iso_6346_check_digit" if len(invalid) == 1 and valid else None
+
+    # Suspicious on this kind means the papers agree and the number fails its own
+    # check digit -- the field disagreeing with itself, which is the same kind of
+    # certainty and belongs beside it rather than in the reason text.
+    return "iso_6346_check_digit" if not valid else None
+
+
 COMPARATORS = {
     "weight": _compare_numeric,
     "money": _compare_numeric,
@@ -418,6 +453,7 @@ def compare_field(key: FieldKey, obs: list[FieldObservation]) -> Comparison:
     comparison.status = status  # type: ignore[assignment]
     comparison.reason = reason
     comparison.majority_compare_key = majority
+    comparison.arbitrated_by = _arbitration(kind, status, usable_values)
 
     # A low-confidence read is worth surfacing even when everything agrees.
     # Only usable values count: an absent field legitimately has confidence 0

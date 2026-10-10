@@ -662,6 +662,50 @@ function renderStatus(report) {
   $('#status-note').textContent = note.caveat ? `${note.caveat} ${echo}` : echo;
 }
 
+/**
+ * The drafts the report writes for itself.
+ *
+ * Rendered from `correction_emails`, which the server generated from the same
+ * findings the banner reads -- no model call sits between a verdict and the text
+ * a reviewer sends. The copy button hands over the body verbatim; nothing is
+ * assembled client-side, because a draft that could be edited here would be a
+ * draft that could be wrong here.
+ */
+function renderEmails(report) {
+  const emails = report.correction_emails || [];
+  const card = $('#emails-card');
+  card.hidden = emails.length === 0;
+  if (!emails.length) return;
+
+  const list = $('#emails-list');
+  list.textContent = '';
+  emails.forEach((mail) => {
+    const block = el('article', 'email');
+    block.appendChild(el('h3', 'email-to', 'To ' + mail.recipient_role));
+    block.appendChild(el('p', 'email-subject', mail.subject));
+    block.appendChild(el('p', 'email-meta',
+      mail.document_label + ' · ' + mail.critical + ' critical, '
+      + mail.warning + ' warning'));
+
+    const body = el('pre', 'email-body', mail.body);
+    block.appendChild(body);
+
+    const copy = el('button', 'btn btn-quiet', 'Copy this draft');
+    copy.type = 'button';
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(mail.subject + '\n\n' + mail.body);
+        copy.textContent = 'Copied.';
+      } catch (err) {
+        copy.textContent = 'Clipboard blocked — select the text instead.';
+      }
+      setTimeout(() => { copy.textContent = 'Copy this draft'; }, 2500);
+    });
+    block.appendChild(copy);
+    list.appendChild(block);
+  });
+}
+
 function renderReport(report) {
   const s = report.summary;
   renderStatus(report);
@@ -700,6 +744,7 @@ function renderReport(report) {
 
   renderNarrative(report);
   renderBriefing(report);
+  renderEmails(report);
   renderComparison(report);
   renderMath(report);
   renderUnverified(report);

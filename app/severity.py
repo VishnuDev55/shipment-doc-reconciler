@@ -389,4 +389,20 @@ def status_report(report: Report) -> StatusReport:
     )
 
 
-__all__ = ["SEVERITY_TABLE", "derive_banner", "findings", "status_report"]
+def apply_status(report: Report) -> Report:
+    """Set the banner and the drafts that follow from it, in one place.
+
+    The drafts are derived from the findings, so they are written here rather
+    than at a call site that might read a stale banner -- an email about a
+    discrepancy the report no longer reports is the exact artifact this pairing
+    exists to prevent.
+    """
+    from .correction_email import draft_emails
+
+    report.status_report = status_report(report)
+    report.correction_emails = draft_emails(report)
+    return report
+
+
+__all__ = ["SEVERITY_TABLE", "apply_status", "derive_banner", "findings",
+           "status_report"]
