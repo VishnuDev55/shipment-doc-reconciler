@@ -58,12 +58,12 @@ lint:
 ruff:
 	$(PY) -m ruff check app scripts tests tests_e2e fixtures pyproject.toml
 
-# Informational, by design. Measured baseline: 36 errors in 9 files (worst:
-# app/compare/__init__.py with 26). This prints the number and always exits 0, so
+# Informational, by design. Measured baseline: 39 errors in 10 files (worst:
+# app/compare/__init__.py with 13). This prints the number and always exits 0, so
 # it is a measurement you can watch go down rather than a gate that blocks every
 # commit. To make it a gate, drop the `; echo` and keep the bare command.
 type:
-	@$(PY) -m mypy app; echo "mypy exit $$? -- baseline, not a gate (36 errors in 9 files, see pyproject.toml)"
+	@$(PY) -m mypy app; echo "mypy exit $$? -- baseline, not a gate (39 errors in 10 files, see pyproject.toml)"
 
 # source = ["app"] is set in pyproject.toml, so this measures the application
 # package rather than the test suite covering itself. Measured: 90%. The
@@ -75,7 +75,7 @@ coverage:
 
 # Everything CI runs, in one command, cheapest first. `type` is in the list but
 # never fails the build (see above); the other three are real gates. Measured
-# state: lint 0 findings, ruff 0 findings, mypy 36 errors, test all green.
+# state: lint 0 findings, ruff 0 findings, mypy 39 errors, test all green.
 check: lint ruff type test
 
 # Deliberately NOT part of `check` or of `pytest tests/`: these start a real

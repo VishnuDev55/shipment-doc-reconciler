@@ -55,8 +55,12 @@ failure mode that was observed or reasoned out, and each is pinned by a test.
 - `parse.py` — rungs 1–3 (load, repair, coerce). One unreadable field never fails a document.
 - `normalize/` — one module per kind: `number`, `money`, `weight`, `quantity`, `container` (ISO 6346), `hs_code`, `party`, `categorical`.
 - `compare/__init__.py` — the tolerance table and per-kind comparators. Frozen constants, no model.
+- `textlayer.py` — the PDF's own embedded text, recovered at ingest without a model and without OCR. This is what the evidence check has to work against.
+- `verify.py` — is the line the model quoted actually on that page? Four states, and a value that fails is withdrawn from the comparison rather than trusted.
 - `rules.py` — cross-field sanity that no single-field comparison can see (net above gross, weight-basis confusion).
+- `mathcheck.py` — arithmetic inside one document, so a shipment whose four papers all repeat the same wrong total stops being a pass.
 - `scoring.py` — a 0–100 risk score where every point traces to a named rule.
+- `severity.py` — one table that gives every finding one level, and the banner that reads them. Stricter than the verdict is allowed; kinder is not.
 - `lineitems.py` — opt-in goods-line matching. Exact, never fuzzy.
 
 **Optional model calls, all additive**

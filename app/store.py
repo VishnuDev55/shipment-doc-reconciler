@@ -99,7 +99,12 @@ class RunStore:
         # Write-then-rename: the frontend polls this file, and a half-written
         # JSON read mid-poll would surface as a spurious parse error.
         tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(report.model_dump_json(indent=2))
+        # Pinned to utf-8, not the locale default. Report text carries the values
+        # as printed -- umlauts in a consignee, an em dash in a reason -- and on
+        # Windows the default codec is cp1252, which writes those as bytes no
+        # UTF-8 reader can decode. A run directory then stops being portable
+        # between this machine and the container it deploys to.
+        tmp.write_text(report.model_dump_json(indent=2), encoding="utf-8")
         tmp.replace(path)
         if self.on_write is not None:
             # Every mutation of a report already funnels through here, so this is
@@ -113,7 +118,7 @@ class RunStore:
         if not path.is_file():
             return None
         try:
-            return Report.model_validate_json(path.read_text())
+            return Report.model_validate_json(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError, ValueError):
             return None
 
@@ -153,7 +158,7 @@ class RunStore:
             if not report.is_file():
                 continue
             try:
-                data = json.loads(report.read_text())
+                data = json.loads(report.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 continue
             rows.append(

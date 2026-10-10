@@ -213,20 +213,22 @@ ignore = [
 # mypy
 #
 # MEASURED BASELINE (mypy 2.4.0, `python -m mypy app`, config below, which is
-# equivalent to --ignore-missing-imports): 36 errors in 9 files. The module
-# count checked is 35 on the current tree and will move as app/ grows, so the
-# number to track is the 36.
+# equivalent to --ignore-missing-imports): 39 errors in 10 files, over 39 source
+# files. The module count checked moves as app/ grows, so the number to track is
+# the 39. Re-measured when the severity stage landed; the previous figure of 36
+# in 9 files had drifted during the evidence-verification work, which added two
+# `dict[str, FieldVerification]` assignments and the tenth file.
 # Breakdown by error code:
+#   assignment     11
 #   arg-type       10
 #   operator        9
-#   assignment      9
+#   call-overload   4
 #   union-attr      3
-#   call-overload   3
 #   no-redef        1
 #   attr-defined    1
-# By file (worst first): app/compare/__init__.py 26, app/normalize/__init__.py 8,
-# app/scoring.py 7, app/orchestrator.py 5, app/rules.py 3,
-# app/normalize/weight.py 2, app/ingest.py 1, app/client.py 1,
+# By file (worst first): app/compare/__init__.py 13, app/normalize/__init__.py 8,
+# app/orchestrator.py 7, app/scoring.py 3, app/rules.py 3,
+# app/normalize/weight.py 1, app/models.py 1, app/ingest.py 1, app/client.py 1,
 # app/adjudicate.py 1.
 #
 # Deliberately NON-STRICT and deliberately NOT silenced: no `disable_error_code`,

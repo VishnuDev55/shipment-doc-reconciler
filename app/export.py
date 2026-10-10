@@ -203,6 +203,25 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
         for f in report.sanity
     )
 
+    status = report.status_report
+    status_items = "".join(
+        f'<li class="sev-{esc(f.severity)}"><b>{esc(f.severity)}</b> '
+        f'{esc(f.label)} — {esc(f.detail)}'
+        + (f' <em>{esc(" · ".join(f.documents))}</em>' if f.documents else "")
+        + "</li>"
+        for f in status.findings if f.severity != "info"
+    )
+    status_html = (
+        f'<div class="statusbar {esc(status.banner)}"><b>{esc(status.headline)}</b>'
+        f'<span>engine verdict {esc(status.verdict)} · customs risk '
+        f'{status.risk_score}/100 · {status.critical} critical, {status.warning} '
+        f'warning, {status.info} informational</span>'
+        + (f'<span class="caveat">{esc(status.caveat)}</span>' if status.caveat else "")
+        + (f'<ul class="findings">{status_items}</ul>' if status_items else "")
+        + "</div>"
+        if status.banner else ""
+    )
+
     b = report.briefing
     briefing_html = (
         '<div class="briefing"><div class="nhead"><span class="ntag">Draft '
@@ -321,6 +340,21 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
 .sanity.warn {{ border-left-color:#8a5a00; background:#fbf3e2; }}
 .sanity.risk {{ border-left-color:#b3261e; background:#fbeceb; }}
 .sanity.info {{ border-left-color:#5a6672; background:#f2f4f7; }}
+.statusbar {{ margin:14px 0 10px; padding:12px 14px; border:1px solid #cfd5dd;
+  border-left:5px solid #5a6672; background:#f7f9fb; }}
+.statusbar b {{ display:block; font-size:16px; margin-bottom:3px; }}
+.statusbar span {{ display:block; font-size:12px; color:#43505f; }}
+.statusbar .caveat {{ margin-top:6px; font-style:italic; }}
+.statusbar.blocked {{ border-left-color:#b3261e; background:#fbeceb; }}
+.statusbar.blocked b {{ color:#8f1d17; }}
+.statusbar.review {{ border-left-color:#b7791f; background:#fdf5e6; }}
+.statusbar.review b {{ color:#8a5a00; }}
+.statusbar.ready {{ border-left-color:#1e7a4a; background:#eaf6ee; }}
+.statusbar.ready b {{ color:#14714a; }}
+ul.findings {{ margin:8px 0 0; padding-left:16px; font-size:13px; }}
+ul.findings li {{ margin-bottom:4px; }}
+.sev-critical b {{ color:#b3261e; text-transform:uppercase; font-size:11px; }}
+.sev-warning b {{ color:#8a5a00; text-transform:uppercase; font-size:11px; }}
 .briefing {{ margin:12px 0; padding:11px 13px; border:1px solid #d7dce2;
   border-left:4px solid #2f6fb5; background:#fbfcfe; font-size:13px; }}
 .briefing pre {{ margin:6px 0 0; white-space:pre-wrap; font-family:inherit; font-size:13px; }}
@@ -330,6 +364,7 @@ table.prov td {{ padding:4px 10px 4px 0; vertical-align:top; }}
 <h1>Shipment reconciliation</h1>
 <div class="sub">shipment <code>{esc(report.shipment_id)}</code> · generated {esc(report.updated_at)}</div>
 {banner}
+{status_html}
 <div class="verdict {esc(s.verdict)}">{esc(VERDICT_HEADLINE.get(s.verdict, s.verdict))}
  &nbsp;·&nbsp; {s.conflict} conflict(s), {s.suspicious} suspicious, {s.consistent} consistent,
  {s.single_source} single-source, {s.absent} absent ·
@@ -395,6 +430,10 @@ def build_zip(report: Report, run_dir: Path | None) -> bytes:
             f"shipment_id : {report.shipment_id}\n"
             f"state       : {report.state}\n"
             f"verdict     : {report.summary.verdict}\n"
+            f"status      : {report.status_report.banner}"
+            f" ({report.status_report.critical} critical, "
+            f"{report.status_report.warning} warning, "
+            f"{report.status_report.info} informational)\n"
             f"vision model: {report.run.model} ({report.run.vision_provider})\n"
             f"summary     : {report.run.summary_model} ({report.run.summary_provider})"
             f" -> {report.narrative.status}\n"

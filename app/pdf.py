@@ -52,6 +52,15 @@ td.num { text-align: right; }
 .risk { border: 1pt solid #333; padding: 2.5mm; margin-bottom: 3mm; }
 .risk-high { border-color: #a11; }
 .risk-medium { border-color: #9a5b00; }
+.status { border: 1.4pt solid #333; padding: 3mm; margin-bottom: 4mm;
+          font-size: 9pt; }
+.status-blocked { border-color: #a11; background: #fbeeee; }
+.status-review { border-color: #9a5b00; background: #fbf4e6; }
+.status-ready { border-color: #176b2f; background: #eef6f0; }
+.sev { font-size: 7pt; font-weight: bold; text-transform: uppercase;
+       width: 16mm; }
+.sev-critical { color: #a11; }
+.sev-warning { color: #9a5b00; }
 ul { margin: 1mm 0 0 4mm; padding: 0; }
 li { margin-bottom: 0.8mm; }
 .quote { border-left: 2pt solid #999; padding: 1mm 0 1mm 2.5mm; margin: 1.5mm 0;
@@ -112,6 +121,35 @@ def _header(report: Report) -> str:
 {s.total_fields} fields compared · {s.consistent} consistent ·
 {s.suspicious} suspicious · {s.conflict} conflicting ·
 {s.single_source} single-source · {s.absent} absent</span></div>"""
+
+
+def _status(report: Report) -> str:
+    """The banner, as the first thing on the page.
+
+    Printed with its counts and its two neighbours (verdict, risk score) even
+    though that is redundant on screen: a PDF gets forwarded to someone who will
+    never see the other panels, and the whole claim of this section is that the
+    three cannot disagree.
+    """
+    note = report.status_report
+    if not note.findings and note.banner in ("empty", "running"):
+        return ""
+    rows = "".join(
+        f"<tr><td class='sev sev-{esc(f.severity)}'>{esc(f.severity)}</td>"
+        f"<td><b>{esc(f.label)}</b><br/><span class='small'>{esc(f.detail)}</span>"
+        + (f"<br/><span class='small'>{esc(' · '.join(f.documents))}</span>"
+           if f.documents else "")
+        + "</td></tr>"
+        for f in note.findings if f.severity != "info"
+    ) or "<tr><td colspan='2' class='small'>No critical or warning-level item. " \
+         "What is below the line is listed in the sections after this one.</td></tr>"
+    return f"""<h2>Status</h2>
+<div class="status status-{esc(note.banner)}"><b>{esc(note.headline)}</b><br/>
+<span class="small">Engine verdict: {esc(note.verdict)} · customs risk
+{note.risk_score}/100 · {note.critical} critical, {note.warning} warning,
+{note.info} informational · {esc(note.method)}</span>
+{f"<br/><span class='small'>{esc(note.caveat)}</span>" if note.caveat else ""}</div>
+<table><tbody>{rows}</tbody></table>"""
 
 
 def _risk(report: Report) -> str:
@@ -335,7 +373,8 @@ def _documents(report: Report) -> str:
 def report_html(report: Report) -> str:
     """The printable HTML. Exposed because it is the thing tests can read."""
     body = "".join([
-        _header(report), _risk(report), _comparisons(report), _unverified(report),
+        _header(report), _status(report), _risk(report), _comparisons(report),
+        _unverified(report),
         _internal_checks(report), _sanity(report),
         _line_items(report), _corrections(report), _model_prose(report),
         _documents(report),

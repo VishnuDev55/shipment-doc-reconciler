@@ -67,6 +67,7 @@ from .normalize import normalize_field
 from .providers import summary_endpoint, vision_endpoint
 from .rules import sanity_checks
 from .scoring import score_report
+from .severity import status_report
 from .textlayer import PageText, load_sidecar, page_texts_for, save_sidecar
 from .verify import verify_document
 from starlette.concurrency import run_in_threadpool
@@ -243,6 +244,9 @@ def refresh_report(report: Report, client: ExtractionClient) -> Report:
     report.run.vision_provider = ep.provider
     report.run.result_source = result_source(report.documents)  # type: ignore[assignment]
     report.run.live_calls = sum(1 for d in report.documents if d.source == "live_api")
+    # Recomputed on every write path, so the banner a reader sees is derived from
+    # the comparisons on the same page rather than from an earlier run's.
+    report.status_report = status_report(report)
     return report
 
 
@@ -843,6 +847,9 @@ class Reconciler:
         # results below if the opt-in read happens, so an absent check is always
         # distinguishable from a passed one.
         report.internal_checks = internal_checks(report, {}, settings=self.settings)
+        # Last, because it reads everything above it. Nothing in the severity
+        # stage re-decides a value; it only ranks what has already been found.
+        report.status_report = status_report(report)
         self.store.write(report)
 
         # After the write above, so the goods lines can only ever be read
@@ -981,6 +988,9 @@ class Reconciler:
         else:
             section.status = "ok"
         section.note = reason
+        # After the section's own status is settled: the banner only reads goods
+        # lines that were actually recorded, and here they finally are.
+        report.status_report = status_report(report)
         self.store.write(report)
 
     # ------------------------------------------------------------------
@@ -1336,6 +1346,7 @@ class Reconciler:
             if carried is not None:
                 comp.adjudication = carried
         report.risk = score_report(report)
+        report.status_report = status_report(report)
         return report
 
     def correct_field(
@@ -1405,7 +1416,14 @@ class Reconciler:
                 load_sidecar(self._text_file(shipment_id, target.id)),
                 threshold=self.settings.evidence_min_ratio,
             )
+        # The cross-field rules and the score are functions of the comparisons
+        # this document just changed, so a retry has to re-derive them. Leaving
+        # them at the old values would put a banner beside a verdict that was
+        # computed from a document that no longer exists.
+        report.sanity = sanity_checks(report)
         refresh_report(report, self.client)
+        report.risk = score_report(report)
+        report.status_report = status_report(report)
         self.store.write(report)
         return report
 

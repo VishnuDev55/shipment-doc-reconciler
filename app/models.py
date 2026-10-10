@@ -408,6 +408,58 @@ class UnverifiedField(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Severity
+# ---------------------------------------------------------------------------
+
+Severity = Literal["critical", "warning", "info"]
+Banner = Literal["blocked", "review", "ready", "running", "empty"]
+
+
+class SeverityFinding(BaseModel):
+    """One thing a reviewer can act on, carrying exactly one severity.
+
+    The level is looked up, never computed on the spot: a finding whose severity
+    was decided by whatever branch happened to reach it is how a report ends up
+    calling the same discrepancy critical in one panel and informational in
+    another. `code` is the row of the severity table that decided it, so a
+    reader can ask why.
+    """
+
+    code: str
+    severity: Severity
+    # 'comparison' | 'rule' | 'math' | 'line_item' | 'evidence' | 'document'
+    source: str
+    label: str
+    detail: str
+    fields: list[FieldKey] = Field(default_factory=list)
+    # Document labels, not ids: these strings name who to write to, and a hash
+    # cannot be mailed.
+    documents: list[str] = Field(default_factory=list)
+
+
+class StatusReport(BaseModel):
+    """The one-line answer to "can this shipment go", plus what it rests on.
+
+    `verdict` and `risk_score` are echoed from the engine and the risk strip so
+    the three can be compared for disagreement without opening another section.
+    They are inputs to the banner and never rewritten by it.
+    """
+
+    banner: Banner = "empty"
+    headline: str = ""
+    # The reason a ready banner is not a clean bill of health: what was never
+    # cross-checked at all.
+    caveat: str = ""
+    critical: int = 0
+    warning: int = 0
+    info: int = 0
+    findings: list[SeverityFinding] = Field(default_factory=list)
+    verdict: str = ""
+    risk_score: int = 0
+    method: str = "severity-v1"
+
+
+# ---------------------------------------------------------------------------
 # Comparison
 # ---------------------------------------------------------------------------
 
@@ -812,6 +864,9 @@ class Report(BaseModel):
     # Arithmetic inside each document. Needs the opt-in goods-line read for three
     # of its four rules, so it carries `not_run` records when that did not happen.
     internal_checks: list[InternalCheck] = Field(default_factory=list)
+    # Every finding above, reduced to one severity each and one banner. Computed
+    # last, from settled inputs, so it can restate them without redeciding them.
+    status_report: StatusReport = Field(default_factory=StatusReport)
 
 
 # ---------------------------------------------------------------------------

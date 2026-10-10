@@ -613,8 +613,58 @@ function renderRunning() {
 // render
 // ---------------------------------------------------------------------
 
+const BANNER_LABEL = {
+  blocked: 'Blocked',
+  review: 'Review needed',
+  ready: 'Ready to ship',
+  running: 'Still reconciling',
+  empty: 'Nothing to report yet',
+};
+
+/**
+ * The one line that says whether this shipment can go.
+ *
+ * Every level and every item here comes from the server's severity table, so
+ * this function decides nothing: it prints `status_report` and hides the card if
+ * an older run has no such record. The verdict, the risk score and the counts
+ * are echoed beside the banner on purpose -- if they ever disagree, the
+ * disagreement is visible instead of buried two panels down.
+ */
+function renderStatus(report) {
+  const note = report.status_report;
+  const card = $('#status-card');
+  if (!note || !note.banner) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  card.className = 'panel banner is-' + note.banner;
+
+  $('#status-flag').textContent =
+    note.headline || BANNER_LABEL[note.banner] || note.banner;
+
+  const list = $('#status-list');
+  list.textContent = '';
+  (note.findings || []).filter((f) => f.severity !== 'info').forEach((f) => {
+    const li = el('li', 'finding-' + f.severity);
+    li.appendChild(el('span', 'finding-level', f.severity));
+    li.appendChild(el('b', 'finding-label', f.label));
+    li.appendChild(el('span', 'finding-detail', f.detail || ''));
+    if (f.documents && f.documents.length) {
+      li.appendChild(el('span', 'finding-docs', f.documents.join(' · ')));
+    }
+    list.appendChild(li);
+  });
+
+  const echo = `Engine verdict: ${note.verdict}`
+    + ` · customs risk ${note.risk_score}/100`
+    + ` · ${note.critical} critical, ${note.warning} warning, ${note.info} informational`;
+  $('#status-note').textContent = note.caveat ? `${note.caveat} ${echo}` : echo;
+}
+
 function renderReport(report) {
   const s = report.summary;
+  renderStatus(report);
   const verdict = $('#verdict-headline');
   verdict.textContent = HEADLINE[s.verdict] || s.verdict;
   verdict.closest('.verdict').className = 'panel verdict is-' + s.verdict;

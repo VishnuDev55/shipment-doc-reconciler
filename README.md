@@ -533,6 +533,51 @@ which the normalizer reads as 2675) is **set aside and named**, not judged:
 reporting a reading limit as an arithmetic error in the document would be
 attributing our own ambiguity to somebody else's paperwork.
 
+### One severity per finding, and the banner that follows from it
+
+Six panels can now comment on one shipment: the verdict, the field table, the
+cross-field rules, the arithmetic, the goods lines, and the evidence checks. Each
+answers its own question, and a reviewer was answering theirs by reading all six.
+`app/severity.py` gives them one answer, by looking at every finding the other
+stages already produced and assigning each a level from one table.
+
+| Level | What earns it |
+|---|---|
+| **CRITICAL** | container number, consignee, HS code (first six digits), or an invoice value stated in two currencies |
+| **WARNING** | any other cross-document conflict, a suspicious reading, a document that could not be read, an internal arithmetic failure, a withdrawn unverified value, a cross-field rule at `risk`/`warn` |
+| **INFO** | a counting-basis difference, same count printed with different package words, a field only one document stated, a check that did not run, a goods line one document printed alone |
+
+`SEVERITY_TABLE` in that one file is the only place a level is decided -- tuning
+severity is editing a dict, not chasing conditions. It is a table of *levels*, not
+of scores: the 0-100 customs strip above stays where it is, because "how exposed
+is this entry to customs" and "can this shipment move today" are different
+questions with different answers.
+
+The banner is mechanical: any critical → **BLOCKED**, else any warning →
+**REVIEW NEEDED**, else **READY TO SHIP**. It sits above the verdict in the web
+report, at the top of the PDF, and in `report.html`, each time with its counts and
+with the verdict and risk score printed beside it -- so if they ever disagreed,
+the disagreement would be visible instead of two panels apart.
+
+**It can be stricter than the verdict, and never kinder.** Stricter is the point:
+the evidence and arithmetic stages introduced findings a cross-document comparison
+cannot see, so a shipment whose papers agree perfectly can be held because its own
+invoice does not add up. Never kinder is a property, not a hope: `ready` is
+unreachable while the verdict says `review` or `conflicts`, and unreachable while
+the risk strip is at or above its medium band. `tests/test_severity.py` pins that
+from both directions -- it enumerates the scoring table, so a rule added to the
+risk strip without a severity row behind it fails a test instead of shipping a
+banner that ignores it.
+
+**What READY TO SHIP does not mean.** It means no rule found something to block.
+It is not a guarantee that every value was cross-checked: on a shipment where only
+one document states the invoice value, nobody compared it, and that is exactly the
+case where an invented number survives. A phone photo of a printed invoice has no
+text layer, so the evidence check in the section above cannot run on it at all --
+that shipment can read `ready` with a value on it that no document prints. The
+banner's own caveat line says this in the same words, and the informational count
+beside it is how you can see how much of the report was never compared.
+
 ### Corrections a human can make, and undo
 
 Every value in the comparison table has a **Correct** button. Change it and the
@@ -1002,10 +1047,11 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-447 passed in ~20s
+885 passed in ~36s
 ```
 
-~10 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api` and
+~36 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api`,
+`test_severity` and
 `test_client` deliberately re-run the **real** image/PDF ingestion path
 (~128 ms per page, ~730 ms for the 2-page PDF) rather than stubbing it, so they
 prove the pipeline end to end instead of proving a mock. No single test exceeds
@@ -1069,7 +1115,9 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 447 unit tests |
+| Normalizers, comparators, parse ladder | ✅ 885 unit tests, plus 17 in a real browser |
+| The status banner never contradicts the verdict or the risk strip | ✅ pinned from both directions, and proved to fail: flipping the container row from critical to warning breaks 6 tests, and removing the verdict floor breaks 2 |
+| `runs/{id}/report.json` is the same bytes on Windows and in the container | ✅ was not — pydantic writes unescaped non-ASCII, and `write_text()` used the locale codec, so an em dash landed as `0x97`. Encoding is now pinned to utf-8 on write and read |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
 | Vision extraction, Nebius MiniCPM-V (fallback) | ✅ 9/9 documents, all parsed on attempt 1 |
@@ -1148,7 +1196,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 ```
 app/
-  config.py            pydantic-settings; both keys; version tags
+  config.py            pydantic-settings; both keys; version tags; tolerances
   providers.py         endpoint routing: vision vs summary, per provider
   fields.py            the frozen ten-field set; hints, kinds, expectations
   models.py            every Pydantic model + the hand-written JSON Schema
@@ -1156,42 +1204,54 @@ app/
   client.py            ChatClient base; ExtractionClient + SummaryClient;
                        capability probe, ladder, per-provider backoff
   summary.py           executive-summary prompt + plausibility guard
+  adjudicate.py        second-opinion prompt, and the guard on its answer
   narrative_cache.py   summaries keyed on a verdict signature
   parse.py             ladder rungs 1-3 (free, local)
   cache.py             sha256(prompt_ver + PROVIDER + model + page hashes)
   ingest.py            EXIF/resize/JPEG; pypdfium2 for PDFs
+  textlayer.py         the PDF's own text layer, recovered without the model
+  verify.py            is the quoted line actually on that page?
   normalize/           number weight quantity container hs_code party money categorical
   compare/             comparators, tolerance table, cardinality gate, reasons
+  rules.py             cross-field sanity: the pairs one field cannot see
+  mathcheck.py         arithmetic inside one document
+  lineitems.py         goods-line matching: exact keys, never a fuzzy merge
+  scoring.py           the 0-100 strip, every point attributable
+  severity.py          the one level table, and the banner that reads it
   orchestrator.py      gather over documents; report assembly; summary step
-  export.py            ZIP: report.json + report.csv + standalone report.html
+  pdf.py               the print-and-file rendering, from the model not the DOM
+  export.py            ZIP: report.json + report.csv + report.html + README.txt
   store.py             ./runs/{id}/ - filesystem as database, atomic writes
+  limits.py            the sliding window on the one endpoint that spends money
   main.py              FastAPI routes; /api/health reports both providers
 web/                   index.html . app.js . app.css   (no build step)
 fixtures/
-  templates.py         the three documents as HTML
+  templates.py         the four document types as HTML
   shipments.py         one dict drives both the page and its authored response
-  images/              9 documents (10 pages; one is a 2-page PDF)
-  responses/           27 entries / 9 documents:
-                         9 nvidia live . 9 nebius live . 9 hand-authored
+  images/              12 uploads (13 pages; one is a 2-page PDF)
+  text/                12 sidecars (13 pages) of page text, for the evidence check
+  responses/           36 entries / 12 documents:
+                         12 nvidia live . 12 nebius live . 12 hand-authored
   responses/narratives/  3 real AI summaries, keyed on verdict signature
   live_responses/      captured live responses + raw bodies (incl. a
                        duplicate call kept as a determinism datapoint)
 scripts/
-  build_fixtures.py    render -> degrade -> ingest -> author cache
+  build_fixtures.py    render -> degrade -> ingest -> author cache -> text sidecars
   selfcheck.py         demo rehearsal, zero API calls
+  evaluate.py          accuracy against the captured live responses
   probe_live.py        verify BOTH providers against the real APIs
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 772 offline tests across 26 files (+ conftest.py socket guard)
-tests_e2e/             12 browser tests; a real uvicorn and real chromium, and the
+tests/                 885 offline tests across 32 files (+ conftest.py socket guard)
+tests_e2e/             17 browser tests; a real uvicorn and real chromium, and the
                        only suite allowed to open a socket. `pytest tests/` cannot
                        collect it; run `make e2e`.
 docs/                  ARCHITECTURE.md (shape + invariants) · NORMALIZATION.md (every
                        rule and threshold) · PROVIDERS.md (what each host really does)
                        · EVAL.md (generated accuracy) · SECURITY.md (threat model) ·
                        AUDIT.md (findings, evidence) · DEPLOYMENT.md · API.md ·
-                       adr/ (nine decision records)
+                       adr/ (eight decision records)
 ```
 
 The three-layer cache is deliberate. Each fixture document has a **NVIDIA** live

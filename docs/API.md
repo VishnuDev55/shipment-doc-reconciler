@@ -84,10 +84,15 @@ both are enforced before anything is read into memory.
 
 `report.json` is the whole model: `run` (which provider, which model, which
 prompt/normalizer/comparator versions, how many live calls this run made),
-`documents[]` (per-document source, usage, latency, attempts, page refs),
-`comparisons[]` (one per field: status, reason, and every document's verbatim
-value beside its canonical form), `summary`, `risk`, `sanity[]`, `narrative`,
-`briefing`.
+`documents[]` (per-document source, usage, latency, attempts, page refs, and
+`verification` -- a state per field saying whether its quoted line was found on
+the page), `comparisons[]` (one per field: status, reason, and every document's
+verbatim value beside its canonical form), `unverified[]` (fields withdrawn from
+the comparison because their evidence was not printed), `internal_checks[]`
+(arithmetic inside each document, with `not_run` kept distinct from `pass`),
+`line_items` (the opt-in goods-line match, or a statement that it was not asked
+for), `sanity[]`, `risk`, `status_report` (one severity per finding and the
+banner that follows from it), `summary`, `narrative`, `briefing`.
 
 ---
 

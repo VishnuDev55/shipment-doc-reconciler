@@ -271,3 +271,74 @@ def test_a_photo_upload_reports_its_quotes_as_not_checkable(new_page, start_serv
     assert set(states) <= {"not_checkable", "absent"}, set(states)
     assert report["unverified"] == [], "nothing may be excluded on an unchecked page"
     assert page.locator("#unverified-card").is_hidden()
+
+
+# ---------------------------------------------------------------------------
+# the status banner
+# ---------------------------------------------------------------------------
+
+
+def _settled(page, app, shipment: str):
+    page.goto(app.base_url + f"/?demo={shipment}")
+    page.wait_for_selector("#results:not([hidden])", timeout=60_000)
+    page.wait_for_function(
+        """() => { const b = document.querySelector('#status-flag');
+                   return b && b.textContent.trim().length > 0
+                     && !/Still reconciling/i.test(b.textContent); }""",
+        timeout=60_000)
+    return page
+
+
+def test_the_banner_sits_above_the_report_and_names_what_blocks_it(report_page):
+    """One line an auditor can act on, at the top, with the items behind it
+    printed there rather than left scattered through the panels below."""
+    card = report_page.locator("#status-card")
+    assert card.is_visible()
+    assert "Blocked" in report_page.locator("#status-flag").inner_text()
+    assert "container" in report_page.locator("#status-list li").first.inner_text().lower()
+    assert report_page.locator("#status-list li.finding-critical").count() >= 1
+
+    follows = report_page.evaluate(
+        """() => (document.querySelector('#status-card')
+                    .compareDocumentPosition(document.querySelector('.verdict')) & 4) !== 0""")
+    assert follows, "the banner has to be read before the detail, not after it"
+
+    # The two numbers it must never contradict are printed beside it.
+    note = report_page.locator("#status-note").inner_text()
+    assert "verdict" in note.lower() and "risk" in note.lower()
+
+
+def test_the_clean_fixture_is_called_ready_and_says_what_was_never_checked(new_page, app):
+    """"Ready" is a claim about blockers, not a guarantee that everything was
+    cross-checked -- and the page is expected to say so out loud."""
+    page = _settled(new_page(), app, "shipment_clean")
+    try:
+        assert "is-ready" in (page.locator("#status-card").get_attribute("class") or "")
+        assert "Ready to ship" in page.locator("#status-flag").inner_text()
+        assert page.locator("#status-list li").count() == 0
+        assert "not that everything was checked" in \
+            page.locator("#status-note").inner_text()
+    finally:
+        page.close()
+
+
+def test_the_banner_never_contradicts_the_verdict_it_prints_beside(new_page, app):
+    """Checked through the HTTP report the browser was handed, for every bundled
+    fixture: the dangerous direction is a ready banner over a verdict that
+    withheld it, and that is the one combination the server must never emit."""
+    for shipment in ("shipment_clean", "shipment_conflict", "shipment_messy"):
+        page = _settled(new_page(), app, shipment)
+        try:
+            sid = _shipment_id(page)
+            report = _api(app, f"/api/shipments/{sid}/report")
+            banner = report["status_report"]["banner"]
+            verdict = report["summary"]["verdict"]
+            risk = report["risk"]["score"]
+            assert banner in ("blocked", "review", "ready"), shipment
+            if verdict in ("conflicts", "review"):
+                assert banner != "ready", f"{shipment}: {verdict} with {banner}"
+            if risk >= report["risk"]["medium_at"]:
+                assert banner != "ready", f"{shipment}: risk {risk} with {banner}"
+            assert banner in page.locator("#status-flag").inner_text().lower(), shipment
+        finally:
+            page.close()
