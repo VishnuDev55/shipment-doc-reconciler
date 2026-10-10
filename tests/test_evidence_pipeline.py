@@ -185,3 +185,55 @@ async def test_a_correction_outlives_a_failed_check(tmp_path):
     assert sum(1 for v in comparison.values if v.raw_value) == 2, (
         "exactly the invoice and the corrected BOL should be standing")
     assert [u for u in report.unverified if u.field == "po_number"] == []
+
+
+# ---------------------------------------------------------------------------
+# positions: the check has to be visible, not just recorded
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_verified_quote_can_be_point_at_on_the_page(tmp_path):
+    """Every document in this shipment has a text source, so every verified field
+    that quoted one printed line comes back with that line's rectangle. Without
+    it the report can say "this is real" but not "here it is"."""
+    report = await _run(tmp_path, REPO / "fixtures" / "responses", with_texts=True)
+    placed = [(d.label, key) for d in report.documents
+              for key, v in d.verification.items() if v.highlightable]
+    assert len(placed) >= 20, f"only {len(placed)} values are placeable: {placed}"
+
+    for doc in report.documents:
+        for key, v in doc.verification.items():
+            if not v.box:
+                continue
+            x0, y0, x1, y1 = v.box
+            assert 0.0 <= x0 < x1 <= 1.0, (doc.label, key, v.box)
+            assert 0.0 <= y0 < y1 <= 1.0, (doc.label, key, v.box)
+            assert v.box_page == v.matched_page
+            assert v.tier.startswith("line"), (doc.label, key, v.tier)
+
+
+@pytest.mark.asyncio
+async def test_a_photo_run_places_nothing_and_says_so(tmp_path):
+    """The same shipment with no text source: not one rectangle, and not one
+    claim that the evidence was located."""
+    report = await _run(tmp_path, REPO / "fixtures" / "responses", with_texts=False)
+    boxes = [v.box for d in report.documents for v in d.verification.values() if v.box]
+    assert boxes == []
+
+
+@pytest.mark.asyncio
+async def test_the_filed_page_draws_the_boxes_the_app_drew(tmp_path):
+    """report.html is the artifact people keep, so it must carry the same
+    highlight rather than a weaker version of it -- and must say where the
+    coordinates came from."""
+    from app.export import standalone_html
+
+    report = await _run(tmp_path, REPO / "fixtures" / "responses", with_texts=True)
+    page = standalone_html(report, tmp_path / "runs" / report.shipment_id)
+    assert 'class="pgbox"' in page
+    assert "positioned from this file" in page
+
+    photo = await _run(tmp_path / "b", REPO / "fixtures" / "responses", with_texts=False)
+    plain = standalone_html(photo, tmp_path / "b" / "runs" / photo.shipment_id)
+    assert 'class="pgbox"' not in plain

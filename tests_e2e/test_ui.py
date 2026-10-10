@@ -342,3 +342,77 @@ def test_the_banner_never_contradicts_the_verdict_it_prints_beside(new_page, app
             assert banner in page.locator("#status-flag").inner_text().lower(), shipment
         finally:
             page.close()
+
+
+# ---------------------------------------------------------------------------
+# highlighting the region a value came from
+# ---------------------------------------------------------------------------
+
+
+def _open_chip(page, index: int):
+    page.locator(".page-chip").nth(index).click()
+    page.locator(".lightbox").wait_for(state="visible", timeout=10_000)
+
+
+def test_a_page_with_a_text_layer_can_be_pointed_at(report_page):
+    """The claim this feature exists to support: not "this value was checked" but
+    "it was checked here, on this part of the page".
+
+    Walked over every chip rather than picking one, because a chip whose quote
+    joined two table cells honestly has no rectangle, and a test that only looked
+    at the first chip would pass on whichever the fixture happened to put there.
+    """
+    chips = report_page.locator(".page-chip")
+    total = chips.count()
+    assert total >= 4, f"only {total} evidence chips rendered"
+
+    placed = 0
+    for i in range(total):
+        _open_chip(report_page, i)
+        box = report_page.locator(".lb-box")
+        note = report_page.locator(".lb-nocoords")
+        if box.count() == 1:
+            placed += 1
+            style = box.get_attribute("style") or ""
+            for prop in ("left:", "top:", "width:", "height:"):
+                assert prop in style, style
+            assert "%" in style
+            assert note.count() == 0, "a page that was located must not also apologise"
+        else:
+            assert box.count() == 0
+            assert note.count() == 1, "no rectangle and no explanation of why"
+            assert "No coordinates available" in note.inner_text()
+        report_page.keyboard.press("Escape")
+        assert report_page.locator(".lightbox").count() == 0, "Esc did not close it"
+
+    assert placed >= 1, "not one chip could point at its line, though the pages have text"
+
+
+def test_a_photo_shows_the_page_and_says_it_has_no_coordinates(new_page, start_server):
+    """The fallback, in the browser rather than in a docstring.
+
+    A degraded fixture image carries no text layer, so there is nothing to draw
+    from. The page still opens with the quoted line -- and says out loud that the
+    region is not marked, instead of leaving the reader to infer it from a
+    rectangle that isn't there.
+    """
+    server = start_server()
+    page = new_page()
+    page.goto(server.base_url + "/")
+    page.wait_for_selector("#dropzone", timeout=20_000)
+    page.set_input_files("#file-input",
+                         str(REPO / "fixtures" / "images" / "invoice_clean.png"))
+    page.wait_for_function(
+        "() => !document.querySelector('#analyze').disabled", timeout=15_000)
+    page.click("#analyze")
+    page.wait_for_selector("#cmp tbody tr", timeout=180_000)
+
+    chip = page.locator(".page-chip")
+    assert chip.count() >= 1, "no evidence chip reached the table"
+    _open_chip(page, 0)
+    assert page.locator(".lb-box").count() == 0
+    note = page.locator(".lb-nocoords")
+    assert note.count() == 1
+    assert "No coordinates available" in note.inner_text()
+    assert page.locator(".lb-evidence").inner_text().strip() != ""
+    page.close()

@@ -131,3 +131,87 @@ def test_a_corrupt_sidecar_is_no_text_and_does_not_raise(tmp_path):
 def test_an_empty_sidecar_list_round_trips(tmp_path):
     path = save_sidecar(tmp_path / "none.json", [])
     assert load_sidecar(path) == []
+
+
+# ---------------------------------------------------------------------------
+# positions: where on the page each line is
+# ---------------------------------------------------------------------------
+
+
+def test_a_text_pdf_also_yields_where_its_lines_sit():
+    pages = page_texts_from_pdf(_text_pdf())
+    page = pages[0]
+    assert page.placeable
+    assert len(page.boxes) == len(page.lines), "boxes are only meaningful in line order"
+    index = next(i for i, ln in enumerate(page.lines) if "12,450.00 KGS" in ln)
+    x0, y0, x1, y1 = page.box_for(index)
+    assert 0.0 <= x0 < x1 <= 1.0 and 0.0 <= y0 < y1 <= 1.0, (x0, y0, x1, y1)
+    assert y0 < 0.5, "the weight line is in the upper half of this page"
+
+
+def test_the_first_line_is_measured_from_the_top_left_not_the_pdf_origin():
+    """pypdfium2 reports PDF canvas units, which measure upward from the bottom.
+    Without the flip the highlight lands the height of the page away from its
+    line, in the right place horizontally, which is exactly the kind of error
+    nobody notices until they look for it."""
+    pages = page_texts_from_pdf(_text_pdf())
+    page = pages[0]
+    title = next(i for i, ln in enumerate(page.lines) if "PACKING LIST" in ln)
+    weight = next(i for i, ln in enumerate(page.lines) if "12,450.00 KGS" in ln)
+    assert page.box_for(title)[1] < page.box_for(weight)[1], \
+        "the title prints above the weight line, so its y must be smaller"
+
+
+def test_a_scanned_pdf_has_text_positions_of_none():
+    """Positions come from the same text layer, so a page with no words has
+    nothing to place -- and `placeable` is what stops the UI drawing a box."""
+    assert page_texts_from_pdf(_image_only_pdf()) == []
+
+
+def test_boxes_survive_the_sidecar_round_trip(tmp_path):
+    pages = page_texts_from_pdf(_text_pdf())
+    path = save_sidecar(tmp_path / "pos.json", pages)
+    back = load_sidecar(path)
+    assert [p.boxes for p in back] == [p.boxes for p in pages]
+    assert back[0].source == "pdf_text_layer"
+
+
+def test_a_sidecar_without_boxes_still_loads_and_says_so(tmp_path):
+    """Runs recorded before positions existed are data on somebody's disk. They
+    must load, and the absence has to read as "no box", not as "box at 0,0"."""
+    path = tmp_path / "old.json"
+    path.write_text('[{"index": 1, "lines": ["A line", "B line"],'
+                    ' "source": "fixture_sidecar"}]', encoding="utf-8")
+    page = load_sidecar(path)[0]
+    assert page.lines == ("A line", "B line")
+    assert page.boxes == ()
+    assert not page.placeable
+    assert page.box_for(0) is None
+
+
+def test_a_misaligned_box_list_is_dropped_wholesale(tmp_path):
+    """One box per line or none at all. A sidecar whose lists disagree in length
+    would otherwise place a real rectangle beside the wrong words, and a wrong
+    highlight looks exactly like a right one."""
+    path = tmp_path / "skew.json"
+    path.write_text('[{"index": 1, "lines": ["A", "B", "C"], "source": "x",'
+                    ' "boxes": [[0.1, 0.1, 0.5, 0.12]]}]', encoding="utf-8")
+    page = load_sidecar(path)[0]
+    assert page.boxes == ()
+    assert not page.placeable
+
+
+def test_a_non_numeric_box_list_is_dropped_too(tmp_path):
+    path = tmp_path / "junk.json"
+    path.write_text('[{"index": 1, "lines": ["A", "B"], "source": "x",'
+                    ' "boxes": [[0.1, 0.1, "wide", 0.2], [0.1, 0.3, 0.5, 0.4]]}]',
+                    encoding="utf-8")
+    assert load_sidecar(path)[0].boxes == ()
+
+
+def test_a_page_built_without_boxes_reports_itself_unplaceable():
+    page = PageText(index=1, lines=("A", "B"), source="fixture_sidecar")
+    assert page.boxes == ()
+    assert not page.placeable
+    assert page.box_for(1) is None
+    assert PageText(index=1, lines=("A",), source="s", boxes=(None,)).placeable is False

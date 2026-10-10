@@ -245,3 +245,114 @@ def test_squash_treats_every_grouping_convention_as_the_same_number():
 def test_normalize_for_match_keeps_punctuation_that_carries_meaning():
     assert normalize_for_match("P.O. Box 9") == "p.o. box 9"
     assert normalize_for_match("Écran LED") == "ecran led"
+
+
+# ---------------------------------------------------------------------------
+# positions: turning "this line is real" into "it is here"
+# ---------------------------------------------------------------------------
+
+
+def _boxed(page: PageText) -> PageText:
+    """Give every line a rectangle of its own, top to bottom."""
+    from dataclasses import replace
+
+    return replace(page, boxes=tuple(
+        (0.05, 0.04 + i * 0.05, 0.62, 0.05 + i * 0.05) for i in range(len(page.lines))))
+
+
+BOXED = _boxed(PAGE)
+
+
+def test_a_line_tier_quote_comes_back_with_the_line_s_own_rectangle():
+    v = verify_field(field("PO 4410-DE", "Purchase order PO 4410-DE"), [BOXED])
+    assert v.state == "verified" and v.tier.startswith("line")
+    assert v.box == pytest.approx([0.05, 0.19, 0.62, 0.2])
+    assert v.box_page == 1
+    assert v.highlightable
+
+
+def test_a_quote_found_on_another_page_carries_that_page_with_it():
+    """The rectangle belongs to the page it was measured on. A reader shown page
+    1 with page 2's coordinates would be pointed at blank space, and would have
+    every reason to believe the check had just confirmed the value."""
+    second = _boxed(PageText(index=2, source="fixture_sidecar",
+                             lines=("Origin China", "Shipper Hanwei")))
+    v = verify_field(field("China", "Origin China", page=1), [BOXED, second])
+    assert v.state == "verified"
+    assert v.matched_page == 2
+    assert v.box_page == 2
+    assert v.box == pytest.approx([0.05, 0.04, 0.62, 0.05])
+
+
+def test_a_two_cell_row_quote_gets_no_rectangle():
+    """The text layer splits a table row's label cell from its value cell, so the
+    quote names two lines. No single rectangle covers it honestly."""
+    page = _boxed(PageText(index=1, source="fixture_sidecar",
+                           lines=("TOTAL GROSS WT", "12,450.00 KGS")))
+    v = verify_field(field("12,450.00", "TOTAL GROSS WT 12,450.00 KGS"), [page])
+    assert v.state == "verified" and v.tier.startswith("row"), v.tier
+    assert v.box is None
+    assert not v.highlightable
+
+
+def test_a_spread_quote_gets_no_rectangle_either():
+    page = _boxed(PageText(index=1, source="fixture_sidecar", lines=(
+        "3. HS code  4. Origin criterion", "8517.62 P", "Made in China")))
+    v = verify_field(field("8517.62", "3. HS CODE 8517.62"), [page])
+    assert v.state == "verified" and v.tier.startswith("spread"), v.tier
+    assert v.box is None
+
+
+def test_a_fuzzy_match_is_not_placed():
+    """The tier this restriction exists for.
+
+    A fuzzy hit means the quote is *nearly* a line, and "nearly" covers two very
+    different situations: one character mis-copied, and a whole label cell
+    swallowed by a value cell (partial_ratio measures containment, so "No. of
+    packages 100 CARTONS" scores a perfect 100 against the line holding only
+    "100 CARTONS"). A rectangle cannot tell those apart, so it is not drawn for
+    either, and the reader gets the page number and the quote instead.
+    """
+    page = _boxed(PageText(index=1, source="fixture_sidecar",
+                           lines=("TOTAL GROSS WT 12,450.00 KGS",)))
+    v = verify_field(field("12,450.00", "TOTAL CROSS WT 12,450.00 KGS"), [page])
+    assert v.tier.startswith("fuzzy"), v.tier
+    assert v.state == "verified"
+    assert v.box is None
+    assert not v.highlightable
+
+
+def test_a_containment_fuzzy_match_is_not_placed_either():
+    """The same rule, on the case that would otherwise mislead most."""
+    page = _boxed(PageText(index=1, source="fixture_sidecar",
+                           lines=("No. of packages", "100 CARTONS")))
+    v = verify_field(field("100 CARTONS", "packages 100 CARTONS"), [page])
+    assert v.tier.startswith(("fuzzy", "row")), v.tier
+    assert v.box is None
+
+
+def test_a_page_without_positions_still_verifies():
+    """Text and position come from the same layer but not with the same
+    reliability: a page whose lines could not be aligned to boxes is still
+    evidence about what it says. Only the highlight is lost."""
+    v = verify_field(field("PO 4410-DE", "Purchase order PO 4410-DE"), [PAGE])
+    assert v.state == "verified"
+    assert v.box is None and v.box_page is None
+
+
+def test_an_unverified_claim_carries_no_position_because_there_is_nothing_to_place():
+    v = verify_field(field("PO 9999", "Purchase order PO 9999-XX"), [BOXED])
+    assert v.state == "unverified"
+    assert v.box is None
+
+
+def test_a_degenerate_rectangle_is_not_drawable():
+    """Zero-area boxes would render a hairline that looks like a mistake in the
+    stylesheet rather than a statement about the evidence."""
+    from app.models import FieldVerification
+
+    assert not FieldVerification(state="verified", box=[0.2, 0.3, 0.2, 0.31]).highlightable
+    assert not FieldVerification(state="verified", box=[0.2, 0.3, 0.25, 0.3]).highlightable
+    assert not FieldVerification(state="verified", box=[0.1]).highlightable
+    assert not FieldVerification(state="verified").highlightable
+    assert FieldVerification(state="verified", box=[0.1, 0.2, 0.4, 0.25]).highlightable

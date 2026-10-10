@@ -1323,8 +1323,10 @@ async function request(path, init) {
 /**
  * Jump-to-page chip. The extraction contract carries page_index and the quoted
  * evidence line, so "show me the page this came from" is answerable exactly.
- * It carries no coordinates, so nothing is drawn over the image: inventing a
- * bounding box would be the one kind of confidence this app promises not to fake.
+ * Where the PDF's own text layer placed that line, the page opens with the
+ * rectangle drawn on it; where it did not -- a photo, a scan, a quote that joined
+ * two table cells -- the page opens with the line written beneath it and says in
+ * so many words that there are no coordinates, rather than drawing a guess.
  */
 function pageChip(v, comp) {
   const doc = ((state.report && state.report.documents) || [])
@@ -1338,10 +1340,16 @@ function pageChip(v, comp) {
   chip.type = 'button';
   chip.addEventListener('click', () => {
     const evidence = ((doc.extraction?.fields || {})[comp.field] || {}).evidence_text || '';
+    const ver = (doc.verification || {})[comp.field] || {};
+    // Only draw the rectangle on the page it belongs to. A model can quote a real
+    // line and report the wrong page; the line is still true, but the coordinates
+    // describe a different sheet, and putting them here would be a fabrication.
+    const box = (ver.box && ver.box_page === page.index) ? ver.box : null;
     lightbox(
       `/page/${encodeURIComponent(state.shipmentId)}/${page.image_path}`,
       `${doc.label} — page ${page.index}`,
       evidence,
+      box,
     );
   });
   return chip;
@@ -1459,16 +1467,38 @@ async function retryDocument(documentId) {
   setProgress('');
 }
 
-function lightbox(src, caption, evidence) {
+function lightbox(src, caption, evidence, box) {
   const fig = el('figure', 'lightbox');
+  const stage = el('div', 'lb-stage');
   const img = el('img');
   img.src = src;
   img.alt = caption;
-  fig.appendChild(img);
+  stage.appendChild(img);
+  if (box && box.length === 4) {
+    // Fractions of the page, measured from its top-left corner, in a wrapper that
+    // is exactly the image's rendered size -- which is why percentages work even
+    // though the JPEG was resized: the aspect ratio is preserved, the proportions
+    // are the page's own.
+    const pad = 0.004;
+    const mark = el('span', 'lb-box');
+    mark.style.left = (Math.max(box[0] - pad, 0) * 100).toFixed(3) + '%';
+    mark.style.top = (Math.max(box[1] - pad, 0) * 100).toFixed(3) + '%';
+    mark.style.width = ((box[2] - box[0] + pad * 2) * 100).toFixed(3) + '%';
+    mark.style.height = ((box[3] - box[1] + pad * 2) * 100).toFixed(3) + '%';
+    mark.setAttribute('aria-hidden', 'true');
+    stage.appendChild(mark);
+  }
+  fig.appendChild(stage);
   fig.appendChild(el('figcaption', null, caption + ' · click anywhere or press Esc to close'));
   // The quoted source line is the evidence; the image is context for it. Rendered
   // as text, never as markup -- it came out of someone else's document.
   if (evidence) fig.appendChild(el('blockquote', 'lb-evidence', '“' + evidence + '”'));
+  if (evidence && !(box && box.length === 4)) {
+    fig.appendChild(el('p', 'lb-nocoords',
+      'No coordinates available for this source, so nothing is drawn on the page. '
+      + 'The rectangle needs the PDF’s own text layer; this document’s quote came '
+      + 'from a source that has none.'));
+  }
   fig.addEventListener('click', () => fig.remove());
   document.body.appendChild(fig);
   const closeOnEscape = (event) => {

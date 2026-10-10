@@ -210,7 +210,13 @@ def _comparisons(report: Report) -> str:
     return f"""<h2>Field comparisons</h2>
 <table><thead><tr><th style="width:17%">Field</th><th style="width:11%">Verdict
 </th><th style="width:33%">Why</th><th style="width:39%">As printed on each
-document</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"""
+document</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
+<p class="small">Each cell above names the document and the page the value was
+read from. The region itself is highlighted on screen, in report.html and in the
+web app, where the page image can be drawn on; this PDF carries the page number
+and the quoted line instead, because the print renderer composes text rather than
+overlaying the document image, and a box drawn at a guessed position would be
+evidence invented.</p>"""
 
 
 def _sanity(report: Report) -> str:

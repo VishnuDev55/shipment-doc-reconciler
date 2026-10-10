@@ -356,7 +356,21 @@ class FieldVerification(BaseModel):
     tier: str = ""
     score: float = 0.0
     matched_page: int | None = None
+    # The matched line's rectangle, as fractions of the page (x0, y0, x1, y1) from
+    # its top-left corner, and the page those fractions belong to. Present only
+    # when the text layer placed a single line; `None` means there is nothing
+    # honest to draw, and the UI has to say so rather than draw a guess.
+    box: list[float] | None = None
+    box_page: int | None = None
     detail: str = ""
+
+    @property
+    def highlightable(self) -> bool:
+        """A box exists and is a rectangle, not a degenerate line."""
+        if not self.box or len(self.box) != 4:
+            return False
+        x0, y0, x1, y1 = self.box
+        return x1 > x0 and y1 > y0
 
     @property
     def excluded(self) -> bool:

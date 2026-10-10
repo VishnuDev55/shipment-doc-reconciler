@@ -434,12 +434,31 @@ document's page image with the exact line the model quoted as evidence beneath i
 so a verdict can be checked against the source without hunting through uploads.
 Escape or a click closes it.
 
-**No bounding-box highlight, deliberately.** The extraction contract carries
-`page_index` and `evidence_text` and no coordinates, so there is nothing
-trustworthy to draw a box from. Drawing an approximate one would be inventing
-precision the model never gave, which is the thing this app is built to refuse.
-Boxes need coordinates in the schema; that is a prompt-contract change, and the
-cache caveat under **Model discovery** applies to it unchanged.
+**The line is drawn on the page, when the page can be asked where it is.** The
+coordinates do not come from the model — the extraction contract still carries
+`page_index`, `evidence_text` and no box, and adding one would be a prompt change
+with the cache caveat under **Model discovery** attached to it unchanged. They
+come from the PDF's own text layer, which already knows where every glyph sits:
+`app/textlayer.py` walks the character array once (~6 ms for an 1,800-character
+page, measured), unions each line's character boxes, flips the y axis and divides
+by the page size. Percentages survive the ingest re-encode because the aspect
+ratio is preserved, so the rectangle lands on the words rather than near them.
+
+Three cases get no box, and the lightbox says so in words instead of leaving the
+reader to notice an absence:
+
+- **a photo or a scan** — there is no text layer, so there is nothing to place;
+- **a quote that joined two table cells** (`row`) or several lines (`spread`) —
+  the model's sentence is real, but no single printed line is that sentence;
+- **a fuzzy match** — `partial_ratio` scores containment, so a quote naming a
+  row's label *and* its value can score a perfect 100 against the value's line
+  alone. Framing that line would claim the model copied something it did not.
+
+A rectangle is therefore only ever drawn for a quote that appears verbatim inside
+one printed line. The PDF cannot carry the overlay at all — the print renderer
+composes text rather than drawing on the document image — so `report.pdf` gives
+the page number and the quoted line and points at `report.html`, which embeds the
+pages with the same boxes drawn on them.
 
 ### The quote is checked against the page
 
@@ -1003,9 +1022,13 @@ produced three ways: the ISO 6346 checksum catches misreads with certainty, the
 model's self-reported confidence flags illegibility, and normalizer warnings
 flag ambiguity. Each is cheaper and more honest than a second engine.
 
-**No bounding boxes.** VLM box coordinates are unreliable and the UI around them
-is fragile. Evidence here is a verbatim quoted line plus a page number plus the
-viewable page image — enough to verify a value in about two seconds.
+**No bounding boxes from the model.** VLM box coordinates are unreliable, and a
+rectangle the model *guessed* would dress up a guess as precision. The highlight
+in the evidence viewer is therefore measured, not asked for: it comes from the
+PDF's own text layer, and only for a quote that appears verbatim inside one
+printed line. Where the page has no text layer, the evidence stays what it always
+was -- a verbatim line, a page number and the viewable page -- and the viewer says
+there are no coordinates rather than drawing a shape anyway.
 
 **Filesystem over a database.** There are no queries, no relations and no
 multi-user access. `runs/{shipment_id}/` *is* the artifact — the ZIP export is
@@ -1047,7 +1070,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-885 passed in ~36s
+905 passed in ~36s
 ```
 
 ~36 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api`,
@@ -1115,8 +1138,9 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 885 unit tests, plus 17 in a real browser |
+| Normalizers, comparators, parse ladder | ✅ 905 unit tests, plus 19 in a real browser |
 | The status banner never contradicts the verdict or the risk strip | ✅ pinned from both directions, and proved to fail: flipping the container row from critical to warning breaks 6 tests, and removing the verdict floor breaks 2 |
+| The evidence highlight lands on the right words | ✅ screenshot-verified in chromium (the rectangle and the image share one box), and proved to fail: dropping the verbatim-line restriction breaks the fuzzy test, and stopping the chip from passing its box breaks the browser suite |
 | `runs/{id}/report.json` is the same bytes on Windows and in the container | ✅ was not — pydantic writes unescaped non-ASCII, and `write_text()` used the locale codec, so an em dash landed as `0x97`. Encoding is now pinned to utf-8 on write and read |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 9/9 fixture documents; 11 calls, every one parsed on ladder rung 1 |
@@ -1243,8 +1267,8 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 885 offline tests across 32 files (+ conftest.py socket guard)
-tests_e2e/             17 browser tests; a real uvicorn and real chromium, and the
+tests/                 905 offline tests across 32 files (+ conftest.py socket guard)
+tests_e2e/             19 browser tests; a real uvicorn and real chromium, and the
                        only suite allowed to open a socket. `pytest tests/` cannot
                        collect it; run `make e2e`.
 docs/                  ARCHITECTURE.md (shape + invariants) · NORMALIZATION.md (every

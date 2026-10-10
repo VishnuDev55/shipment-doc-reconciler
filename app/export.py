@@ -134,11 +134,34 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
         pages_html = ""
         for ref in doc.pages:
             uri = e(run_dir, ref.image_path)
-            if uri:
-                pages_html += (
-                    f'<figure><img src="{uri}" alt="{esc(doc.label)} page {ref.index}" loading="lazy">'
-                    f'<figcaption>{esc(doc.label)} — page {ref.index}</figcaption></figure>'
+            if not uri:
+                continue
+            # The same rectangles the web app draws, from the same source: the PDF
+            # page's own text layer. A page with no positioned lines gets no box --
+            # and no implication that one was available.
+            marks, placed = "", []
+            for key, ver in (doc.verification or {}).items():
+                box = ver.box
+                if box is None or not ver.highlightable or ver.box_page != ref.index:
+                    continue
+                x0, y0, x1, y1 = box
+                pad = 0.4                        # percentage points, to make a glyph-tight box visible
+                marks += (
+                    f'<span class="pgbox" style="left:{max(x0 * 100 - pad, 0):.2f}%;'
+                    f'top:{max(y0 * 100 - pad, 0):.2f}%;'
+                    f'width:{(x1 - x0) * 100 + 2 * pad:.2f}%;'
+                    f'height:{(y1 - y0) * 100 + 2 * pad:.2f}%"></span>'
                 )
+                placed.append(FIELD_LABEL.get(key, key))
+            caption = f'{esc(doc.label)} — page {ref.index}'
+            if placed:
+                caption += (f' · outlined: {esc(", ".join(sorted(placed)))}'
+                            ' (positioned from this file’s own text layer)')
+            pages_html += (
+                f'<figure><span class="pgwrap"><img src="{uri}" alt="{esc(doc.label)} '
+                f'page {ref.index}" loading="lazy">{marks}</span>'
+                f'<figcaption>{caption}</figcaption></figure>'
+            )
         evidence_rows = ""
         if doc.extraction:
             for key in FIELD_ORDER:
@@ -312,6 +335,9 @@ table.ev td, table.ev th {{ border-bottom:1px solid var(--line); padding:4px 6px
 .pages {{ display:flex; flex-wrap:wrap; gap:10px; }}
 .pages figure {{ margin:0; }} .pages img {{ max-height:330px; border:1px solid var(--line); }}
 .pages figcaption {{ font-size:11px; color:var(--muted); }}
+.pgwrap {{ position:relative; display:inline-block; overflow:hidden; }}
+.pgbox {{ position:absolute; border:2px solid #0e6a63;
+  background:rgba(14,106,99,.14); pointer-events:none; border-radius:3px; }}
 footer {{ margin-top:26px; padding-top:12px; border-top:1px solid var(--line);
   font-size:11px; color:var(--muted); }}
 code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; }}

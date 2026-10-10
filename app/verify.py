@@ -99,28 +99,36 @@ def _spread(quote: str, page: PageText) -> bool:
 
 
 def _match_quote(quote: str, pages: Sequence[PageText], threshold: int
-                 ) -> tuple[str, str, float, int]:
-    """(tier, page_source, score, page_index). tier '' means no match at all."""
+                 ) -> tuple[str, str, float, int, int | None]:
+    """(tier, page_source, score, page_index, line_index). tier '' means no match.
+
+    The line index is what turns a match into a place on the page: with it the
+    reader can be shown the words instead of told they exist. It is only ever
+    returned for a tier that resolved to one specific line.
+    """
     needle = normalize_for_match(quote)
     if not needle:
-        return "", "", 0.0, 0
+        return "", "", 0.0, 0, None
     for page in pages:
-        lines = [normalize_for_match(ln) for ln in page.lines if ln.strip()]
-        if any(needle in ln for ln in lines):
-            return "line", page.source, 100.0, page.index
+        lines = [(i, normalize_for_match(ln)) for i, ln in enumerate(page.lines)
+                 if ln.strip()]
+        hit = next((i for i, line in lines if needle in line), None)
+        if hit is not None:
+            return "line", page.source, 100.0, page.index, hit
         if needle in normalize_for_match(page.text):
             # Label cell and value cell of one table row: the text layer splits
             # them across lines, a person transcribing the row writes them as one.
-            return "row", page.source, 100.0, page.index
+            return "row", page.source, 100.0, page.index, None
         squashed = squash(quote)
         if squashed and squashed in squash(page.text):
-            return "row", page.source, 100.0, page.index
+            return "row", page.source, 100.0, page.index, None
         if _spread(quote, page):
-            return "spread", page.source, 100.0, page.index
-        best = max((fuzz.partial_ratio(needle, ln) for ln in lines), default=0.0)
-        if best >= threshold:
-            return "fuzzy", page.source, float(best), page.index
-    return "", "", 0.0, 0
+            return "spread", page.source, 100.0, page.index, None
+        scored = [(fuzz.partial_ratio(needle, line), i) for i, line in lines]
+        best = max(scored, default=(0.0, None))
+        if best[0] >= threshold:
+            return "fuzzy", page.source, float(best[0]), page.index, best[1]
+    return "", "", 0.0, 0, None
 
 
 def _value_on_page(value: str, pages: Sequence[PageText], threshold: int) -> bool:
@@ -146,12 +154,13 @@ def verify_field(field: ExtractedField, pages: Sequence[PageText], *,
                                  detail="no text source for these pages")
 
     ordered = _page_of(usable, field.page_index)
-    tier, source, score, matched_page = _match_quote(field.evidence_text, ordered,
-                                                     threshold)
+    tier, source, score, matched_page, line_index = _match_quote(
+        field.evidence_text, ordered, threshold)
     if not tier:
         return FieldVerification(state="unverified", tier="quote_absent", score=0.0,
                                  detail="the quoted line does not appear on the page")
 
+    box, box_page = _box_for(ordered, matched_page, line_index, tier)
     cited_ok = matched_page == field.page_index
     if not _value_on_page(field.value or "", ordered, threshold):
         return FieldVerification(state="unverified", tier="value_absent", score=score,
@@ -163,7 +172,31 @@ def verify_field(field: ExtractedField, pages: Sequence[PageText], *,
     if not cited_ok:
         detail = f"found on page {matched_page}, not the cited page {field.page_index}"
     return FieldVerification(state="verified", tier=f"{tier}:{source}", score=score,
-                             matched_page=matched_page, detail=detail)
+                             matched_page=matched_page, box=box, box_page=box_page,
+                             detail=detail)
+
+
+def _box_for(pages: Sequence[PageText], page_index: int, line_index: int | None,
+             tier: str) -> tuple[list[float] | None, int | None]:
+    """Where the matched line is -- and only when one line really matched.
+
+    `line` is the only tier that guarantees the quoted text sits inside the
+    rectangle being drawn. `row` and `spread` quotes join two cells of a table
+    into one sentence the page never printed, and `fuzzy` can score a perfect 100
+    on *containment* alone: partial_ratio("No. of containers 100 CARTONS", "100
+    CARTONS") is 100 against a line holding only the value. Framing that line
+    would claim the model copied something it did not, so those tiers get a page
+    number and no box.
+    """
+    if line_index is None or tier != "line":
+        return None, None
+    page = next((p for p in pages if p.index == page_index), None)
+    if page is None:
+        return None, None
+    box = page.box_for(line_index)
+    if box is None:
+        return None, None
+    return [float(v) for v in box], page_index
 
 
 def verify_document(response: ExtractionResponse, pages: Sequence[PageText], *,
