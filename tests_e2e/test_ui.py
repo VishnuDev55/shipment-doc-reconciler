@@ -112,6 +112,31 @@ def test_the_config_drawer_exposes_the_second_reader_toggle(page, app):
     assert not toggle.is_checked()  # consensus is opt-in, off by default
 
 
+def test_a_stage_event_renders_the_per_document_timeline(page, app):
+    """The SSE stage frames feed a per-document timeline with the provider/model
+    and the elapsed seconds. Driving the handler directly keeps this offline and
+    deterministic — a cached demo run finishes faster than a browser can watch it.
+    """
+    page.goto(app.base_url + "/")
+    page.wait_for_selector("#empty:not([hidden])")
+
+    # A real run flips #results visible before the first stage event lands.
+    page.evaluate("window.showResults()")
+    page.evaluate(
+        "window.applyStage({document_id:'doc1', document_label:'invoice.png', "
+        "stage:'reading', provider:'nvidia', model:'nvidia/nemotron', elapsed_ms:1234})"
+    )
+
+    timeline = page.locator("#timeline")
+    timeline.wait_for(timeout=10_000)
+    assert timeline.is_visible()
+    text = timeline.inner_text().lower()
+    assert "invoice.png" in text
+    assert "reading" in text
+    assert "nvidia" in text and "nvidia/nemotron" in text
+    assert "1.2 s" in text
+
+
 def test_the_goods_lines_panel_is_absent_when_the_feature_was_never_asked_for(report_page):
     """Off by default, and the screen must not show a check that did not happen.
 

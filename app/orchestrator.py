@@ -413,6 +413,9 @@ class Reconciler:
         # Shipment id -> live SSE listeners. Populated by the report store's
         # on_write hook, so every existing settle point publishes for free.
         self._listeners: dict[str, set[asyncio.Queue]] = {}
+        # Shipment id -> monotonic start, so stage events can report elapsed
+        # time without re-parsing the report's ISO timestamps per event.
+        self._run_started: dict[str, float] = {}
         # One client per secondary provider, built lazily: constructing one runs
         # a capability probe, so a fresh client per document would double the
         # spend consensus is already paying for.
@@ -423,21 +426,46 @@ class Reconciler:
     # Progress fan-out
     # ------------------------------------------------------------------
 
-    def _publish(self, report: Report) -> None:
-        """Hand a settled report to any live listeners.
+    def _fan_out(self, shipment_id: str, item: object) -> None:
+        """Hand one item to every live listener, drop-oldest rather than block.
 
-        Drop-oldest rather than block: a stalled client must never be able to
-        stall the run that is producing it.
+        A stalled client must never be able to stall the run that is producing
+        it, so a full queue loses its oldest entry instead of blocking.
         """
-        for queue in tuple(self._listeners.get(report.shipment_id, ())):
+        for queue in tuple(self._listeners.get(shipment_id, ())):
             try:
-                queue.put_nowait(report)
+                queue.put_nowait(item)
             except asyncio.QueueFull:
                 try:
                     queue.get_nowait()
-                    queue.put_nowait(report)
+                    queue.put_nowait(item)
                 except (asyncio.QueueEmpty, asyncio.QueueFull):
                     pass
+
+    def _publish(self, report: Report) -> None:
+        self._fan_out(report.shipment_id, report)
+
+    def _emit_stage(self, shipment_id: str, *, document_id: str,
+                    document_label: str, stage: str, provider: str = "",
+                    model: str = "") -> None:
+        """Publish one per-document stage transition to live SSE listeners.
+
+        A small dict, distinguishable from a `Report` by the SSE endpoint. It is
+        progress, not truth: the report events carry the decisions, and a stage
+        event can be dropped under backpressure without any run losing anything.
+        """
+        started = self._run_started.get(shipment_id)
+        elapsed_ms = int((time.monotonic() - started) * 1000) if started else 0
+        self._fan_out(shipment_id, {
+            "type": "stage",
+            "shipment_id": shipment_id,
+            "document_id": document_id,
+            "document_label": document_label,
+            "stage": stage,
+            "provider": provider,
+            "model": model,
+            "elapsed_ms": elapsed_ms,
+        })
 
     def subscribe(self, shipment_id: str) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue(maxsize=8)
@@ -744,6 +772,10 @@ class Reconciler:
         self._remember(shipment_id, report)
         refresh_report(report, self.client)
         self.store.write(report)
+        self._run_started[shipment_id] = time.monotonic()
+        for p in prepared:
+            self._emit_stage(shipment_id, document_id=p.doc_id, document_label=p.label,
+                             stage="queued")
 
         if prepared:
             task = asyncio.create_task(self._process(shipment_id, prepared))
@@ -812,6 +844,9 @@ class Reconciler:
         async def one(p: PreparedDocument) -> None:
             doc = by_id[p.doc_id]
             doc.status = "running"
+            self._emit_stage(shipment_id, document_id=doc.id, document_label=doc.label,
+                             stage="reading", provider=self.client.endpoint.provider,
+                             model=self.client.endpoint.model)
             try:
                 res: ExtractionOutcome | Exception = await self.client.extract_document(
                     document_id=p.doc_id,
@@ -827,6 +862,9 @@ class Reconciler:
             # filtered ones and no progress state ever shows an unverified field
             # as though it had been reconciled.
             if doc.extraction is not None:
+                self._emit_stage(shipment_id, document_id=doc.id,
+                                 document_label=doc.label, stage="verifying",
+                                 provider=doc.provider, model=doc.model)
                 doc.verification = verify_document(
                     doc.extraction, p.page_texts,
                     threshold=self.settings.evidence_min_ratio,
@@ -836,10 +874,18 @@ class Reconciler:
                 and not isinstance(res, Exception)
                 and doc.extraction is not None
             ):
+                self._emit_stage(shipment_id, document_id=doc.id,
+                                 document_label=doc.label, stage="comparing",
+                                 provider=doc.provider, model=doc.model)
                 await self._run_consensus(doc, p.pages, raw_dir)
             # Publish progress immediately: with three documents the user
             # watching the poll sees each row land as it finishes.
             refresh_report(report, self.client)
+            self._emit_stage(
+                shipment_id, document_id=doc.id, document_label=doc.label,
+                stage="done" if doc.status in ("ok", "cached") else "failed",
+                provider=doc.provider, model=doc.model,
+            )
             self.store.write(report)
 
         await asyncio.gather(*(one(p) for p in prepared))
@@ -873,6 +919,7 @@ class Reconciler:
         await self._write_summary(report)
         self.store.write(report)
         self._tasks.pop(shipment_id, None)
+        self._run_started.pop(shipment_id, None)
 
     # ------------------------------------------------------------------
     # Opt-in goods lines. Runs last; can change nothing else.

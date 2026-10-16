@@ -76,6 +76,10 @@ const state = {
   health: null,
   config: null,
   configToken: '',
+  // Per-document stage events from the SSE stream, keyed by document id. The
+  // timeline renders these; they are advisory progress, never the source of
+  // truth for a verdict (the report event is).
+  stages: {},
   // An API key for a protected instance. Memory only, for this tab:
   // localStorage would put the thing that guards other people's shipments
   // where any script on this origin can read it.
@@ -512,7 +516,52 @@ function applyReport(report) {
   if (report.state !== 'running') {
     stopWatching();
     setProgress('');
+    // The run is over: the per-document stage timeline yields to the settled
+    // documents table, which is the source of truth for what actually happened.
+    state.stages = {};
+    renderTimeline();
     loadHistory();
+  }
+}
+
+function applyStage(ev) {
+  state.stages[ev.document_id] = ev;
+  renderTimeline();
+}
+
+const STAGE_LABEL = {
+  queued: 'Queued',
+  reading: 'Reading',
+  verifying: 'Verifying evidence',
+  comparing: 'Comparing',
+  done: 'Done',
+  failed: 'Failed',
+};
+
+/**
+ * A per-document progress timeline fed by SSE stage events. Purely advisory:
+ * the report event is the truth, and a run whose stream dies still ends here
+ * correctly via the poll path — the timeline simply stays empty.
+ */
+function renderTimeline() {
+  const host = $('#timeline');
+  if (!host) return;
+  const entries = Object.values(state.stages)
+    .sort((a, b) => String(a.document_id).localeCompare(String(b.document_id)));
+  if (!entries.length) {
+    host.hidden = true;
+    host.innerHTML = '';
+    return;
+  }
+  host.hidden = false;
+  host.innerHTML = '';
+  for (const s of entries) {
+    const row = el('div', 'timeline-row');
+    row.appendChild(el('b', 'tl-doc', s.document_label || s.document_id));
+    row.appendChild(el('span', 'tl-stage tl-' + s.stage, STAGE_LABEL[s.stage] || s.stage));
+    if (s.model) row.appendChild(el('span', 'tl-model', s.provider + ' · ' + s.model));
+    row.appendChild(el('span', 'tl-elapsed', (s.elapsed_ms / 1000).toFixed(1) + ' s'));
+    host.appendChild(row);
   }
 }
 
@@ -528,6 +577,8 @@ function watchRun(shipmentId) {
   stopWatching();
   setProgress('Extracting…');
   state.startedAt = Date.now();
+  state.stages = {};
+  renderTimeline();
   state.elapsedTimer = setInterval(tickElapsed, 1000);
   startPollFallback();
   poll();
@@ -552,6 +603,15 @@ function watchRun(shipmentId) {
     }
     if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
     applyReport(report);
+  });
+  source.addEventListener('stage', (e) => {
+    let ev;
+    try {
+      ev = JSON.parse(e.data);
+    } catch (err) {
+      return;
+    }
+    applyStage(ev);
   });
   source.addEventListener('done', () => closeStream());
   source.onerror = () => {

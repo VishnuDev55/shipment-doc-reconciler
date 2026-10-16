@@ -109,7 +109,7 @@ implies, written by rule with no model call), `summary`, `narrative`, `briefing`
 | `POST` | `/api/shipments` | Upload documents. Multipart: `files` (repeat), optional `doc_types` as a JSON array of strings or nulls, aligned by position |
 | `GET` | `/api/shipments` | Ids of runs held on disk |
 | `GET` | `/api/shipments/{id}/report` | The full report (see above) |
-| `GET` | `/api/shipments/{id}/events` | Server-sent events: one frame per report write, so progress is pushed rather than polled |
+| `GET` | `/api/shipments/{id}/events` | Server-sent events: `event: stage` frames per document (queued/reading/verifying/comparing/done/failed, with provider, model and elapsed ms) plus `event: report` on each write, so progress is pushed rather than polled |
 | `POST` | `/api/shipments/{id}/retry` | Re-read one failed document. Body `{"document_id": "…"}` |
 | `POST` | `/api/shipments/{id}/documents/{docId}/fields/{field}` | Correct one value. Body `{"value": "…", "actor": "…", "note": "…"}` |
 | `POST` | `/api/shipments/{id}/documents/{docId}/fields/{field}/revert` | Undo the active correction |

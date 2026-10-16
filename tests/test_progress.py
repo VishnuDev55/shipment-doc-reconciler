@@ -6,6 +6,7 @@ does, and that a listener going away can never damage the run.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -173,3 +174,98 @@ async def test_a_run_settles_and_the_subscriber_sees_it(rec):
     assert seen[-1].state in ("done", "partial", "failed")
     assert len(seen) >= 3, "one document settling should be one event each"
     rec.unsubscribe(sid, queue)
+
+
+# ---------------------------------------------------------------------------
+# per-document stage events
+# ---------------------------------------------------------------------------
+
+
+def test_emit_stage_fans_out_a_stage_dict_not_a_report(rec):
+    import time
+
+    rec._run_started["s1"] = time.monotonic()  # elapsed is measured from here
+    queue = rec.subscribe("s1")
+    assert queue.empty(), "no report exists yet, so nothing to replay"
+
+    rec._emit_stage("s1", document_id="doc1", document_label="invoice.png",
+                    stage="reading", provider="nvidia", model="m")
+
+    event = queue.get_nowait()
+    assert not isinstance(event, Report)
+    assert event["type"] == "stage"
+    assert event["stage"] == "reading"
+    assert event["document_id"] == "doc1"
+    assert event["provider"] == "nvidia" and event["model"] == "m"
+    assert isinstance(event["elapsed_ms"], int) and event["elapsed_ms"] >= 0
+    rec.unsubscribe("s1", queue)
+
+
+@pytest.mark.asyncio
+async def test_a_real_run_emits_stage_events_between_reports(rec):
+    """The stages the frontend timeline renders must actually leave the process,
+    interleaved with the report frames the poll path also sees."""
+    from .test_pipeline import INDEX
+
+    uploads = []
+    for doc in INDEX["shipments"]["shipment_messy"]["documents"]:
+        for fname in doc["files"]:
+            uploads.append((fname, doc["doc_type"],
+                            (REPO / "fixtures" / "images" / fname).read_bytes()))
+
+    sid, _ = await rec.create_shipment(uploads)
+    queue = rec.subscribe(sid)
+    queue.get_nowait()  # replay of the pre-run state
+
+    await rec.wait(sid, timeout=60)
+
+    seen = []
+    while not queue.empty():
+        seen.append(queue.get_nowait())
+
+    stages = [s for s in seen if isinstance(s, dict)]
+    reports = [r for r in seen if isinstance(r, Report)]
+    assert stages, "the run published no stage events"
+    stage_names = {s["stage"] for s in stages}
+    assert {"reading", "done"} <= stage_names, stage_names
+    assert all(s["type"] == "stage" for s in stages)
+    assert all(isinstance(s["elapsed_ms"], int) for s in stages)
+    # The truth-bearing frames are still there, ending in a terminal report.
+    assert reports and reports[-1].state in ("done", "partial", "failed")
+    rec.unsubscribe(sid, queue)
+
+
+def test_the_sse_route_serializes_stage_frames(api, rec):
+    """The endpoint must turn a stage dict into an `event: stage` frame.
+
+    Driven through a stubbed subscriber queue carrying one stage event then a
+    terminal report, so the stream's dispatch branch is exercised offline
+    without waiting on a live extraction.
+    """
+    from app.models import Report as ReportModel
+
+    sid = "s1"
+    terminal = ReportModel(shipment_id=sid, created_at="now", updated_at="now")
+    terminal.state = "done"
+    rec._reports[sid] = terminal
+
+    queue = asyncio.Queue(maxsize=8)
+    queue.put_nowait({
+        "type": "stage", "shipment_id": sid, "document_id": "doc1",
+        "document_label": "invoice.png", "stage": "reading",
+        "provider": "nvidia", "model": "m", "elapsed_ms": 12,
+    })
+    queue.put_nowait(terminal)
+
+    original = rec.subscribe
+    rec.subscribe = lambda _sid: queue
+    try:
+        body = api.get(f"/api/shipments/{sid}/events").text
+    finally:
+        rec.subscribe = original
+
+    assert "event: stage" in body
+    assert '"stage": "reading"' in body
+    assert '"document_id": "doc1"' in body
+    assert "event: report" in body
+    assert "event: done" in body

@@ -9,7 +9,7 @@
      [![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
 -->
 ![CI](https://img.shields.io/badge/CI-not_badged_yet_(no_remote)-lightgrey)
-![tests](https://img.shields.io/badge/tests-953_offline_%2B_24_browser-brightgreen)
+![tests](https://img.shields.io/badge/tests-956_offline_%2B_25_browser-brightgreen)
 ![network in tests](https://img.shields.io/badge/test_network_calls-0_by_construction-blue)
 
 Cross-checks a shipment's paperwork. Upload 2–5 trade documents (commercial
@@ -377,11 +377,14 @@ evidence about that run.
 
 ### Progress: pushed, with a poll behind it
 
-`GET /api/shipments/{id}/events` streams the report each time it settles. Every
-mutation already funnels through `RunStore.write`, so that one hook is the fan-out
-point — no second write path to keep in sync. The stream carries the same
-document an immediate poll would, including a replay on subscribe, so a client
-that joins mid-run sees the full picture rather than waiting for the next change.
+`GET /api/shipments/{id}/events` streams two kinds of frame. `event: stage`
+carries per-document progress — `queued`, `reading`, `verifying`, `comparing`,
+`done`, `failed` — with the provider/model and the elapsed milliseconds; `event:
+report` carries the full report each time it settles. Every report mutation
+already funnels through `RunStore.write`, so that one hook is the fan-out point
+— no second write path to keep in sync. The stream carries the same document an
+immediate poll would, including a replay on subscribe, so a client that joins
+mid-run sees the full picture rather than waiting for the next change.
 
 The browser keeps the 1-second poll running until the first stream event proves
 the channel is alive, then drops it. If `EventSource` is unavailable, the route
@@ -392,7 +395,11 @@ generator unsubscribes in a `finally`.
 
 The progress line counts documents settled and seconds elapsed, because a
 reasoning vision model takes 30–90 s per document and a bare "Extracting…" reads
-as a hang.
+as a hang. Under it, a per-document timeline renders the stage frames — the
+document, its current stage, the provider and model working on it, and elapsed
+seconds. The timeline is advisory: it yields to the settled documents table the
+moment the report is done, and a run whose stream dies still finishes correctly
+via the poll path, with the timeline simply left empty.
 
 ### Cross-field sanity
 
@@ -1187,7 +1194,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-953 passed in ~51s
+956 passed in ~53s
 ```
 
 ~36 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api`,
@@ -1255,7 +1262,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 953 unit tests, plus 24 in a real browser |
+| Normalizers, comparators, parse ladder | ✅ 956 unit tests, plus 25 in a real browser |
 | The status banner never contradicts the verdict or the risk strip | ✅ pinned from both directions, and proved to fail: flipping the container row from critical to warning breaks 8 tests, flipping the country-of-origin row back to warning breaks 2, and removing the verdict floor breaks 3 |
 | Correction drafts name no value no document printed | ✅ asserted over every draft, and the ZIP manifest bug that hid README.txt's header is pinned |
 | The engine against known ground truth | ✅ 9/9 planted errors caught, 0/9 false alarms on clean and tricky paperwork, 1 miss declared in advance — `docs/PLANTED.md`, 0 API calls |
@@ -1391,7 +1398,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 953 offline tests across 34 files (+ conftest.py socket guard)
+tests/                 956 offline tests across 34 files (+ conftest.py socket guard)
 tests_e2e/             21 browser tests; a real uvicorn and real chromium, and the
                        only suite allowed to open a socket. `pytest tests/` cannot
                        collect it; run `make e2e`.

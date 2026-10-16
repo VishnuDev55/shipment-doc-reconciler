@@ -685,12 +685,15 @@ TERMINAL_STATES = frozenset({"done", "partial", "failed"})
 
 @app.get("/api/shipments/{shipment_id}/events", dependencies=[Depends(require_api_key)])
 async def shipment_events(shipment_id: str) -> StreamingResponse:
-    """Server-sent events: the report each time it settles, then a close.
+    """Server-sent events: per-document stage transitions, then the report on
+    each settle, then a close.
 
     Additive, not a replacement. The 1-second poll still works and the frontend
     falls back to it if this stream never opens, so nothing here is load-bearing
     for a run's lifetime: a client that disconnects unsubscribes in `finally`
-    and the extraction continues either way.
+    and the extraction continues either way. `event: stage` frames are progress
+    (queued/reading/verifying/comparing/done/failed); `event: report` frames
+    carry the decisions.
     """
     rec = reconciler()
     if rec.get(shipment_id) is None:
@@ -702,16 +705,21 @@ async def shipment_events(shipment_id: str) -> StreamingResponse:
         try:
             while True:
                 try:
-                    report = await asyncio.wait_for(queue.get(), timeout=20.0)
+                    item = await asyncio.wait_for(queue.get(), timeout=20.0)
                 except asyncio.TimeoutError:
                     # A comment line keeps intermediaries from buffering the
                     # stream shut during a slow 30-90 s extraction.
                     yield ": ping\n\n"
                     continue
-                yield f"event: report\ndata: {report.model_dump_json()}\n\n"
-                if report.state in TERMINAL_STATES:
-                    yield "event: done\ndata: {}\n\n"
-                    return
+                if isinstance(item, Report):
+                    yield f"event: report\ndata: {item.model_dump_json()}\n\n"
+                    if item.state in TERMINAL_STATES:
+                        yield "event: done\ndata: {}\n\n"
+                        return
+                else:
+                    # A per-document stage event (see Reconciler._emit_stage).
+                    # Progress only: the report frames above carry the decisions.
+                    yield f"event: stage\ndata: {json.dumps(item)}\n\n"
         finally:
             rec.unsubscribe(shipment_id, queue)
 

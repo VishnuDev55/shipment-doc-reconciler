@@ -128,6 +128,25 @@ anything: the new stages read facts the deterministic engine already produced.
   directions: withdrawal and verdict are byte-identical advisor-on vs
   advisor-off, and a failing advisor never fails the run.
 
+### Live progress: per-stage events and a per-document timeline
+
+- The SSE stream now carries two kinds of frame. `event: stage` publishes each
+  document's transition — `queued`, `reading`, `verifying`, `comparing`, `done`,
+  `failed` — with the provider/model and elapsed milliseconds; `event: report`
+  still carries the decisions. Stage events ride the same bounded fan-out as
+  report frames, so they inherit drop-oldest backpressure and the existing
+  polling fallback for free: a client with no `EventSource` still ends at the
+  same terminal report, just without the in-flight stage detail.
+- The UI renders those frames as a per-document timeline under the progress
+  line: document, current stage, the provider and model working on it, and
+  elapsed seconds. It is advisory — it yields to the settled documents table
+  the moment the run is done, and it is never the source of a verdict.
+- Pinned offline with the existing HTTP harness: a stage dict fans out, a real
+  (cached) run emits reading→done between its report frames, and the route
+  serializes `event: stage` correctly. One DEMO_MODE browser test drives the
+  timeline handler directly, since a cached run finishes faster than a browser
+  can watch it.
+
 
 ### Phase 5 — documentation
 
