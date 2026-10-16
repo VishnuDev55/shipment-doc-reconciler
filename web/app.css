@@ -386,6 +386,7 @@ main > *, .panel, .doc, .doc-body { min-width: 0; }
   padding: .6rem .75rem; border-left: 2px solid var(--line-strong);
 }
 .note-warn { color: var(--warn); background: var(--warn-soft); border-left-color: var(--warn); }
+.note-demo { color: var(--ink); background: var(--ok-soft); border-left-color: var(--ok); }
 .warn-row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; justify-content: space-between; }
 .warn-row .btn { border-color: currentColor; color: inherit; }
 

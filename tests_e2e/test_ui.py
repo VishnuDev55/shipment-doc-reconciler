@@ -51,6 +51,18 @@ def test_the_app_boots_without_a_script_error_and_shows_the_empty_state(page, ap
     assert page.errors == [], f"uncaught errors: {page.errors}"
 
 
+def test_cold_start_announces_demo_mode_before_anything_is_reconciled(page, app):
+    """First load in DEMO_MODE has to say what is about to happen: the responses
+    are captured real model output being replayed, not a live call and not a
+    fabrication. The banner is the very first element in <main>, so a cold
+    start cannot miss it."""
+    page.goto(app.base_url + "/")
+    banner = page.locator("#demo-banner")
+    banner.wait_for(timeout=10_000)
+    assert banner.inner_text().strip() == "Demo mode: replaying captured real model output"
+    assert banner.is_visible()
+
+
 def test_a_sample_shipment_renders_a_settled_verdict(report_page):
     assert "Conflicts found" in report_page.locator("#verdict-headline").inner_text()
     assert report_page.locator("#counts button").count() >= 4

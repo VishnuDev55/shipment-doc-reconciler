@@ -9,7 +9,7 @@
      [![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
 -->
 ![CI](https://img.shields.io/badge/CI-not_badged_yet_(no_remote)-lightgrey)
-![tests](https://img.shields.io/badge/tests-937_offline_%2B_21_browser-brightgreen)
+![tests](https://img.shields.io/badge/tests-939_offline_%2B_22_browser-brightgreen)
 ![network in tests](https://img.shields.io/badge/test_network_calls-0_by_construction-blue)
 
 Cross-checks a shipment's paperwork. Upload 2–5 trade documents (commercial
@@ -1172,7 +1172,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-937 passed in ~42s
+939 passed in ~43s
 ```
 
 ~36 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api`,
@@ -1240,7 +1240,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 937 unit tests, plus 21 in a real browser |
+| Normalizers, comparators, parse ladder | ✅ 939 unit tests, plus 22 in a real browser |
 | The status banner never contradicts the verdict or the risk strip | ✅ pinned from both directions, and proved to fail: flipping the container row from critical to warning breaks 8 tests, flipping the country-of-origin row back to warning breaks 2, and removing the verdict floor breaks 3 |
 | Correction drafts name no value no document printed | ✅ asserted over every draft, and the ZIP manifest bug that hid README.txt's header is pinned |
 | The engine against known ground truth | ✅ 9/9 planted errors caught, 0/9 false alarms on clean and tricky paperwork, 1 miss declared in advance — `docs/PLANTED.md`, 0 API calls |
@@ -1376,7 +1376,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 937 offline tests across 34 files (+ conftest.py socket guard)
+tests/                 939 offline tests across 34 files (+ conftest.py socket guard)
 tests_e2e/             21 browser tests; a real uvicorn and real chromium, and the
                        only suite allowed to open a socket. `pytest tests/` cannot
                        collect it; run `make e2e`.

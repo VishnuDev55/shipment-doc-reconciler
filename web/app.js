@@ -167,6 +167,12 @@ async function loadHealth() {
 function renderModeChip(h) {
   const chip = $('#mode-chip');
   chip.hidden = false;
+  // The cold-start banner says the one thing that matters on first load: the
+  // demo is real captured model output being replayed, not a live call and not
+  // a fabrication. It lives apart from the chip because the chip is a small
+  // status flag a returning user skims, while this is a claim about provenance.
+  const banner = $('#demo-banner');
+  banner.hidden = !h.demo_mode;
   if (h.demo_mode) {
     // Read-only: demo mode is an environment decision now, not a UI toggle.
     chip.className = 'flag flag-warn';

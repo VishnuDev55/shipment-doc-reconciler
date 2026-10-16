@@ -60,6 +60,29 @@ To make it a live instance: set `NVIDIA_API_KEY` and `NEBIUS_API_KEY` as secret
 env vars in the dashboard, flip `DEMO_MODE` to `"false"`, and leave
 `GUI_CONFIG_ENABLED` false. Do not put real keys in `render.yaml`.
 
+The exact steps, in order:
+
+1. Push the repo to GitHub.
+2. Render dashboard → **New → Blueprint** → point at the repo. Render reads
+   `render.yaml` and creates the web service (Docker, free plan, health path
+   `/api/health`).
+3. The image binds `$PORT`, which Render injects — the Dockerfile's
+   `CMD ... --port ${PORT:-8000}` exists so the platform's router can reach the
+   app instead of it sitting on a dead 8000.
+4. Open the `.onrender.com` URL. On a free instance it sleeps after 15 idle
+   minutes and takes ~60s to wake, so the first request may show Render's
+   loading page — that is the platform waking, not the app crashing.
+
+### Post-deploy checklist
+
+| Step | What to do | What you are looking at |
+|---|---|---|
+| 1. Cold start | Open the URL (twice if it slept) | The demo banner **"Demo mode: replaying captured real model output"** at the top, and no script error |
+| 2. Health | `curl <url>/api/health` | `"status":"ok"`, `"mode":"demo"`, `"version":"1.0.0"`, a non-empty `git_commit`, both providers `configured:false` |
+| 3. Conflict demo | Click the **sample shipment** that contradicts itself (sidebar → `shipment_conflict`) | The verdict panel, a **Blocked**/**Review needed** banner, and the comparison table with the disagreement quoted |
+| 4. Export | **Download ZIP** on the settled report | `report.html` opens offline, `report.json` parses, `report.pdf` renders, `pages/` has the evidence images |
+| 5. Live switch | (optional) set the two keys as dashboard secrets, `DEMO_MODE=false`, redeploy | Step 2 now shows `"mode":"live"` and `configured:true`; a real upload makes outbound calls to NVIDIA + Nebius |
+
 ## 3. Anywhere else (Fly, Railway, a VPS)
 
 Any host that can build a Dockerfile will run this. There is nothing
@@ -90,16 +113,23 @@ get an unconfigured instance killed, and the app is genuinely useful in
 ```json
 {
   "status": "ok",
-  "demo_mode": false,
-  "vision":  {"provider": "nvidia", "model": "...", "host": "integrate.api.nvidia.com", "key_present": false},
-  "summary": {"provider": "nebius", "model": "...", "host": "api.tokenfactory.nebius.com", "key_present": false, "enabled": true},
+  "mode": "demo",
+  "version": "1.0.0",
+  "git_commit": "3accaf8... or unknown",
+  "vision":  {"provider": "nvidia", "model": "...", "host": "integrate.api.nvidia.com", "configured": false},
+  "summary": {"provider": "nebius", "model": "...", "host": "api.tokenfactory.nebius.com", "configured": false, "enabled": true},
   "models":  [{"role": "vision", "status": "unverified", "note": "no key for this host…"}]
 }
 ```
 
+`mode` is `demo` or `live`; `version` and `git_commit` say which build is
+answering, which is how you tell a stale deploy from a broken one. Provider
+readiness is `configured: true/false` — a boolean, never the key, because a
+health endpoint is the most likely thing on a server to get scraped.
+
 Readiness is therefore something a caller reads, not something the endpoint
 refuses with. If you want a strict liveness signal for an orchestrator, gate on
-`vision.key_present` yourself.
+`vision.configured` yourself.
 
 ## CI
 

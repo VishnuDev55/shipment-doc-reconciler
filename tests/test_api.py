@@ -251,6 +251,31 @@ def test_health_reports_both_providers(client):
     assert "api_key_present" in body
 
 
+def test_health_reports_mode_version_and_commit(client):
+    """Health is the page a load balancer and a cold-starting operator both
+    read, so it carries what they need to triage: which mode, which build,
+    which revision -- and never the key."""
+    body = client.get("/api/health").json()
+    assert body["mode"] == "demo"
+    assert body["version"] == "1.0.0"
+    # Either a real revision (running inside this checkout) or the honest
+    # "unknown" (running in a container built without .git). Never empty.
+    assert isinstance(body["git_commit"], str) and body["git_commit"]
+
+
+def test_health_says_configured_but_never_the_key(client):
+    """A keyless instance reports not-configured as a boolean. The key itself
+    must not appear anywhere in the payload -- a health endpoint is the most
+    likely thing to get scraped, and `configured: true` is all an operator
+    needs to know."""
+    body = client.get("/api/health").json()
+    assert body["vision"]["configured"] is False
+    assert body["summary"]["configured"] is False
+    blob = json.dumps(body)
+    assert "sk-" not in blob
+    assert "nvapi-" not in blob
+
+
 def test_ui_serves_the_narrative_section(client):
     page = client.get("/").text
     assert 'id="narrative-card"' in page

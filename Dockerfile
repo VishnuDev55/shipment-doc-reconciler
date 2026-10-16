@@ -52,6 +52,13 @@ ENV DEMO_MODE=false \
     CACHE_DIR=/app/fixtures/responses \
     VISION_PROVIDER=nvidia
 
+# The revision is baked in so /api/health can say which commit is running where
+# there is no .git (the image does not COPY it). Platforms that set their own
+# -- Render's RENDER_GIT_COMMIT, Actions' GITHUB_SHA -- win over this at
+# runtime, because app.main.git_commit() checks the environment first.
+ARG GIT_COMMIT=unknown
+ENV GIT_COMMIT=$GIT_COMMIT
+
 EXPOSE 8000
 
 # No curl in a -slim image and no apt-get by design, so health is probed with the
@@ -63,9 +70,12 @@ EXPOSE 8000
 # body (vision.key_present, summary.key_present, models[]) rather than as a
 # non-2xx, so an orchestrator restarting on failure does not treat a keyless
 # instance as a crashed one.
+#
+# PORT, not a hardcoded 8000: Render (and any $PORT-injecting host) routes
+# traffic to the port it assigns, so a container that ignores it looks dead to
+# the platform even though the process is up. 8000 is only the local default.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD python -c "import sys,urllib.request; \
-sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
+  CMD python -c "import os,sys,urllib.request; port=os.environ.get('PORT','8000'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health', timeout=4).status == 200 else 1)"
 
 # Live usage:
 #   docker run -p 8000:8000 \
@@ -73,4 +83,7 @@ sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout
 #     -e NVIDIA_API_KEY=... \
 #     -e NEBIUS_API_KEY=... \
 #     shipment-doc-reconciler
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+#
+# Shell form so ${PORT:-8000} is expanded: $PORT-injecting hosts (Render) must
+# reach the app on the port they assign, and 8000 remains the local default.
+CMD python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

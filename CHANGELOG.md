@@ -83,6 +83,27 @@ anything: the new stages read facts the deterministic engine already produced.
   `README.txt` manifest had a ternary whose precedence dropped the arithmetic and
   unverified lines whenever `report.unverified` was empty.
 
+### Deployment readiness
+
+- **The container never bound the port Render assigns.** The Dockerfile started
+  uvicorn on a hardcoded 8000, so on Render — which injects `$PORT` and routes
+  to it — the service would have answered its own health check but been
+  unreachable from the outside. `CMD` now runs in shell form and binds
+  `${PORT:-8000}`, and the in-image `HEALTHCHECK` probes the same port.
+- `/api/health` now reports `mode` (demo/live), `version`, and `git_commit`
+  alongside the provider status, which is expressed as `configured` booleans.
+  The commit is read from the environment first (Render's `RENDER_GIT_COMMIT`,
+  Actions' `GITHUB_SHA`, or `GIT_COMMIT`, which the Dockerfile bakes in because
+  the image does not copy `.git`), then from a local checkout's `.git`, and is
+  cached so a load-balancer poll never shells out. The key itself is still never
+  echoed, and a test now asserts that.
+- A cold start in `DEMO_MODE` announces itself: the first element in `<main>` is
+  a banner reading "Demo mode: replaying captured real model output", so a first
+  visitor cannot mistake a replayed response for a live call or a fabrication.
+- `docs/DEPLOYMENT.md` gained exact Render steps, the env-var surface, and a
+  post-deploy checklist (cold start → `/api/health` → the contradiction demo →
+  download the ZIP).
+
 
 
 ### Phase 5 — documentation

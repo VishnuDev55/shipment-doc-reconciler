@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import os
+from functools import lru_cache
 from pathlib import Path
 
 from fastapi import (Depends, FastAPI, File, Form, HTTPException, Request, UploadFile)
@@ -47,6 +49,38 @@ FIXTURE_IMAGES = PROJECT_ROOT / "fixtures" / "images"
 # "not checkable" and the evidence check could never be seen working offline.
 FIXTURE_TEXT = PROJECT_ROOT / "fixtures" / "text"
 
+APP_VERSION = "1.0.0"
+
+
+@lru_cache(maxsize=1)
+def git_commit() -> str:
+    """The revision this process is running, best-effort and never slow.
+
+    /api/health is polled by load balancers every few seconds, so this must not
+    shell out per call; it is cached for the process lifetime and reads only
+    files or the environment. Deploy platforms already put the commit in the
+    environment and win here (Render: RENDER_GIT_COMMIT, Actions: GITHUB_SHA,
+    and GIT_COMMIT, which the Dockerfile bakes in because the image does not
+    COPY .git). A local checkout reads it out of .git. Anywhere else it is
+    "unknown" rather than a made-up revision.
+    """
+    for name in ("RENDER_GIT_COMMIT", "GITHUB_SHA", "GIT_COMMIT", "SOURCE_VERSION"):
+        value = os.environ.get(name)
+        if value:
+            return value
+    try:
+        head = PROJECT_ROOT / ".git" / "HEAD"
+        if head.is_file():
+            ref = head.read_text(encoding="utf-8").strip()
+            if ref.startswith("ref: "):
+                target = PROJECT_ROOT / ".git" / ref[5:]
+                if target.is_file():
+                    return target.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    return "unknown"
+
+
 app = FastAPI(
     title="Shipment Doc Reconciler",
     description=(
@@ -57,7 +91,7 @@ app = FastAPI(
         "Requests need an API key when the deployment sets API_KEYS; "
         "/api/health is always open."
     ),
-    version="1.0.0",
+    version=APP_VERSION,
 )
 
 _reconciler: Reconciler | None = None
@@ -285,14 +319,27 @@ def index() -> HTMLResponse:
 @app.get("/api/health")
 def health() -> dict:
     """Two providers are in play; report each one's readiness separately so the
-    UI can be truthful about which parts of the app can actually run."""
+    UI can be truthful about which parts of the app can actually run.
+
+    Fast on purpose: no provider is contacted, no disk is written, and the one
+    subprocess-ish thing (the git revision) is cached. A load balancer polls
+    this every few seconds, and a keyless instance must still answer 200 --
+    "unconfigured" is a state the operator fixes in the dashboard, not a reason
+    to restart the container. Provider status is `configured`/`not configured`
+    booleans only; the key itself is never echoed.
+    """
     rec = reconciler()
     settings = rec.settings
     vision = rec.client.endpoint
     summary = rec.summary_client.endpoint
     return {
         "status": "ok",
+        # `mode` is the human-facing word; `demo_mode` stays for anything that
+        # already read the boolean.
+        "mode": "demo" if settings.demo_mode else "live",
         "demo_mode": settings.demo_mode,
+        "version": APP_VERSION,
+        "git_commit": git_commit(),
         # The UI reads this to decide whether to ask for a key before it can
         # show anything. Health itself stays open so a load balancer can poll it
         # without holding a secret.
@@ -305,12 +352,14 @@ def health() -> dict:
             "provider": vision.provider,
             "model": vision.model,
             "host": vision.host,
+            "configured": bool(vision.api_key.strip()),
             "key_present": bool(vision.api_key.strip()),
         },
         "summary": {
             "provider": summary.provider,
             "model": summary.model,
             "host": summary.host,
+            "configured": bool(summary.api_key.strip()),
             "key_present": bool(summary.api_key.strip()),
             "enabled": settings.enable_summary,
         },
