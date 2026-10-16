@@ -83,6 +83,32 @@ not served, so a listed model was adopted), or `unverified` (no key, or the cata
 could not be read). A report should never imply a model was reachable when nothing
 checked.
 
+### Re-verified live on 2026-10-16 (`scripts/probe_live.py`)
+
+Both providers answered with real, parseable responses (DEMO_MODE=false, keys from
+`.env`):
+
+- **Vision** — `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` on
+  `integrate.api.nvidia.com`. Structured-output mode **`strict`** (json_schema
+  honoured). One fixture extraction parsed on the first attempt, 32.6 s wall clock,
+  4,955 tokens. The capability probe first hit **`strict hit capacity (HTTP 503)`**
+  twice and then `honours strict` — a live-only capacity flake the client's probe
+  retry absorbed, not a config problem.
+- **Summary** — `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` on
+  `api.tokenfactory.nebius.com`. One call, 1,366 tokens, output passed the
+  plausibility guard.
+
+Nebius `/v1/models` now lists **28 models** (was 25 on 2026-10-02), of which 8
+declare `text+image->text` modality. New vision-capable names present this date:
+`nvidia/Nemotron-3.5-Super-VL` (a Nemotron **VL** — the first Nemotron vision
+model on this host), `Qwen/Qwen3.8-27B`, `deepseek-ai/DeepSeek-V4.1-Flash`,
+`moonshotai/Kimi-K2.6`, `moonshotai/Kimi-K3`, `meta-models/muse-spark-open`,
+`zai-org/GLM-5.3-Flash`, plus the already-used `openbmb/MiniCPM-V-4_5`.
+**Per-token prices are not published** on the vendor pages this repo can reach, so
+no rate for `Nemotron-3.5-Super-VL` is recorded here — it is also a much larger
+120B-class model than the nano default, so it would cost materially more per token
+and was **not** used for anything without a price.
+
 ## Documents are rasterised, not uploaded
 
 Token Factory's Files endpoint is batch-JSONL only — there is no document-upload
