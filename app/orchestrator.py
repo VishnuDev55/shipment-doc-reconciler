@@ -1237,6 +1237,13 @@ class Reconciler:
         decision. The field stays withdrawn whatever the model says — the note
         only offers the most likely cause of the mismatch, and on any failure it
         stays empty rather than showing half an answer.
+
+        A captured note is real model output, so it replays from the cache in
+        exactly the way a captured summary does; only the *live call* is gated
+        on demo mode and the key. When nothing is captured and nothing can be
+        called, the note stays empty — a hand-written stand-in replayed as
+        though a model formed it would be the exact fake result this app
+        refuses.
         """
         if not report.unverified:
             return
@@ -1244,14 +1251,9 @@ class Reconciler:
         endpoint = self.summary_client.endpoint
         if not settings.enable_adjudication:
             return  # the advisor is off; silence, not a marker
-        if settings.demo_mode:
-            # No captured notes exist; a hand-written one replayed as though a
-            # model formed it would be exactly the fake result this app refuses.
-            return
-        if not _key_is_real(endpoint.api_key):
-            return
 
         cache = AdjudicationCache(settings.cache_dir, subdir="unverified_notes")
+        can_call = not settings.demo_mode and _key_is_real(endpoint.api_key)
         docs_by_id = {d.id: d for d in report.documents}
         for item in report.unverified:
             doc = docs_by_id.get(item.document_id)
@@ -1273,6 +1275,9 @@ class Reconciler:
                     check.advisor_source = "cached"
                     continue
 
+            if not can_call:
+                continue
+
             prompt = build_unverified_prompt(
                 item.field, item.label, item.value, item.evidence_text,
                 item.page_index, item.reason,
@@ -1292,7 +1297,7 @@ class Reconciler:
             check.advisor_provider = endpoint.provider
             check.advisor_source = "generated"
             cache.put(signature, model=endpoint.model, provider=endpoint.provider,
-                      raw=raw, note=parsed)
+                      raw=raw, note=parsed, _provenance="LIVE API")
 
         # Rebuild so the notes land in the report shape renderers read.
         report.unverified = collect_unverified(report.documents)

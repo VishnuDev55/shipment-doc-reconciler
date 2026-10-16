@@ -1,0 +1,9 @@
+{
+  "key": "9f64c6c4eb7bf1175467634ee959680a",
+  "model": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+  "provider": "nebius",
+  "summary_version": "summary-v1",
+  "verdict_signature": "ab6184bfac01f0033753962c69df1a62",
+  "text": "5 fields agree and 2 fields need attention. The discrepancies are a gross weight mismatch and a container number inconsistency.",
+  "_provenance": "live API narrative"
+}

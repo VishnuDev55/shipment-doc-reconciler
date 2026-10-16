@@ -1,0 +1,9 @@
+{
+  "key": "8e0302004b406e517c6bfa915469cedd",
+  "model": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+  "provider": "nebius",
+  "summary_version": "summary-v1",
+  "verdict_signature": "cd6dba1375e3381c2a3e9b7b6426ea80",
+  "text": "7 fields agree and 0 fields need attention. No discrepancies need attention.",
+  "_provenance": "live API narrative"
+}

@@ -17,7 +17,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import spend  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.narrative_cache import NarrativeCache  # noqa: E402
 from app.client import SummaryClient  # noqa: E402
@@ -92,6 +94,7 @@ async def main() -> int:
 
         path = cache.put(report, model=endpoint.model, provider=endpoint.provider,
                          text=text.strip())
+        spend.record("nebius", endpoint.model, usage, note=f"summary {name}")
         written += 1
         print(f"  model: {endpoint.model}")
         print(f"  text : {text.strip()}")

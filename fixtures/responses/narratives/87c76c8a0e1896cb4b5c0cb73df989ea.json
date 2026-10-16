@@ -1,9 +1,0 @@
-{
-  "key": "87c76c8a0e1896cb4b5c0cb73df989ea",
-  "model": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
-  "provider": "nebius",
-  "summary_version": "summary-v1",
-  "verdict_signature": "cb4727b6b075a4d785cda512f50a3c15",
-  "text": "2 fields agree and 2 fields need attention. Gross weight and container number.",
-  "_provenance": "live API narrative"
-}

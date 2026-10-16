@@ -695,3 +695,31 @@ async def test_a_cached_unverified_note_is_reused_without_a_call(tmp_path):
     check = fresh.documents[0].verification["consignee_name"]
     assert check.advisor_note
     assert check.advisor_source == "cached"
+
+
+@pytest.mark.asyncio
+async def test_demo_replays_a_captured_note_without_a_call(tmp_path):
+    """A captured note is real model output, so demo replays it exactly like a
+    captured summary — while a demo run with nothing captured still shows
+    nothing (the test above)."""
+    live, live_calls = live_rec(tmp_path)
+
+    async def explains(system, prompt, **kwargs):
+        live_calls.append((system, prompt))
+        return json.dumps({"explanation": "The printed value is on a line the "
+                                          "text layer splits at a hyphen."}), {"total": 30}
+
+    live.summary_client.judge = explains
+    await live._advise_unverified(_unverified_report())
+    assert len(live_calls) == 1
+
+    demo, demo_calls = live_rec(tmp_path, demo_mode=True)
+    report = _unverified_report()
+    await demo._advise_unverified(report)
+
+    assert demo_calls == []
+    check = report.documents[0].verification["consignee_name"]
+    assert check.advisor_note
+    assert check.advisor_source == "cached"
+    assert check.advisor_model
+    assert len(report.unverified) == 1, "the withdrawal itself is untouched"
