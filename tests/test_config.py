@@ -224,3 +224,19 @@ def test_demo_mode_still_works_as_an_environment_setting(client):
 
     assert res.status_code == 201
     assert res.json()["demo_mode"] is True
+
+
+def test_consensus_is_exposed_and_toggleable(client):
+    """The second-reader switch in the drawer writes through to the settings the
+    orchestrator reads, so a ticked box actually changes what a run does."""
+    body = client.get("/api/config").json()
+    assert body["consensus"] is False  # off by default
+
+    res = post(client, {"consensus": True})
+    assert res.status_code == 200
+    assert res.json()["consensus"] is True
+    assert reconciler().settings.consensus is True
+
+    res = post(client, {"consensus": False})
+    assert res.status_code == 200
+    assert reconciler().settings.consensus is False

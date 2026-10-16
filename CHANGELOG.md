@@ -104,6 +104,29 @@ anything: the new stages read facts the deterministic engine already produced.
   post-deploy checklist (cold start → `/api/health` → the contradiction demo →
   download the ZIP).
 
+### Nebius transparency, consensus and the advisor
+
+- **One step table, three views.** `app/transparency.py` computes the model steps
+  of a run once — per-document extraction, the second-reader consensus pass, the
+  summary, the draft email and each advisory second opinion, with provider,
+  model, provenance, attempts, tokens and latency — and the web panel, the
+  standalone `report.html` and the PDF all render it from that one source, so the
+  three can no longer disagree about which model did what. The "Powered by Nebius
+  Token Factory + NVIDIA Nemotron" badge was made honest: it reports the call
+  count, says "no live call" on a replay, and names hand-authored values as
+  hand-authored rather than "replayed".
+- **Consensus is a drawer toggle now**, not just an env var. `CONSENSUS`/the
+  **Second reader** checkbox round-trips through `/api/config` and flips the
+  orchestrator's second-reader pass; the one-line explanation says it never
+  changes a verdict and costs an extra vision call per document.
+- **The advisor now also reads withdrawn evidence.** For every value the
+  evidence check excluded, a Nebius model writes one short note guessing at the
+  cause (page-break reflow, OCR ligature). Same contract as the existing
+  adjudicator: deterministic evidence in, structured validated JSON out,
+  length-capped, cached by the evidence's own signature, silent on any failure —
+  and it can never reinstate the value. Pinned with a fake transport in both
+  directions: withdrawal and verdict are byte-identical advisor-on vs
+  advisor-off, and a failing advisor never fails the run.
 
 
 ### Phase 5 — documentation

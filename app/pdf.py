@@ -278,15 +278,23 @@ def _unverified(report: Report) -> str:
         f"<tr><td>{esc(u.label)}</td><td>{esc(u.document_label)}</td>"
         f"<td class='val'>{esc(u.value or '')}</td>"
         f"<td class='small'>{esc(u.evidence_text)}</td>"
-        f"<td class='small'>{esc(u.reason)}</td></tr>"
+        f"<td class='small'>{esc(u.reason)}</td>"
+        f"<td class='small'>"
+        + (f"<i>AI-generated, advisory:</i> {esc(u.advisor_note)}"
+           f" ({esc(u.advisor_model)})"
+           if u.advisor_note else "—")
+        + "</td></tr>"
         for u in items
     )
     return f"""<h2>Unverified evidence</h2>
 <p class="small">{len(items)} field(s) quoted a line that does not appear on the
 document, so they were excluded from the comparisons above rather than trusted.
-A value nobody printed cannot disagree with another document.</p>
+A value nobody printed cannot disagree with another document. Any advisor note
+is a model's guess at the cause, labelled as such, and has no bearing on the
+exclusion.</p>
 <table><thead><tr><th>Field</th><th>Document</th><th>Claimed value</th>
-<th>Quoted line</th><th>Why it was dropped</th></tr><tbody>{rows}</tbody></table>"""
+<th>Quoted line</th><th>Why it was dropped</th><th>Advisor note</th></tr>
+<tbody>{rows}</tbody></table>"""
 
 
 def _drafts(report: Report) -> str:
@@ -403,6 +411,41 @@ def _documents(report: Report) -> str:
 <tbody>{rows}</tbody></table>"""
 
 
+def _transparency(report: Report) -> str:
+    """Every model step, in order, with where each answer came from.
+
+    The same list the web panel and the standalone HTML show, computed by the
+    same code (`app/transparency.py`), so the three views cannot disagree about
+    which model did what or whether it ran now.
+    """
+    from .transparency import cost_line, model_steps, powered_by, source_word, totals
+
+    steps = model_steps(report)
+    tokens, ms = totals(steps)
+    rows = "".join(
+        f"<tr><td>{esc(s['step'])}</td>"
+        f"<td class='small'>{esc(s['provider'])}</td>"
+        f"<td class='small'>{esc(s['model'])}</td>"
+        f"<td class='small'>{esc(source_word(s['source']))}</td>"
+        f"<td class='num'>{s['tries']}</td>"
+        f"<td class='num'>{s['usage'].total if s['usage'] else 0}</td>"
+        f"<td class='num'>{s['latency_ms']}</td></tr>"
+        for s in steps
+    )
+    if not rows:
+        rows = '<tr><td colspan="7" class="small">No model step ran.</td></tr>'
+    return (
+        "<h2>Model steps</h2>"
+        "<table><thead><tr><th style='width:24%'>Step</th>"
+        "<th style='width:12%'>Provider</th><th style='width:26%'>Model</th>"
+        "<th style='width:18%'>Answer came from</th><th style='width:5%'>Try</th>"
+        "<th style='width:7%'>Tok</th><th style='width:8%'>ms</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+        f"<p class='small'>{esc(powered_by(report))}</p>"
+        f"<p class='small'>{esc(cost_line(report, tokens, ms))}</p>"
+    )
+
+
 def report_html(report: Report) -> str:
     """The printable HTML. Exposed because it is the thing tests can read."""
     body = "".join([
@@ -411,6 +454,7 @@ def report_html(report: Report) -> str:
         _internal_checks(report), _sanity(report),
         _line_items(report), _drafts(report), _corrections(report),
         _model_prose(report),
+        _transparency(report),
         _documents(report),
     ])
     footer = (

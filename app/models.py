@@ -363,6 +363,13 @@ class FieldVerification(BaseModel):
     box: list[float] | None = None
     box_page: int | None = None
     detail: str = ""
+    # An advisory model note on *why* the check failed, added by the advisor and
+    # nothing else. Never a second decision: the field stays excluded regardless
+    # of what this says, and it is always labelled AI-generated.
+    advisor_note: str = ""
+    advisor_model: str = ""
+    advisor_provider: str = ""
+    advisor_source: str = "none"  # 'generated' | 'cached' | 'none'
 
     @property
     def highlightable(self) -> bool:
@@ -419,6 +426,12 @@ class UnverifiedField(BaseModel):
     evidence_text: str = ""
     page_index: int = 1
     reason: str = ""
+    # Mirrors FieldVerification.advisor_*: the advisory note travels with the
+    # excluded field into the report so a renderer reads one shape.
+    advisor_note: str = ""
+    advisor_model: str = ""
+    advisor_provider: str = ""
+    advisor_source: str = "none"
 
 
 # ---------------------------------------------------------------------------
@@ -958,3 +971,4 @@ class ConfigUpdate(BaseModel):
     nebius_summary_model: str | None = None
     demo_mode: bool | None = None
     enable_summary: bool | None = None
+    consensus: bool | None = None

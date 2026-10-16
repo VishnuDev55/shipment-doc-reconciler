@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from app.client import ExtractionClient, ExtractionOutcome, AttemptLog
 from app.config import Settings
 from app.main import app, configure
-from app.models import DocumentReport, Narrative, TokenUsage
+from app.models import DocumentReport, Narrative, Report, TokenUsage
 from app.orchestrator import Reconciler, apply_outcome
 
 from .test_client import good_response, make_settings, pages
@@ -339,3 +339,113 @@ def test_raw_route_blocks_traversal(api):
 
 def test_raw_route_404s_for_an_unknown_run(api):
     assert api.get("/api/shipments/nosuch/raw/anything.txt").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# the shared step table that UI, HTML and PDF all read
+# ---------------------------------------------------------------------------
+
+
+def _step_report() -> Report:
+    from app.models import (
+        Adjudication, Briefing, Comparison, ConsensusResult, RunInfo, Summary,
+    )
+
+    report = Report(shipment_id="s1", created_at="now", updated_at="now")
+    report.run = RunInfo(
+        prompt_version="t", normalizer_version="t", comparator_version="t",
+        model="nvidia/nemotron", vision_provider="nvidia",
+        summary_model="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+        summary_provider="nebius", demo_mode=False, json_schema_mode="strict",
+        result_source="live", live_calls=3, usd_per_mtok=2.0,
+    )
+    doc = DocumentReport(
+        id="d1", label="Invoice", filename="inv.png", status="ok", attempts=1,
+        timings_ms=900, source="live_api", provider="nvidia",
+        model="nvidia/nemotron", usage=TokenUsage(prompt=100, completion=50, total=150),
+    )
+    doc.consensus = ConsensusResult(
+        status="ok", provider="nebius", model="openbmb/MiniCPM-V-4_5",
+        source="generated", latency_ms=800,
+        usage=TokenUsage(prompt=90, completion=60, total=150),
+    )
+    report.documents = [doc]
+    report.summary = Summary(verdict="review")
+    report.narrative = Narrative(
+        status="ok", text="All three documents agree on the main fields.",
+        model="m", provider="nebius", source="generated", latency_ms=700,
+        usage=TokenUsage(prompt=10, completion=5, total=15),
+    )
+    report.briefing = Briefing(
+        status="ok", text="Dear supplier, please confirm the consignee.",
+        model="m", provider="nebius", source="generated", latency_ms=600,
+        usage=TokenUsage(prompt=8, completion=4, total=12),
+    )
+    comp = Comparison(field="consignee_name", label="Consignee", kind="party_name",
+                      status="suspicious", reason="similar", majority_compare_key="ACME",
+                      values=[])
+    comp.adjudication = Adjudication(
+        status="ok", same=True, confidence=0.8,
+        rationale="Same legal entity; only the corporate suffix differs.",
+        model="m", provider="nebius", source="generated", latency_ms=500,
+        usage=TokenUsage(prompt=5, completion=2, total=7),
+    )
+    report.comparisons = [comp]
+    return report
+
+
+def test_model_steps_lists_every_step_in_run_order():
+    from app.transparency import model_steps
+
+    steps = model_steps(_step_report())
+    assert [s["step"] for s in steps] == [
+        "Invoice",
+        "second reader · Invoice",
+        "Executive summary",
+        "Draft discrepancy email",
+        "Second opinion · Consignee",
+    ]
+    assert [s["source"] for s in steps] == [
+        "live_api", "generated", "live_api", "live_api", "live_api",
+    ]
+
+
+def test_totals_sum_across_every_step():
+    from app.transparency import model_steps, totals
+
+    tokens, ms = totals(model_steps(_step_report()))
+    assert tokens == 150 + 150 + 15 + 12 + 7
+    assert ms == 900 + 800 + 700 + 600 + 500
+
+
+def test_powered_by_is_honest_about_what_ran():
+    from app.transparency import powered_by
+
+    report = _step_report()
+    assert "3 live API call(s)" in powered_by(report)
+    report.run.live_calls = 0
+    assert "no live call" in powered_by(report)
+
+
+def test_cost_line_refuses_to_invent_a_price():
+    from app.transparency import cost_line
+
+    report = _step_report()
+    assert "≈$" in cost_line(report, 1_000_000, 2_000)
+    report.run.usd_per_mtok = 0.0
+    assert "not configured" in cost_line(report, 1_000_000, 2_000)
+    assert "$" not in cost_line(report, 1_000_000, 2_000)
+
+
+def test_pdf_and_standalone_html_print_the_same_model_steps():
+    from app.export import standalone_html
+    from app.pdf import report_html
+
+    report = _step_report()
+    page = report_html(report)
+    assert "Model steps" in page
+    assert "Powered by Nebius Token Factory + NVIDIA Nemotron" in page
+    assert "Second opinion" in page
+    html_page = standalone_html(report)
+    assert "Model steps" in html_page
+    assert "Powered by Nebius Token Factory + NVIDIA Nemotron" in html_page

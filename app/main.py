@@ -434,6 +434,7 @@ def config_view() -> dict:
         "token_required": bool(s.config_token.strip()),
         "demo_mode": s.demo_mode,
         "enable_summary": s.enable_summary,
+        "consensus": s.consensus,
         "vision_provider": s.vision_provider,
         "keys": {
             "nvidia": {"set": s.has_nvidia_key, "masked": _mask(s.nvidia_api_key)},

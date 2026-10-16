@@ -97,6 +97,21 @@ def test_a_demo_run_never_claims_a_live_call(report_page):
     assert "cache" in report_page.locator("#transparency").inner_text().lower()
 
 
+def test_the_powered_by_badge_is_honest_in_demo_mode(report_page):
+    badge = report_page.locator("#transparency .badge-powered").inner_text()
+    assert "Powered by Nebius Token Factory" in badge
+    assert "no live call" in badge
+
+
+def test_the_config_drawer_exposes_the_second_reader_toggle(page, app):
+    page.goto(app.base_url + "/")
+    page.locator("#open-config").click()
+    toggle = page.locator("#cfg-consensus")
+    toggle.wait_for(timeout=10_000)
+    assert toggle.is_visible()
+    assert not toggle.is_checked()  # consensus is opt-in, off by default
+
+
 def test_the_goods_lines_panel_is_absent_when_the_feature_was_never_asked_for(report_page):
     """Off by default, and the screen must not show a check that did not happen.
 

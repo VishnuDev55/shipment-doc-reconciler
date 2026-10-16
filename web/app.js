@@ -806,19 +806,26 @@ function renderTransparency(report) {
   if (!docs.length) return;
 
   const n = report.narrative || {};
+  const b = report.briefing || {};
   const tokens = { prompt: 0, completion: 0, total: 0 };
   let ms = 0;
-  [
-    ...docs.map((d) => d),
-    { usage: n.usage, timings_ms: n.latency_ms },
-  ].forEach((row) => {
-    const u = row.usage;
+  const acc = (u, t) => {
     if (u) {
       tokens.prompt += u.prompt || 0;
       tokens.completion += u.completion || 0;
       tokens.total += u.total || 0;
     }
-    ms += row.timings_ms || 0;
+    ms += t || 0;
+  };
+  docs.forEach((d) => {
+    acc(d.usage, d.timings_ms);
+    if (d.consensus) acc(d.consensus.usage, d.consensus.latency_ms);
+  });
+  acc(n.usage, n.latency_ms);
+  acc(b.usage, b.latency_ms);
+  (report.comparisons || []).forEach((c) => {
+    const a = c.adjudication;
+    if (a && a.status !== 'pending') acc(a.usage, a.latency_ms);
   });
 
   $('#tp-source').textContent =
@@ -895,7 +902,41 @@ function renderTransparency(report) {
       n.latency_ms
     );
   }
+  if (b.status === 'ok' || b.status === 'cached') {
+    addRow(
+      'Draft discrepancy email',
+      b.provider || run.summary_provider,
+      b.model || run.summary_model,
+      b.source === 'generated' ? 'live_api' : b.status === 'cached' ? 'cached_live' : b.source,
+      b.usage && b.usage.total ? 1 : 0,
+      b.usage,
+      b.latency_ms
+    );
+  }
+  (report.comparisons || []).forEach((c) => {
+    const a = c.adjudication;
+    if (a && (a.status === 'ok' || a.status === 'cached')) {
+      addRow(
+        'Second opinion · ' + c.label,
+        a.provider,
+        a.model,
+        a.source === 'generated' ? 'live_api' : a.status === 'cached' ? 'cached_live' : a.source,
+        1,
+        a.usage,
+        a.latency_ms
+      );
+    }
+  });
   table.appendChild(body);
+
+  // The branding line is only worth printing when it is true about *this* run.
+  const powered = document.querySelector('#transparency .badge-powered');
+  if (powered) {
+    powered.textContent = 'Powered by Nebius Token Factory + NVIDIA Nemotron · ' +
+      (run.live_calls
+        ? run.live_calls + ' live API call(s) on this run'
+        : 'no live call on this run — responses were replayed from cache');
+  }
 
   const raws = docs.flatMap((d) => (d.raw_files || []).map((f) => [d, f]));
   const rawHost = $('#tp-raw');
@@ -1154,6 +1195,10 @@ function renderUnverified(report) {
     li.appendChild(el('span', 'uv-val mono', u.value || ''));
     li.appendChild(el('blockquote', 'uv-quote', '“' + (u.evidence_text || '') + '”'));
     li.appendChild(el('span', 'uv-why', u.reason || 'not found on the page'));
+    if (u.advisor_note) {
+      li.appendChild(el('span', 'uv-advisor',
+        'AI-generated, advisory: ' + u.advisor_note));
+    }
     list.appendChild(li);
   });
 
@@ -1701,7 +1746,7 @@ function populateDrawer(cfg) {
 
   // Scoped deliberately: the theme control is local to this browser and stays
   // usable even when the server refuses runtime changes.
-  document.querySelectorAll('#drawer .input, #drawer [data-clear], #cfg-summary, #provider-seg button')
+  document.querySelectorAll('#drawer .input, #drawer [data-clear], #cfg-summary, #cfg-consensus, #provider-seg button')
     .forEach((n) => { n.disabled = !editable; });
 
   [['nvidia', '#key-nvidia', '#key-nvidia-state', cfg.keys.nvidia],
@@ -1713,6 +1758,7 @@ function populateDrawer(cfg) {
   });
 
   $('#cfg-summary').checked = cfg.enable_summary;
+  $('#cfg-consensus').checked = cfg.consensus === true;
   $('#m-nvidia-vision').value = cfg.models.nvidia_vision || '';
   $('#m-nebius-vision').value = cfg.models.nebius_vision || '';
   $('#m-nebius-summary').value = cfg.models.nebius_summary || '';
@@ -1741,6 +1787,7 @@ function buildUpdates(cfg) {
 
   if (state.formProvider !== cfg.vision_provider) updates.vision_provider = state.formProvider;
   if ($('#cfg-summary').checked !== cfg.enable_summary) updates.enable_summary = $('#cfg-summary').checked;
+  if ($('#cfg-consensus').checked !== (cfg.consensus === true)) updates.consensus = $('#cfg-consensus').checked;
 
   [['nvidia_vision', '#m-nvidia-vision', 'nvidia_vision_model'],
    ['nebius_vision', '#m-nebius-vision', 'nebius_vision_model'],

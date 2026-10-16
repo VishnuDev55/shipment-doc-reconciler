@@ -9,7 +9,7 @@
      [![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
 -->
 ![CI](https://img.shields.io/badge/CI-not_badged_yet_(no_remote)-lightgrey)
-![tests](https://img.shields.io/badge/tests-939_offline_%2B_22_browser-brightgreen)
+![tests](https://img.shields.io/badge/tests-953_offline_%2B_24_browser-brightgreen)
 ![network in tests](https://img.shields.io/badge/test_network_calls-0_by_construction-blue)
 
 Cross-checks a shipment's paperwork. Upload 2–5 trade documents (commercial
@@ -355,15 +355,21 @@ environment variable rather than a field to fill in.
 ### Transparency panel
 
 Every result screen ends with a **Transparency** table: one row per document plus
-one for the summary, naming the provider, the model, whether the answer came from
-a live call or the cache, attempts, tokens and latency. Below it, **Raw model
+rows for the second-reader consensus pass (when used), the executive summary, the
+draft discrepancy email and each advisory second opinion — naming the provider,
+the model, whether the answer came from a live call or the cache, attempts,
+tokens and latency. The same table is printed in `report.html` and the PDF, so
+all three views of one run agree on which model did what. Below it, **Raw model
 output** lists each persisted body from `runs/{id}/raw/` and shows it verbatim.
 
 The panel is built to be unflattering where the facts are. A run that made no
 calls says so in an amber caveat rather than showing cached numbers silently, a
 replayed document reports zero tokens, and a hand-authored fixture is never
 labelled as model output. Cost appears only if you set `USD_PER_MTOK`; with it
-unset the panel prints token counts and declines to invent a price.
+unset the panel prints token counts and declines to invent a price. The
+**"Powered by Nebius Token Factory + NVIDIA Nemotron"** badge carries the same
+honesty: it states how many calls ran, and says "no live call" when the numbers
+on screen were replayed from cache rather than made now.
 
 `GET /api/shipments/{id}/raw/{name}` serves those bodies as plain text, and only
 for filenames the report itself listed — a name the report never named is not
@@ -731,7 +737,8 @@ the trail records who they claimed to be, which is still worth more than nothing
 
 ### Two readers, when you can afford the doubt
 
-Set `CONSENSUS=true` and every page is also read by the *other* provider — NVIDIA
+Set `CONSENSUS=true` (or tick **Second reader** in the Configure drawer) and
+every page is also read by the *other* provider — NVIDIA
 if the run is on Nebius, and vice versa, or pin it with `CONSENSUS_PROVIDER`. The
 two answers are compared in deterministic Python on `compare_key`, and a field
 they disagree on is marked **needs review** in amber, showing both transcriptions.
@@ -897,6 +904,14 @@ already said `suspicious`, the app asks a Nebius Nemotron model what it thinks.
 or an ISO 6346 result changes nothing — there is no code path that lets it.
 `tests/test_adjudicate.py` asserts this by snapshotting every decided field
 before and after.
+
+The same advisor writes a one-line note beside each value the evidence check
+withdrew, guessing only at *why* the quoted line was not found (a page-break
+reflow, an OCR ligature). It is labelled "AI-generated, advisory", cached by the
+evidence rather than the document, and silent on any failure — and it never
+reinstates the value. Both directions are pinned with a fake transport: the
+withdrawal is byte-identical advisor-on vs advisor-off, and a failing advisor
+never fails the run.
 
 Also added:
 
@@ -1172,7 +1187,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-939 passed in ~43s
+953 passed in ~51s
 ```
 
 ~36 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api`,
@@ -1240,7 +1255,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 939 unit tests, plus 22 in a real browser |
+| Normalizers, comparators, parse ladder | ✅ 953 unit tests, plus 24 in a real browser |
 | The status banner never contradicts the verdict or the risk strip | ✅ pinned from both directions, and proved to fail: flipping the container row from critical to warning breaks 8 tests, flipping the country-of-origin row back to warning breaks 2, and removing the verdict floor breaks 3 |
 | Correction drafts name no value no document printed | ✅ asserted over every draft, and the ZIP manifest bug that hid README.txt's header is pinned |
 | The engine against known ground truth | ✅ 9/9 planted errors caught, 0/9 false alarms on clean and tricky paperwork, 1 miss declared in advance — `docs/PLANTED.md`, 0 API calls |
@@ -1376,7 +1391,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 939 offline tests across 34 files (+ conftest.py socket guard)
+tests/                 953 offline tests across 34 files (+ conftest.py socket guard)
 tests_e2e/             21 browser tests; a real uvicorn and real chromium, and the
                        only suite allowed to open a socket. `pytest tests/` cannot
                        collect it; run `make e2e`.

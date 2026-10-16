@@ -32,7 +32,12 @@ from .adjudicate import (
     verdict_signature,
 )
 from .adjudicate import SYSTEM as JUDGE_SYSTEM
+from .adjudicate import UNVERIFIED_SYSTEM
 from .adjudicate import build_prompt as build_verdict_prompt
+from .adjudicate import build_unverified_prompt
+from .adjudicate import parse_unverified_note
+from .adjudicate import unverified_note_is_usable
+from .adjudicate import unverified_signature
 from .client import (
     ExtractionClient,
     ExtractionOutcome,
@@ -172,6 +177,10 @@ def collect_unverified(docs: list[DocumentReport]) -> list[UnverifiedField]:
                 evidence_text=field.evidence_text,
                 page_index=field.page_index,
                 reason=check.detail or check.tier,
+                advisor_note=check.advisor_note,
+                advisor_model=check.advisor_model,
+                advisor_provider=check.advisor_provider,
+                advisor_source=check.advisor_source,
             ))
     return out
 
@@ -463,6 +472,7 @@ class Reconciler:
             "enable_summary",
             "enable_adjudication",
             "enable_briefing",
+            "consensus",
         }
     )
 
@@ -858,6 +868,7 @@ class Reconciler:
             await self._read_line_items(report, prepared, raw_dir)
 
         await self._adjudicate(report)
+        await self._advise_unverified(report)
         await self._write_briefing(report)
         await self._write_summary(report)
         self.store.write(report)
@@ -1171,6 +1182,73 @@ class Reconciler:
                 latency_ms=adjudication.latency_ms,
             )
         self.store.write(report)
+
+    async def _advise_unverified(self, report: Report) -> None:
+        """One short advisory note per value the evidence check withdrew.
+
+        Same contract as `_adjudicate`: additive, never fatal, never a second
+        decision. The field stays withdrawn whatever the model says — the note
+        only offers the most likely cause of the mismatch, and on any failure it
+        stays empty rather than showing half an answer.
+        """
+        if not report.unverified:
+            return
+        settings = self.settings
+        endpoint = self.summary_client.endpoint
+        if not settings.enable_adjudication:
+            return  # the advisor is off; silence, not a marker
+        if settings.demo_mode:
+            # No captured notes exist; a hand-written one replayed as though a
+            # model formed it would be exactly the fake result this app refuses.
+            return
+        if not _key_is_real(endpoint.api_key):
+            return
+
+        cache = AdjudicationCache(settings.cache_dir, subdir="unverified_notes")
+        docs_by_id = {d.id: d for d in report.documents}
+        for item in report.unverified:
+            doc = docs_by_id.get(item.document_id)
+            if doc is None or item.field not in doc.verification:
+                continue
+            check = doc.verification[item.field]
+            signature = unverified_signature(
+                item.field, item.value, item.evidence_text, item.reason
+            )
+
+            cached = cache.get(signature)
+            note = cached.get("note") if cached else None
+            if isinstance(note, dict) and unverified_note_is_usable(note) is None:
+                explanation = note.get("explanation")
+                if isinstance(explanation, str):
+                    check.advisor_note = explanation
+                    check.advisor_model = (cached or {}).get("model") or endpoint.model
+                    check.advisor_provider = (cached or {}).get("provider") or endpoint.provider
+                    check.advisor_source = "cached"
+                    continue
+
+            prompt = build_unverified_prompt(
+                item.field, item.label, item.value, item.evidence_text,
+                item.page_index, item.reason,
+            )
+            try:
+                raw, _usage = await self.summary_client.judge(
+                    UNVERIFIED_SYSTEM, prompt, max_tokens=120, temperature=0.2,
+                )
+            except Exception:  # noqa: BLE001 - a note is a convenience
+                continue
+
+            parsed = parse_unverified_note(raw)
+            if parsed is None or unverified_note_is_usable(parsed) is not None:
+                continue
+            check.advisor_note = parsed["explanation"]
+            check.advisor_model = endpoint.model
+            check.advisor_provider = endpoint.provider
+            check.advisor_source = "generated"
+            cache.put(signature, model=endpoint.model, provider=endpoint.provider,
+                      raw=raw, note=parsed)
+
+        # Rebuild so the notes land in the report shape renderers read.
+        report.unverified = collect_unverified(report.documents)
 
     async def _write_briefing(self, report: Report) -> None:
         """Draft the supplier email, from verdicts the engine already decided.

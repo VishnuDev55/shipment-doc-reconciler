@@ -18,6 +18,7 @@ from pathlib import Path
 from .config import COMPARATOR_VERSION, NORMALIZER_VERSION, PROMPT_VERSION
 from .fields import FIELD_LABEL, FIELD_ORDER
 from .models import Report
+from .transparency import cost_line, model_steps, powered_by, source_word, totals
 
 STATUS_LABEL = {
     "consistent": "Consistent",
@@ -414,6 +415,9 @@ ul.findings li {{ margin-bottom:4px; }}
   border-left:4px solid #2f6fb5; background:#fbfcfe; font-size:13px; }}
 .briefing pre {{ margin:6px 0 0; white-space:pre-wrap; font-family:inherit; font-size:13px; }}
 table.prov {{ border-collapse:collapse; font-size:12px; margin-bottom:8px; }}
+table.prov th {{ text-align:left; font-size:10px; text-transform:uppercase;
+  letter-spacing:.4px; color:var(--muted); padding:2px 10px 4px 0;
+  border-bottom:1px solid var(--line); }}
 table.prov td {{ padding:4px 10px 4px 0; vertical-align:top; }}
 </style></head><body>
 <h1>Shipment reconciliation</h1>
@@ -435,20 +439,19 @@ table.prov td {{ padding:4px 10px 4px 0; vertical-align:top; }}
 <tbody>{''.join(rows)}</tbody></table>
 <h2>Source documents and evidence</h2>
 {''.join(doc_rows)}
-<h2>Providers</h2>
-<table class="prov"><tbody>
-<tr><td><b>Document extraction (vision)</b></td>
-<td><code>{esc(report.run.vision_provider or '?')}</code> · model
-<code>{esc(report.run.model or '?')}</code> · structured output
-<code>{esc(report.run.json_schema_mode)}</code></td></tr>
-<tr><td><b>Executive summary (reasoning)</b></td>
-<td><code>{esc(report.run.summary_provider or 'nebius')}</code> · model
-<code>{esc(report.run.summary_model or 'not recorded')}</code>
-· status <code>{esc(report.narrative.status)}</code></td></tr>
-<tr><td><b>Model verified against host</b></td>
-<td><code>{esc(report.run.model_selection or 'unverified')}</code>
-{esc(' — ' + report.run.model_note if report.run.model_note else '')}</td></tr>
-</tbody></table>
+<h2>Model steps</h2>
+<table class="prov"><thead><tr><th>Step</th><th>Provider</th><th>Model</th>
+<th>Answer came from</th><th>Try</th><th>Tok</th><th>ms</th></tr></thead>
+<tbody>{''.join(
+    f'<tr><td>{esc(s["step"])}</td>'
+    f'<td><code>{esc(s["provider"])}</code></td>'
+    f'<td><code>{esc(s["model"])}</code></td>'
+    f'<td>{esc(source_word(s["source"]))}</td>'
+    f'<td>{s["tries"]}</td>'
+    f'<td>{s["usage"].total if s["usage"] else 0}</td>'
+    f'<td>{s["latency_ms"]}</td></tr>'
+    for s in model_steps(report))}</tbody></table>
+<p class="sub">{esc(powered_by(report))}<br>{esc(cost_line(report, *totals(model_steps(report))))}</p>
 <footer>prompt {esc(report.run.prompt_version or PROMPT_VERSION)} ·
 normalizer {esc(report.run.normalizer_version or NORMALIZER_VERSION)} ·
 comparator {esc(report.run.comparator_version or COMPARATOR_VERSION)}<br>

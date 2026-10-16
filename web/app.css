@@ -815,6 +815,10 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
   color: var(--ink-3); font-style: italic; font-size: .85rem;
 }
 .uv-why { flex: 1 1 100%; font-size: .8rem; color: var(--bad); }
+.uv-advisor {
+  flex: 1 1 100%; font-size: .8rem; color: var(--ink-2); font-style: italic;
+  border-left: 2px solid var(--line-strong); padding-left: .5rem;
+}
 
 /* Documents collapse: the head is the summary, so it needs the disclosure
  * affordance the browser drops once the element is restyled as a flex row. */
