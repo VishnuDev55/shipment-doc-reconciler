@@ -1,5 +1,17 @@
 # Shipment Doc Reconciler
 
+<!-- CI badge placeholder. This repository has no remote yet, so a live badge
+     would have nothing to point at and would render "no status" -- which reads
+     as green to someone skimming. The static badge below is honest about that.
+     Once pushed to GitHub, replace the line with the live one (branch matters:
+     the workflow triggers on master, not main):
+
+     [![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+-->
+![CI](https://img.shields.io/badge/CI-not_badged_yet_(no_remote)-lightgrey)
+![tests](https://img.shields.io/badge/tests-937_offline_%2B_21_browser-brightgreen)
+![network in tests](https://img.shields.io/badge/test_network_calls-0_by_construction-blue)
+
 Cross-checks a shipment's paperwork. Upload 2–5 trade documents (commercial
 invoice, packing list, bill of lading, certificate of origin) as scans or phone
 photos, and the app extracts ten shipment-level fields from each, normalizes them
@@ -563,9 +575,20 @@ stages already produced and assigning each a level from one table.
 
 | Level | What earns it |
 |---|---|
-| **CRITICAL** | container number, consignee, HS code (first six digits), or an invoice value stated in two currencies |
+| **CRITICAL** | container number, consignee, HS code (first six digits), country of origin, or an invoice value stated in two currencies |
 | **WARNING** | any other cross-document conflict, a suspicious reading, a document that could not be read, an internal arithmetic failure, a withdrawn unverified value, a cross-field rule at `risk`/`warn` |
 | **INFO** | a difference of counting basis (items against cartons, whatever the two numbers are), the same count printed with different package words, a field only one document stated, a check that did not run, a goods line one document printed alone |
+
+Country of origin is the newest entry in the critical band, and it is a judgment
+call rather than a measurement: origin decides the duty rate and whether an FTA
+preference applies at all, so a shipment whose papers name two countries cannot
+be entered correctly while that stands. The 0-100 risk strip already scored it
+that way (`origin_conflict` is worth 60 points, above the high band at 55) — the
+severity table saying `warning` meant the two readers of one report disagreed
+about how bad the same fact was. A *near-miss* on origin stays a warning; only an
+outright conflict blocks. Both directions are pinned in `tests/test_severity.py`,
+and the pin is measured rather than assumed: setting the row back to `warning`
+breaks 2 tests.
 
 `SEVERITY_TABLE` in that one file is the only place a level is decided -- tuning
 severity is editing a dict, not chasing conditions. It is a table of *levels*, not
@@ -1149,7 +1172,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-935 passed in ~38s
+937 passed in ~42s
 ```
 
 ~36 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api`,
@@ -1217,8 +1240,8 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 935 unit tests, plus 21 in a real browser |
-| The status banner never contradicts the verdict or the risk strip | ✅ pinned from both directions, and proved to fail: flipping the container row from critical to warning breaks 6 tests, and removing the verdict floor breaks 2 |
+| Normalizers, comparators, parse ladder | ✅ 937 unit tests, plus 21 in a real browser |
+| The status banner never contradicts the verdict or the risk strip | ✅ pinned from both directions, and proved to fail: flipping the container row from critical to warning breaks 8 tests, flipping the country-of-origin row back to warning breaks 2, and removing the verdict floor breaks 3 |
 | Correction drafts name no value no document printed | ✅ asserted over every draft, and the ZIP manifest bug that hid README.txt's header is pinned |
 | The engine against known ground truth | ✅ 9/9 planted errors caught, 0/9 false alarms on clean and tricky paperwork, 1 miss declared in advance — `docs/PLANTED.md`, 0 API calls |
 | The evidence highlight lands on the right words | ✅ screenshot-verified in chromium (the rectangle and the image share one box), and proved to fail: dropping the verbatim-line restriction breaks the fuzzy test, and stopping the chip from passing its box breaks the browser suite |
@@ -1353,7 +1376,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 935 offline tests across 34 files (+ conftest.py socket guard)
+tests/                 937 offline tests across 34 files (+ conftest.py socket guard)
 tests_e2e/             21 browser tests; a real uvicorn and real chromium, and the
                        only suite allowed to open a socket. `pytest tests/` cannot
                        collect it; run `make e2e`.

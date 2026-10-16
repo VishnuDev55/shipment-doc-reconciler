@@ -7,7 +7,83 @@ calendar weeks.
 The format follows Keep a Changelog's grouping, but the entries are written as what
 changed and what it cost, because that is the useful history for this repository.
 
-## Unreleased — production-grade pass (2026-10-03 → 2026-10-04)
+## Unreleased — evidence, severity and release hygiene (2026-10-10 → 2026-10-16)
+
+Six features that make the report defensible rather than merely informative, then
+the hygiene pass around shipping them. None of them ask a model to decide
+anything: the new stages read facts the deterministic engine already produced.
+
+### The engine
+
+- **Evidence verification** (`app/textlayer.py`, `app/verify.py`): the PDF's own
+  text layer is walked character by character to recover where each printed line
+  sits, and every value the model quoted is checked against it. A quote that is
+  not on the page withdraws the value from the comparison instead of trusting it
+  (`report.unverified`, severity `evidence:excluded`). Costs about 6 ms per 1,800
+  characters and needs no extra model call. The limit is stated rather than
+  papered over: a phone photo of a printed page has no text layer, so nothing on
+  it can be checked at all.
+- **Highlight on the page** (boxes from `app/textlayer.py` → `web/app.js`
+  lightbox): when the quoted line's position is recoverable, the evidence viewer
+  draws it. Only the exact-line tier yields a box — a fuzzy containment match
+  would draw a rectangle that is not the line, which is worse than drawing
+  nothing, so the tier check is load-bearing and pinned by a test that reaches
+  the fuzzy path on purpose.
+- **Internal arithmetic** (`app/mathcheck.py`): four rules that check a document
+  against itself. `not_run` is a state and is reported as information, so an
+  empty findings list cannot be read as "the paperwork adds up". Three of the
+  four need `ENABLE_LINE_ITEMS=true`.
+- **One severity per finding** (`app/severity.py`): six panels used to comment on
+  one shipment and the reviewer reconciled them by reading all six. A single
+  `SEVERITY_TABLE` now decides every level and the banner follows mechanically
+  from it. It may be stricter than the verdict and never kinder; both directions
+  are pinned, and the risk-score backstop was measured never to fire on the
+  bundled fixtures — the table already covers every point the score awards.
+- **Correction drafts written by rule** (`app/correction_email.py`): generated
+  from the findings the engine already produced, with no model in the path, so
+  nothing can be added, softened or invented between the verdict and the message.
+  Only critical and warning findings are written up; an informational item is not
+  a request to change anything. On a 1-1 tie both parties are asked rather than
+  one being accused at random, and a container number that fails its own ISO 6346
+  check digit settles which paper is wrong — recomputed from the normalizer rather
+  than parsed out of the prose reason, because the prose is ours to reword.
+
+### Measuring it
+
+- **Planted-error bundle** (`fixtures/planted.py`, `scripts/evaluate_planted.py`,
+  `docs/PLANTED.md`): 19 cases with the expected outcome declared in advance and
+  scored against ground truth, on authored responses only — zero API calls,
+  $0.00. 9 of 9 planted errors caught, 0 of 9 traps raised a false alarm, and
+  the one miss (a weight inside tolerance) is declared in the bundle rather than
+  discovered by it. Pages are deduplicated by content hash, 8.8 MB → 3.8 MB,
+  which also removed a cache collision where one page set had two authored
+  responses behind it.
+
+### Release hygiene
+
+- `country_of_origin` conflict is now **critical**, not warning. A judgment call,
+  and recorded as one: origin drives the duty rate and whether an FTA preference
+  applies at all, and the risk strip already scored it at 60 points — above the
+  high band at 55 — while the severity table called it survivable. Two readers of
+  one report disagreed about how bad the same fact was. Measured: reverting the
+  row breaks 2 tests.
+- **CI had never run.** The workflow triggered on push to `main` in a repository
+  whose default branch is `master`. It now triggers on both. The mypy step prints
+  its count against the 39-error baseline instead of only reporting it, and warns
+  when the number grows; the stale "36 errors in 9 files" figure was corrected
+  here and in `CONTRIBUTING.md`, while `CHANGELOG.md` keeps its historical 36
+  because that was the measured number when it was written.
+- README carries a CI badge placeholder. It is deliberately static: with no
+  remote, a live badge renders "no status", which reads as green to anyone
+  skimming. The one-line swap is commented directly above it.
+- Two bugs found while doing this, both pre-existing and both in the export ZIP:
+  `store.write()` used the platform default encoding, so a `report.json`
+  containing a non-ASCII character was written as cp1252 on Windows and could not
+  be read back as UTF-8 (now pinned to UTF-8 on write and on both reads); and the
+  `README.txt` manifest had a ternary whose precedence dropped the arithmetic and
+  unverified lines whenever `report.unverified` was empty.
+
+
 
 ### Phase 5 — documentation
 

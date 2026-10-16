@@ -93,14 +93,19 @@ def test_every_row_names_a_real_level():
     assert not bad, f"levels outside {LEVELS} would be silently dropped: {bad}"
 
 
-def test_the_four_shipment_defining_fields_are_the_critical_ones():
+def test_the_five_shipment_defining_fields_are_the_critical_ones():
     """Critical is a short list on purpose: a report where everything is critical
-    tells the reviewer to do everything, which is the same as nothing."""
+    tells the reviewer to do everything, which is the same as nothing.
+
+    Enumerated rather than counted, so adding a sixth row is a decision somebody
+    has to make in this file and not a silent widening of the band.
+    """
     critical = {key for key, value in SEVERITY_TABLE.items() if value == "critical"}
     assert critical == {
         "comparison:container_number:conflict",
         "comparison:consignee_name:conflict",
         "comparison:hs_code:conflict",
+        "comparison:country_of_origin:conflict",
         "comparison:invoice_value:conflict:currency",
     }
 
@@ -123,6 +128,34 @@ def test_a_consignee_mismatch_blocks():
 
 def test_a_wrong_hs_heading_blocks():
     assert settled(conflict("hs_code")).status_report.banner == "blocked"
+
+
+def test_two_countries_of_origin_block():
+    """Origin decides the duty rate and FTA eligibility, so an entry naming two
+    countries cannot be filed correctly while it stands. This is a judgment
+    call, and it is pinned here rather than left as a comment: the risk strip
+    already scored origin_conflict at 60 points (above HIGH_AT), so the table
+    saying `warning` was the two readers of one report disagreeing about how
+    bad the same fact is.
+    """
+    report = settled(conflict("country_of_origin"))
+    picked = severity_of(report, "comparison")
+    assert picked["comparison:country_of_origin:conflict"] == "critical"
+    assert report.status_report.banner == "blocked"
+
+
+def test_a_near_miss_on_origin_is_still_only_a_warning():
+    """The boundary the row above does not move: one printing read with low
+    confidence against another is `suspicious`, which the wildcard row keeps at
+    warning. Only an outright conflict between two named countries blocks."""
+    report = settled(report_with(country_of_origin=stated(
+        "country_of_origin",
+        [("d1", "A", "country:CN"), ("d2", "B", "country:CN")],
+        status="suspicious")))
+    assert severity_of(
+        report, "comparison")["comparison:country_of_origin:suspicious"] == "warning"
+    assert report.status_report.banner == "review"
+    assert report.status_report.critical == 0
 
 
 def test_the_same_amount_in_two_currencies_blocks_rather_than_warns():

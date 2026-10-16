@@ -61,9 +61,10 @@ BANNER_HEADLINE = {
 
 SEVERITY_TABLE: dict[str, str] = {
     # --- cross-document comparisons -------------------------------------
-    # Critical is reserved for the four things that make the shipment a
-    # different shipment: the equipment it moves on, who it is delivered to,
-    # what it is classified as, and what it was sold for in which currency.
+    # Critical is reserved for the five things that make the shipment a
+    # different shipment in the eyes of whoever clears it: the equipment it
+    # moves on, who it is delivered to, what it is classified as, where it
+    # comes from, and what it was sold for in which currency.
     "comparison:container_number:conflict": "critical",
     "comparison:consignee_name:conflict": "critical",
     "comparison:hs_code:conflict": "critical",
@@ -71,11 +72,17 @@ SEVERITY_TABLE: dict[str, str] = {
     # refuses to convert, so the documents are making two different claims
     # about the sale, and neither can be reconciled against the other.
     "comparison:invoice_value:conflict:currency": "critical",
+    # Origin decides the duty rate and whether an FTA preference applies at
+    # all, so two documents naming two countries is not a paperwork nit to
+    # resolve later -- the entry cannot be filed correctly while it stands.
+    # The risk strip already scored it that way (POINTS["origin_conflict"] is
+    # 60, above HIGH_AT); the table said warning, which meant the banner was
+    # the only reader of this report that treated it as survivable.
+    "comparison:country_of_origin:conflict": "critical",
     "comparison:invoice_value:conflict": "warning",
     "comparison:gross_weight:conflict": "warning",
     "comparison:net_weight:conflict": "warning",
     "comparison:quantity:conflict": "warning",
-    "comparison:country_of_origin:conflict": "warning",
     "comparison:incoterms:conflict": "warning",
     "comparison:po_number:conflict": "warning",
     # A near-miss is worth a look, not a block. Any field can land here,

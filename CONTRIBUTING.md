@@ -31,7 +31,7 @@ make probe      # self-check the demo pipeline end to end
 python scripts/evaluate.py --check   # accuracy floors vs ground truth
 ```
 
-`mypy` reports a non-zero baseline (36 errors in 9 files) and is **not** a gate. Do
+`mypy` reports a non-zero baseline (39 errors in 10 files) and is **not** a gate. Do
 not silence it by adding ignores; drive the number down and update the baseline note
 in `pyproject.toml` when it moves.
 
