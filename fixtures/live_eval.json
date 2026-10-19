@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-19",
+  "verdicts": {
+    "clean": {
+      "expected": "clean",
+      "got": "clean",
+      "banner": "ready",
+      "state": "done",
+      "failed_docs": []
+    },
+    "conflict": {
+      "expected": "conflicts",
+      "got": "review",
+      "banner": "review",
+      "state": "partial",
+      "failed_docs": [
+        "bol_conflict.png"
+      ]
+    },
+    "messy": {
+      "expected": "review",
+      "got": "review",
+      "banner": "review",
+      "state": "done",
+      "failed_docs": []
+    }
+  },
+  "primary_accuracy": {
+    "exact": 70,
+    "verbatim": 69,
+    "comparable": 70,
+    "missed": 0,
+    "invented": 0
+  },
+  "consensus": {
+    "fields_compared": 110,
+    "divergences": 5
+  },
+  "consensus_cost_benefit": {
+    "primary_right": 5,
+    "secondary_right": 0,
+    "both": 0,
+    "neither": 0,
+    "n": 5
+  },
+  "false_alarms": [],
+  "latency": {
+    "p50_ms": 58782,
+    "p95_ms": 67234,
+    "n": 12
+  },
+  "cost": {
+    "clean": {
+      "tokens": 62715,
+      "usd_est": 0.008444
+    },
+    "conflict": {
+      "tokens": 43144,
+      "usd_est": 0.005526
+    },
+    "messy": {
+      "tokens": 67975,
+      "usd_est": 0.008412
+    }
+  },
+  "note": "Measured live against NVIDIA nemotron-3-nano-omni (primary) with MiniCPM-V consensus, on 2026-10-19 while the NVIDIA host was capacity-degraded (intermittent HTTP 503 and request hangs). Documents that failed or hung are recorded in failed_docs, not silently dropped."
+}

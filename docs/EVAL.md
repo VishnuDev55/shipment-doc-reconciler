@@ -68,6 +68,57 @@ The question a reviewer actually asks: with this provider's errors in, does the 
 - ok — shipment_conflict: expected conflicts, engine reached conflicts
 - ok — shipment_messy: expected review, engine reached not-conflicts
 
+## Live run (2026-10-19)
+
+The same engine run end to end against the live hosts — DEMO_MODE off, consensus on, goods lines on, advisor on — with the three bundled shipments uploaded through the real pipeline. This is the number the cached captures cannot produce: what the hosts did today.
+
+Measured live against NVIDIA nemotron-3-nano-omni (primary) with MiniCPM-V consensus, on 2026-10-19 while the NVIDIA host was capacity-degraded (intermittent HTTP 503 and request hangs). Documents that failed or hung are recorded in failed_docs, not silently dropped.
+
+### Verdicts
+
+| Shipment | Expected | Engine reached | Banner | State | Failed docs |
+|---|---|---|---|---|---|
+| clean | clean | clean | ready | done | — |
+| conflict | conflicts | review | review | partial | bol_conflict.png |
+| messy | review | review | review | done | — |
+
+### Primary extraction (NVIDIA omni), live
+
+- exact on the comparison key: **70 / 70** (100.0%)
+- verbatim as printed: **69 / 70**
+- printed but missed: **0**
+- invented (not on the document): **0**
+
+### Consensus agreement (MiniCPM-V second reader)
+
+- field readings compared: **110**, diverged: **5** → agreement **95.5%**
+
+A divergence is a review marker, not a verdict: the primary extraction stays authoritative, and two readers agreeing is not proof either.
+
+### When the two readers disagreed, who was right?
+
+- NVIDIA omni (primary) correct: **5**
+- MiniCPM-V (secondary) correct: **0**
+- both correct: **0**, neither: **0**
+
+Every divergence was caught and flagged "needs review" — the point of the second reader is not to decide, but to surface its own invention (a PO number on each packing list, an origin on the bill of lading) beside the primary's correct absence.
+
+### Latency (primary extraction, wall clock)
+
+- p50 **58.8 s**, p95 **67.2 s**, n = 12 documents
+
+### Cost per shipment (estimate)
+
+Tokens are exact; dollars use the conservative price table in scripts/spend.py because the vendors publish no per-token rates.
+
+| Shipment | Tokens | Est. USD |
+|---|---:|---:|
+| clean | 62715 | $0.0084 |
+| conflict | 43144 | $0.0055 |
+| messy | 67975 | $0.0084 |
+
+False alarms (a clean/review shipment reported as conflicts): **0**
+
 ## Reading the gap between `exact` and `verbatim`
 
 Where verbatim is lower than exact, the model transcribed loosely and the deterministic layer absorbed it -- dropped `FOB NINGBO` prefixes, an invented digit in a weight, `Made in P.R.C.` for a country. That is the design working: the model is allowed to be a transcriber because nothing downstream trusts its formatting.
