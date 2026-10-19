@@ -212,24 +212,16 @@ ignore = [
 # =============================================================================
 # mypy
 #
-# MEASURED BASELINE (mypy 2.4.0, `python -m mypy app`, config below, which is
-# equivalent to --ignore-missing-imports): 39 errors in 10 files, over 39 source
-# files. The module count checked moves as app/ grows, so the number to track is
-# the 39. Re-measured when the severity stage landed; the previous figure of 36
-# in 9 files had drifted during the evidence-verification work, which added two
-# `dict[str, FieldVerification]` assignments and the tenth file.
-# Breakdown by error code:
-#   assignment     11
-#   arg-type       10
-#   operator        9
-#   call-overload   4
-#   union-attr      3
-#   no-redef        1
-#   attr-defined    1
-# By file (worst first): app/compare/__init__.py 13, app/normalize/__init__.py 8,
-# app/orchestrator.py 7, app/scoring.py 3, app/rules.py 3,
-# app/normalize/weight.py 1, app/models.py 1, app/ingest.py 1, app/client.py 1,
-# app/adjudicate.py 1.
+# MEASURED BASELINE (mypy 2.4.0, `python -m mypy app --no-incremental`, config
+# below, which is equivalent to --ignore-missing-imports): 8 errors in 3 files.
+# The earlier "39 in 10 files" was overstated: an incremental run kept reporting
+# a stale .mypy_cache, and a type-annotation pass (a Protocol for the normalizer
+# results, Literal imports, an isinstance guard) then removed the bulk of the
+# rest. --no-incremental is the authoritative number. Breakdown by error code:
+#   arg-type       5
+#   assignment     2
+#   union-attr     1
+# By file: app/orchestrator.py 6, app/adjudicate.py 1, app/compare/__init__.py 1.
 #
 # Deliberately NON-STRICT and deliberately NOT silenced: no `disable_error_code`,
 # no `[[tool.mypy.overrides]]` hiding modules, no per-file ignores. Mass-editing

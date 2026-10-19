@@ -78,31 +78,32 @@ jobs:
         # neither redden this gate nor be quietly excluded from it.
         run: python -m ruff check app scripts tests tests_e2e fixtures pyproject.toml
 
-      - name: "Type check (mypy) -- BASELINE NOT ZERO: 39 errors in 10 files; NOT a pass"
+      - name: "Type check (mypy) -- BASELINE NOT ZERO: 8 errors in 3 files; NOT a pass"
         # Non-strict and non-blocking on purpose: the number is the baseline to
         # drive down, and making it red would mean either mass-editing app/ or
-        # silencing rules to fake a green. Categories: assignment 11, arg-type
-        # 10, operator 9, call-overload 4, union-attr 3, no-redef 1,
-        # attr-defined 1.
+        # silencing rules to fake a green. Categories: arg-type 5, assignment 2,
+        # union-attr 1 (app/orchestrator.py 6, app/adjudicate.py 1,
+        # app/compare/__init__.py 1). --no-incremental is deliberate: an
+        # incremental run keeps reporting errors the working tree no longer has.
         #
         # The count is printed and compared rather than only reported, so the
         # number in the log is the number the baseline was set from. It still
         # cannot fail the build (continue-on-error), which is the honest state:
-        # a gate that 39 known errors would trip is a gate nobody can merge
-        # under, and the alternative -- fixing all 39 first -- is a different
+        # a gate that 8 known errors would trip is a gate nobody can merge
+        # under, and the alternative -- fixing all 8 first -- is a different
         # piece of work than this workflow is claiming to do.
         continue-on-error: true
         run: |
           set +e
-          python -m mypy app | tee mypy.txt
+          python -m mypy app --no-incremental | tee mypy.txt
           total=$(grep -oE 'Found [0-9]+ error' mypy.txt | grep -oE '[0-9]+')
           files=$(grep -oE 'in [0-9]+ files' mypy.txt | grep -oE '[0-9]+')
-          echo "mypy baseline: ${total:-0} errors in ${files:-0} files (expected 39 in 10)"
-          if [ "${total:-0}" -gt 39 ]; then
-            echo "::warning::mypy grew past the 39-error baseline -- the increase is new, not inherited"
+          echo "mypy baseline: ${total:-0} errors in ${files:-0} files (expected 8 in 3)"
+          if [ "${total:-0}" -gt 8 ]; then
+            echo "::warning::mypy grew past the 8-error baseline -- the increase is new, not inherited"
             exit 1
           fi
-          if [ "${total:-0}" -lt 39 ]; then
+          if [ "${total:-0}" -lt 8 ]; then
             echo "::notice::mypy is below baseline at ${total} -- lower it in pyproject.toml, Makefile and this step"
           fi
 
