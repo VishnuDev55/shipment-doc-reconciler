@@ -112,7 +112,7 @@ def _encode(img: Image.Image, index: int, long_edge: int, quality: int) -> PageI
         scale = long_edge / max(img.size)
         img = img.resize(
             (max(1, round(img.width * scale)), max(1, round(img.height * scale))),
-            Image.LANCZOS,
+            Image.Resampling.LANCZOS,
         )
 
     buf = io.BytesIO()

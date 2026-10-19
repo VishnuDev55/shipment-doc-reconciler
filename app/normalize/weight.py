@@ -78,7 +78,7 @@ def normalize_weight(raw: str | None) -> WeightResult:
         return res
 
     num = parse_number(token)
-    if not num.ok:
+    if not num.ok or num.value is None:
         res.warnings.extend(num.warnings)
         return res
     res.rules_applied.extend(num.rules_applied)

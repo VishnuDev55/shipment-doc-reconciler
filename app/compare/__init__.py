@@ -11,12 +11,13 @@ output that reads like a product and output that reads like a raw diff.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from rapidfuzz import fuzz
 
-from ..fields import FIELD_KIND, FIELD_LABEL, FIELD_ORDER, EXPECTED, FieldKey
-from ..models import Comparison, ComparisonValue, ExtractedField, NormalizedField
+from ..fields import FIELD_KIND, FIELD_LABEL, FIELD_ORDER, EXPECTED, DocType, FieldKey
+from ..models import Comparison, ComparisonValue, ExtractedField, NormalizedField, Status
 
 # ---------------------------------------------------------------------------
 # Frozen thresholds. One place, referenced by tests.
@@ -42,7 +43,7 @@ class FieldObservation:
 
     document_id: str
     document_label: str
-    doc_type: str
+    doc_type: DocType
     extracted: ExtractedField
     normalized: NormalizedField
 
@@ -144,7 +145,7 @@ def _compare_numeric(
     values: list[ComparisonValue],
     *,
     label: str = "value",
-) -> tuple[str, str]:
+) -> tuple[Status, str]:
     rel_consistent = (
         WEIGHT_TOLERANCE_CONSISTENT_REL if kind == "weight" else MONEY_TOLERANCE_CONSISTENT_REL
     )
@@ -152,8 +153,9 @@ def _compare_numeric(
         WEIGHT_TOLERANCE_SUSPICIOUS_REL if kind == "weight" else MONEY_TOLERANCE_SUSPICIOUS_REL
     )
 
-    nums = [_num_from_compare_key(v.compare_key) for v in values]
-    if any(n is None for n in nums):
+    maybe_nums = [_num_from_compare_key(v.compare_key) for v in values]
+    nums = [n for n in maybe_nums if n is not None]
+    if len(nums) != len(maybe_nums):
         return "suspicious", "one or more values did not normalize to a number"
 
     # Money in different currencies can never be reconciled.
@@ -169,7 +171,7 @@ def _compare_numeric(
                 "no FX conversion is applied by design"
             )
 
-    lo, hi = min(nums), max(nums)  # type: ignore[type-var]
+    lo, hi = min(nums), max(nums)
     rel = _rel_diff(lo, hi)
     spread = f"{lo:,.2f} vs {hi:,.2f}"
 
@@ -190,9 +192,9 @@ def _compare_numeric(
 
 def _compare_count(
     obs: list[FieldObservation], values: list[ComparisonValue]
-) -> tuple[str, str]:
+) -> tuple[Status, str]:
     units = [_unit_from_compare_key(v.compare_key) for v in values]
-    counts = {_num_from_compare_key(v.compare_key) for v in values}
+    maybe_counts = [_num_from_compare_key(v.compare_key) for v in values]
     listed = ", ".join(f"{v.document_label}={v.canonical}" for v in values)
 
     # Only "individual items vs packaging" is a benign difference of basis.
@@ -206,6 +208,12 @@ def _compare_count(
             "packaging. This is normal on real trade documents, not necessarily an error."
         )
 
+    # A count that did not parse has no number to compare. Previously this fell
+    # through to min()/format on None and raised TypeError.
+    counts = {n for n in maybe_counts if n is not None}
+    if len(counts) != len(set(maybe_counts)):
+        return "suspicious", "one or more counts did not normalize to a number"
+
     if len(counts) == 1 and len(bases) == 1:
         only = next(iter(counts))
         return "consistent", f"quantity agrees across {len(values)} documents ({only:,.0f})"
@@ -216,7 +224,7 @@ def _compare_count(
             f"package words ({listed}); likely the same goods, worth a glance"
         )
 
-    lo, hi = min(counts), max(counts)  # type: ignore[type-var]
+    lo, hi = min(counts), max(counts)
     return "conflict", (
         f"quantity differs on a {hi - lo:,.0f} unit gap ({listed}) — the documents "
         "count the same kind of unit, so this is a real discrepancy"
@@ -225,7 +233,7 @@ def _compare_count(
 
 def _compare_party(
     obs: list[FieldObservation], values: list[ComparisonValue]
-) -> tuple[str, str]:
+) -> tuple[Status, str]:
     keys = [v.compare_key for v in values]
     if len(set(keys)) == 1:
         return "consistent", (
@@ -235,7 +243,7 @@ def _compare_party(
 
     # Score every pair on the folded name; the worst pair decides the status.
     names = [v.canonical or "" for v in values]
-    worst = 100
+    worst: float = 100
     worst_pair = ""
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
@@ -263,7 +271,7 @@ def _compare_party(
 
 def _compare_container(
     obs: list[FieldObservation], values: list[ComparisonValue]
-) -> tuple[str, str]:
+) -> tuple[Status, str]:
     """ISO 6346 gives us arbitration power: the field validates itself."""
     from ..normalize.container import normalize_container
 
@@ -313,7 +321,7 @@ def _compare_container(
 
 def _compare_exact(
     obs: list[FieldObservation], values: list[ComparisonValue]
-) -> tuple[str, str]:
+) -> tuple[Status, str]:
     keys = {v.compare_key for v in values}
     listed = ", ".join(f"{v.document_label}={v.canonical or v.raw_value}" for v in values)
     if len(keys) == 1:
@@ -356,9 +364,12 @@ def _arbitration(kind: str, status: str, values: list[ComparisonValue]) -> str |
     return "iso_6346_check_digit" if not valid else None
 
 
-COMPARATORS = {
-    "weight": _compare_numeric,
-    "money": _compare_numeric,
+# Comparators sharing the plain (obs, values) signature. weight/money go through
+# _compare_numeric, which also needs the kind and a row label, so compare_field
+# calls it explicitly rather than hiding two signatures behind one dict.
+_SIMPLE_COMPARATORS: dict[
+    str, Callable[[list[FieldObservation], list[ComparisonValue]], tuple[Status, str]]
+] = {
     "count": _compare_count,
     "party_name": _compare_party,
     "container_number": _compare_container,
@@ -368,6 +379,13 @@ COMPARATORS = {
     "incoterm": _compare_exact,
     "reference": _compare_exact,
     "country": _compare_exact,
+}
+
+# Registry of every kind that has a comparator (tests assert it covers FIELD_KIND).
+COMPARATORS: dict[str, Callable[..., tuple[Status, str]]] = {
+    "weight": _compare_numeric,
+    "money": _compare_numeric,
+    **_SIMPLE_COMPARATORS,
 }
 
 
@@ -384,14 +402,14 @@ def compare_field(key: FieldKey, obs: list[FieldObservation]) -> Comparison:
         ComparisonValue(
             document_id=o.document_id,
             document_label=o.document_label,
-            doc_type=o.doc_type,  # type: ignore[arg-type]
+            doc_type=o.doc_type,
             page_index=o.extracted.page_index,
             raw_value=o.extracted.value,
             canonical=o.normalized.canonical,
             compare_key=o.normalized.compare_key,
             confidence=o.extracted.confidence,
             warnings=list(o.normalized.warnings),
-            expected_here=key in EXPECTED.get(o.doc_type, frozenset()),  # type: ignore[arg-type]
+            expected_here=key in EXPECTED.get(o.doc_type, frozenset()),
         )
         for o in obs
     ]
@@ -403,7 +421,7 @@ def compare_field(key: FieldKey, obs: list[FieldObservation]) -> Comparison:
     # --- cardinality gate, before any comparator runs ---
     if not usable:
         expected_any = any(
-            key in EXPECTED.get(o.doc_type, frozenset())  # type: ignore[arg-type]
+            key in EXPECTED.get(o.doc_type, frozenset())
             for o in obs
         )
         if expected_any:
@@ -433,7 +451,6 @@ def compare_field(key: FieldKey, obs: list[FieldObservation]) -> Comparison:
         )
         return comparison
 
-    comparator = COMPARATORS[kind]
     # Comparators see ONLY usable values. An absent field is not a candidate
     # for disagreement — feeding it in would make "not printed on this document
     # type" look like a checksum failure or a null number.
@@ -442,15 +459,15 @@ def compare_field(key: FieldKey, obs: list[FieldObservation]) -> Comparison:
         # One comparator serves gross weight and net weight, so the row names
         # itself here: "gross weight agrees" beside a net-weight verdict reads as
         # though the engine had checked the wrong field.
-        status, reason = comparator(  # type: ignore[call-arg]
+        status, reason = _compare_numeric(
             kind, obs, usable_values, label=FIELD_LABEL[key].lower()
         )
     else:
-        status, reason = comparator(obs, usable_values)
+        status, reason = _SIMPLE_COMPARATORS[kind](obs, usable_values)
 
     majority = _majority(usable_values)
     _mark_outliers(usable_values, majority)
-    comparison.status = status  # type: ignore[assignment]
+    comparison.status = status
     comparison.reason = reason
     comparison.majority_compare_key = majority
     comparison.arbitrated_by = _arbitration(kind, status, usable_values)
@@ -460,7 +477,7 @@ def compare_field(key: FieldKey, obs: list[FieldObservation]) -> Comparison:
     # and would otherwise flag every comparison where one doc lacks the field.
     low = [v.document_label for v in usable_values if v.confidence < LOW_CONFIDENCE]
     if low and status == "consistent":
-        comparison.status = "suspicious"  # type: ignore[assignment]
+        comparison.status = "suspicious"
         comparison.reason += (
             f" Note: {', '.join(low)} reported confidence below "
             f"{LOW_CONFIDENCE:g} on this field, so verify the source text."

@@ -520,7 +520,7 @@ class ExtractionClient(ChatClient):
 
             latency = int((time.monotonic() - started) * 1000)
             keep(f"{document_id}_{rung}", raw)
-            parsed: ParseResult = parse_extraction(raw)
+            parsed = parse_extraction(raw)
             if field_used != "content":
                 parsed.issues.append(f"answer read from '{field_used}' (content was empty)")
             logs.append(AttemptLog(

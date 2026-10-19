@@ -13,6 +13,8 @@ tool:
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from ..fields import FIELD_KIND, FIELD_ORDER, FieldKey
 from ..models import ExtractedField, NormalizedField
 from .categorical import (
@@ -41,6 +43,21 @@ __all__ = [
 ]
 
 
+class _Normalized(Protocol):
+    """What every per-kind normalizer result exposes; read-only on purpose."""
+
+    @property
+    def canonical(self) -> str | None: ...
+    @property
+    def compare_key(self) -> str | None: ...
+    @property
+    def rules_applied(self) -> list[str]: ...
+    @property
+    def warnings(self) -> list[str]: ...
+    @property
+    def ok(self) -> bool: ...
+
+
 def normalize_field(key: FieldKey, extracted: ExtractedField) -> NormalizedField:
     kind = FIELD_KIND[key]
 
@@ -48,6 +65,7 @@ def normalize_field(key: FieldKey, extracted: ExtractedField) -> NormalizedField
         return NormalizedField(ok=True, canonical=None, compare_key=None)
 
     text = extracted.value
+    res: _Normalized
     if kind == "weight":
         res = normalize_weight(text)
     elif kind == "count":

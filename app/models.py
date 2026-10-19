@@ -222,9 +222,11 @@ class ExtractedLineItem(BaseModel):
     @field_validator("page_index", mode="before")
     @classmethod
     def _page_to_int(cls, v: object) -> int:
+        if not isinstance(v, (int, float, str)):
+            return 1
         try:
-            return max(1, int(v))          # type: ignore[arg-type]
-        except (TypeError, ValueError):
+            return max(1, int(v))
+        except (TypeError, ValueError, OverflowError):
             return 1
 
 

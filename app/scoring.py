@@ -14,6 +14,7 @@ the same number, which is the only reason an auditor could act on it.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from .fields import FieldKey
 from .models import Report, RiskContribution, RiskNote
@@ -89,14 +90,17 @@ def _awards(report: Report) -> list[_Award]:
             out.append(_Award("container_suspicious", POINTS["container_suspicious"],
                               container.reason, ("container_number",)))
 
-    for field, code in (("invoice_value", "value_conflict"),
-                        ("gross_weight", "weight_conflict"),
-                        ("net_weight", "net_weight_conflict"),
-                        ("country_of_origin", "origin_conflict"),
-                        ("incoterms", "incoterms_conflict"),
-                        ("po_number", "po_conflict"),
-                        ("quantity", "quantity_conflict"),
-                        ("consignee_name", "party_conflict")):
+    conflict_checks: tuple[tuple[FieldKey, str], ...] = (
+        ("invoice_value", "value_conflict"),
+        ("gross_weight", "weight_conflict"),
+        ("net_weight", "net_weight_conflict"),
+        ("country_of_origin", "origin_conflict"),
+        ("incoterms", "incoterms_conflict"),
+        ("po_number", "po_conflict"),
+        ("quantity", "quantity_conflict"),
+        ("consignee_name", "party_conflict"),
+    )
+    for field, code in conflict_checks:
         comp = got.get(field)
         if comp is not None and comp.status == "conflict":
             out.append(_Award(code, POINTS[code], comp.reason, (field,)))
@@ -150,7 +154,9 @@ def score_report(report: Report) -> RiskNote:
         ]
 
     score = min(100, max(0, sum(a.points for a in awards)))
-    band = "high" if score >= HIGH_AT else "medium" if score >= MEDIUM_AT else "low"
+    band: Literal["low", "medium", "high"] = (
+        "high" if score >= HIGH_AT else "medium" if score >= MEDIUM_AT else "low"
+    )
     reasons = [f"{a.code.replace('_', ' ')}: {a.detail}" for a in awards] or [
         "no classification-relevant disagreement detected"
     ]

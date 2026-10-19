@@ -400,10 +400,10 @@ class Reconciler:
         # eviction costs a re-read, never data -- while an unbounded dict means a
         # long-lived instance is holding every shipment it has ever served.
         self._reports: OrderedDict[str, Report] = OrderedDict()
-        self._purged = self.store.purge_older_than(settings.run_ttl_hours)
+        self._purged = self.store.purge_older_than(self.settings.run_ttl_hours)
         if self._purged:
             log.info("purged %d run(s) older than %dh", len(self._purged),
-                     settings.run_ttl_hours)
+                     self.settings.run_ttl_hours)
         self._tasks: dict[str, asyncio.Task] = {}
         # Discovery results, keyed by host so two roles on one host share a
         # catalog. Both are best-effort: an unreachable host leaves the

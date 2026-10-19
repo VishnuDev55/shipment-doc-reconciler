@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 from .fields import FieldKey
 from .models import Report, SanityFinding
@@ -94,11 +95,13 @@ def readings(report: Report) -> dict[FieldKey, Reading]:
         if not stated:
             continue
         winner = comp.majority_compare_key or stated[0].compare_key
+        if winner is None:
+            continue
         agreed = tuple(v.document_label for v in stated if v.compare_key == winner)
         out[comp.field] = Reading(
             field=comp.field,
             compare_key=winner,
-            canonical=next(v.canonical for v in stated if v.compare_key == winner),
+            canonical=next(v.canonical or "" for v in stated if v.compare_key == winner),
             documents=agreed,
             cross_checked=len({v.document_id for v in stated}) > 1,
         )
@@ -106,7 +109,10 @@ def readings(report: Report) -> dict[FieldKey, Reading]:
 
 
 def _finding(
-    code: str, level: str, fields: list[FieldKey], explanation: str
+    code: str,
+    level: Literal["info", "warn", "risk"],
+    fields: list[FieldKey],
+    explanation: str,
 ) -> SanityFinding:
     return SanityFinding(
         code=code, level=level, fields=fields, explanation=explanation
