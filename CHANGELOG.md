@@ -7,6 +7,37 @@ calendar weeks.
 The format follows Keep a Changelog's grouping, but the entries are written as what
 changed and what it cost, because that is the useful history for this repository.
 
+## Unreleased — live verification round (2026-10-19)
+
+Paid live calls, budgeted at $8 and tracked in `scripts/spend.py` →
+`runs/spend_log.json` (gitignored). What the round established, measured against
+the real hosts:
+
+- **Both providers answered live.** NVIDIA omni vision (strict/json_schema) and
+  Nebius Nemotron-3-Nano summary; a new Nebius Nemotron VL
+  (`nvidia/Nemotron-3.5-Super-VL`) appeared in `/v1/models` and was recorded as
+  unpriced and unused.
+- **The full pipeline runs live** — extraction, MiniCPM-V consensus, goods
+  lines, summary, briefing, advisor — and all three demo verdicts reproduce
+  (clean/conflicts/review). Primary accuracy 70/70 exact, p50 59 s / p95 67 s,
+  ≈$0.01 per shipment.
+- **The dominant live finding is the NVIDIA host, not the app.** Intermittent
+  `503 ResourceExhausted` plus silent request hangs made documents fail or hang;
+  the app degrades honestly (a failed key document weakens `conflicts`→`review`)
+  rather than guessing. MiniCPM-V downgrades strict→json_object (already
+  handled). A 90°-rotated phone photo returned nothing; German labels
+  (`Warennummer`/`Bestellnummer`) were read as absent while decimal commas
+  normalized fine. All recorded in `docs/EVAL.md` and the README live-findings
+  list.
+- **Consensus cost-benefit:** on every live divergence, NVIDIA was right and
+  MiniCPM-V was wrong (its known PO/origin invention), and consensus caught them
+  all.
+- **The mypy baseline was corrected** from a stale-cache "39 errors in 10 files"
+  to the fresh `--no-incremental` 8 errors in 3 files, after a type-annotation
+  pass.
+- Advisors and demo summaries were re-captured live into the cache; the advisor
+  now replays captured notes in DEMO_MODE (cache-first, like the summary).
+
 ## Unreleased — evidence, severity and release hygiene (2026-10-10 → 2026-10-16)
 
 Six features that make the report defensible rather than merely informative, then

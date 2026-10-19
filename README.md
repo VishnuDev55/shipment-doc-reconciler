@@ -9,8 +9,18 @@
      [![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
 -->
 ![CI](https://img.shields.io/badge/CI-not_badged_yet_(no_remote)-lightgrey)
-![tests](https://img.shields.io/badge/tests-956_offline_%2B_25_browser-brightgreen)
+![tests](https://img.shields.io/badge/tests-961_offline_%2B_25_browser-brightgreen)
 ![network in tests](https://img.shields.io/badge/test_network_calls-0_by_construction-blue)
+
+**One line to know whether a shipment can move.** Drop 2–5 trade documents and
+the app transcribes ten fields with a vision model, then reconciles them in
+deterministic Python — the model never does arithmetic, converts currency, or
+invents a value it cannot see. Every disagreement is quoted back to the line it
+came from, every finding gets one severity, and the result is a self-contained
+report (HTML + PDF + ZIP) plus correction drafts written by rule. **Measured
+live 2026-10-19:** 70/70 fields exact, p50 59 s / p95 67 s per document,
+≈$0.01 per shipment, and the second reader caught its own invention on every
+divergence.
 
 Cross-checks a shipment's paperwork. Upload 2–5 trade documents (commercial
 invoice, packing list, bill of lading, certificate of origin) as scans or phone
@@ -48,6 +58,14 @@ not obvious from a glance at the code.
 |---|---|
 | **"Runs on Nebius Token Factory"** | The **executive summary** feature makes a runtime call to Nebius Token Factory's inference API (`https://api.tokenfactory.nebius.com/v1/chat/completions`) using **`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`**, a Nemotron model hosted by Nebius. One call per shipment, verified live. |
 | **"Uses at least one NVIDIA open-source model"** | **Document extraction** — the core function — uses **`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`** via NVIDIA's own `build.nvidia.com` API. The summary model above is *also* an NVIDIA open model, just hosted by Nebius. |
+
+**Measured live on 2026-10-19** (full pipeline — extraction + MiniCPM-V consensus
++ goods lines + summary — in the "Live run" section of `docs/EVAL.md`): NVIDIA
+omni read 70/70 fields exact at p50 59 s / p95 67 s per document; MiniCPM-V
+consensus agreed 95.5% and its five divergences were all its own invention; cost
+≈$0.01 per shipment. The NVIDIA host was capacity-degraded that day (intermittent
+HTTP 503s and request hangs), so a document occasionally failed — and the verdict
+honestly weakened rather than guessing.
 
 **Be explicit about the division of labour:** the *primary* functionality
 (vision extraction of all ten fields) runs on **build.nvidia.com**. The Nebius
@@ -1194,7 +1212,7 @@ reconciled against a newer, incompatible ruleset.
 ## Tests
 
 ```
-956 passed in ~53s
+961 passed in ~70s
 ```
 
 ~36 s is expected and is CPU work, not waiting: `test_pipeline`, `test_api`,
@@ -1262,7 +1280,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 956 unit tests, plus 25 in a real browser |
+| Normalizers, comparators, parse ladder | ✅ 961 unit tests, plus 25 in a real browser |
 | The status banner never contradicts the verdict or the risk strip | ✅ pinned from both directions, and proved to fail: flipping the container row from critical to warning breaks 8 tests, flipping the country-of-origin row back to warning breaks 2, and removing the verdict floor breaks 3 |
 | Correction drafts name no value no document printed | ✅ asserted over every draft, and the ZIP manifest bug that hid README.txt's header is pinned |
 | The engine against known ground truth | ✅ 9/9 planted errors caught, 0/9 false alarms on clean and tricky paperwork, 1 miss declared in advance — `docs/PLANTED.md`, 0 API calls |
@@ -1341,6 +1359,26 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
   thinking can return `"...need attention. Gross"`, which passes every
   chain-of-thought check but is not a sentence.
 
+- **Live round, 2026-10-19, under NVIDIA capacity pressure.** The omni host
+  returned intermittent `503 ResourceExhausted` *and* silent hangs — requests
+  that opened a connection and never sent response headers, which the per-request
+  timeout does not bound. A document that exhausts the 5-attempt retry ladder is
+  honestly marked failed, and when the failed document carried the key conflict
+  the verdict weakened from `conflicts` to `review` rather than guessing. The
+  same pressure made a 90°-rotated, sheared, darkened phone photo return nothing
+  within 150 s on two attempts, while a clean invoice answered in 40 s.
+- **MiniCPM-V downgrades `strict` → `json_object` live.** Its strict probe
+  "accepted but returned unusable JSON", which the probe ladder already handles
+  and tests pin; consensus therefore runs on `json_object`.
+- **Non-English labels are a real gap.** A German invoice with decimal commas
+  (`12.450,00 KGS`, `8.420,00 USD`) normalized correctly, but the German labels
+  `Warennummer` (HS code) and `Bestellnummer` (PO) were read as absent. The
+  model reads the numbers; it does not map the foreign field names. Recorded in
+  the stress test rather than tuned away.
+- **Goods lines are the dominant live cost.** Four more omni calls per shipment
+  took ~6–7 minutes on a degraded host — far more than extraction or the summary
+  — because the same slow primary model is reused for the opt-in line read.
+
 
 ## Layout
 
@@ -1398,7 +1436,7 @@ scripts/
   live_compare.py      live extractions diffed against the authored cache
   capture_summaries.py write real Nebius summaries into the demo cache
   migrate_cache_keys.py re-key the cache after a format change
-tests/                 956 offline tests across 34 files (+ conftest.py socket guard)
+tests/                 961 offline tests across 34 files (+ conftest.py socket guard)
 tests_e2e/             21 browser tests; a real uvicorn and real chromium, and the
                        only suite allowed to open a socket. `pytest tests/` cannot
                        collect it; run `make e2e`.
