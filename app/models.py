@@ -725,6 +725,11 @@ class PageRef(BaseModel):
     sha256: str
     width: int
     height: int
+    # Preprocessing provenance (see app/ingest.py): whether the page was
+    # auto-oriented/deskewed and the clockwise rotation applied, so the report
+    # records what the model actually saw rather than what was uploaded.
+    preprocessed: bool = False
+    rotation: int = 0
 
 
 class DocumentReport(BaseModel):

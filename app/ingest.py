@@ -96,17 +96,96 @@ class PageImage:
     sha256: str
     width: int
     height: int
+    # Preprocessing provenance: whether the page was auto-oriented/deskewed, and
+    # the orient rotation (degrees) applied, so the report can say what the
+    # model actually saw.
+    preprocessed: bool = False
+    rotation: int = 0
 
     @property
     def data_uri(self) -> str:
         return f"data:image/jpeg;base64,{base64.b64encode(self.jpeg).decode()}"
 
 
-def _encode(img: Image.Image, index: int, long_edge: int, quality: int) -> PageImage:
-    """EXIF-orient, RGB-convert, resize to long edge, encode JPEG."""
+def _orientation_score(img: Image.Image) -> float:
+    """How much this image looks like upright text, by horizontal projection.
+
+    Upright text forms strong horizontal bands — rows of dark pixels separated by
+    white gaps — so the variance of the row-sums of dark pixels is high. A page
+    rotated 90° spreads the same dark pixels evenly across every row and scores
+    low. Cheap, deterministic, and OCR-free: it needs no model and no text layer.
+    """
+    gray = img.convert("L")
+    small = gray.resize((max(1, gray.width // 4), max(1, gray.height // 4)))
+    data = small.tobytes()  # L mode: one byte per pixel, row-major
+    width, height = small.size
+    hist = [0] * 256
+    for byte in data:
+        hist[byte] += 1
+    total = sum(hist[:200])
+    if total == 0:
+        return 0.0
+    acc = 0
+    threshold = 128
+    for value in range(200):
+        acc += hist[value]
+        if acc >= total // 2:
+            threshold = value
+            break
+    rows = [0] * height
+    for y in range(height):
+        start = y * width
+        rows[y] = sum(1 for b in data[start:start + width] if b < threshold)
+    mean = sum(rows) / len(rows)
+    return sum((r - mean) ** 2 for r in rows) / len(rows)
+
+
+def _best_rotation(img: Image.Image) -> int:
+    """The clockwise rotation (0/90/180/270) that best uprights the page."""
+    best, best_score = 0, _orientation_score(img)
+    for angle in (90, 180, 270):
+        score = _orientation_score(img.rotate(angle, expand=True))
+        if score > best_score:
+            best, best_score = angle, score
+    return best
+
+
+def _deskew(img: Image.Image) -> Image.Image:
+    """Straighten a small tilt by sweeping angles and keeping the best score.
+
+    Bounded to ±6°, which is the tilt a hand-held photo produces; larger
+    rotations are the orient step's job, not this one's.
+    """
+    best, best_score = img, _orientation_score(img)
+    for tenths in range(-60, 61, 3):  # -6.0° .. +6.0° in 0.3° steps
+        angle = tenths / 10.0
+        candidate = img.rotate(angle, expand=True, fillcolor=(255, 255, 255))
+        score = _orientation_score(candidate)
+        if score > best_score:
+            best, best_score = candidate, score
+    return best
+
+
+def _preprocess(img: Image.Image) -> tuple[Image.Image, int]:
+    """Auto-orient + deskew + contrast. Returns (image, rotation applied)."""
+    rotation = _best_rotation(img)
+    if rotation:
+        img = img.rotate(rotation, expand=True)
+    img = _deskew(img)
+    img = ImageOps.autocontrast(img)
+    return img, rotation
+
+
+def _encode(img: Image.Image, index: int, long_edge: int, quality: int,
+            preprocess: bool = False) -> PageImage:
+    """EXIF-orient, optionally preprocess, RGB-convert, resize, encode JPEG."""
     img = ImageOps.exif_transpose(img)
     if img.mode != "RGB":
         img = img.convert("RGB")
+
+    rotation = 0
+    if preprocess:
+        img, rotation = _preprocess(img)
 
     if long_edge and max(img.size) > long_edge:
         scale = long_edge / max(img.size)
@@ -124,11 +203,14 @@ def _encode(img: Image.Image, index: int, long_edge: int, quality: int) -> PageI
         sha256=hashlib.sha256(data).hexdigest(),
         width=img.width,
         height=img.height,
+        preprocessed=preprocess,
+        rotation=rotation,
     )
 
 
 def rasterize_image(
-    raw: bytes, *, long_edge: int = 1600, quality: int = 85, max_pages: int = 6
+    raw: bytes, *, long_edge: int = 1600, quality: int = 85,
+    max_pages: int = 6, preprocess: bool = False,
 ) -> list[PageImage]:
     """One image file. Multi-frame TIFFs are capped at max_pages."""
     pages: list[PageImage] = []
@@ -160,7 +242,7 @@ def rasterize_image(
         for i in range(min(frames, max_pages)):
             if frames > 1:
                 im.seek(i)
-            pages.append(_encode(im, len(pages) + 1, long_edge, quality))
+            pages.append(_encode(im, len(pages) + 1, long_edge, quality, preprocess))
     if not pages:
         raise ValueError("image produced no pages")
     return pages
@@ -173,6 +255,7 @@ def rasterize_pdf(
     long_edge: int = 1600,
     quality: int = 85,
     max_pages: int = 6,
+    preprocess: bool = False,
 ) -> list[PageImage]:
     try:
         doc = pdfium.PdfDocument(raw)
@@ -183,7 +266,7 @@ def rasterize_pdf(
     try:
         for i in range(min(len(doc), max_pages)):
             pil = doc[i].render(scale=scale).to_pil()
-            pages.append(_encode(pil, len(pages) + 1, long_edge, quality))
+            pages.append(_encode(pil, len(pages) + 1, long_edge, quality, preprocess))
     finally:
         doc.close()
 
@@ -199,11 +282,14 @@ def ingest(
     long_edge: int = 1600,
     quality: int = 85,
     max_pages: int = 6,
+    preprocess: bool = False,
 ) -> list[PageImage]:
     """Dispatch on what the bytes are, having checked what they claimed to be."""
     if not raw:
         raise ValueError("empty file")
     claimed = _reject_unless_kind_matches(filename, raw)
     if claimed == "pdf":
-        return rasterize_pdf(raw, long_edge=long_edge, quality=quality, max_pages=max_pages)
-    return rasterize_image(raw, long_edge=long_edge, quality=quality, max_pages=max_pages)
+        return rasterize_pdf(raw, long_edge=long_edge, quality=quality,
+                              max_pages=max_pages, preprocess=preprocess)
+    return rasterize_image(raw, long_edge=long_edge, quality=quality,
+                           max_pages=max_pages, preprocess=preprocess)

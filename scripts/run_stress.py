@@ -128,6 +128,7 @@ async def main() -> int:
     from dotenv import dotenv_values
 
     env = dotenv_values(ROOT / ".env")
+    preprocess = "--preprocess" in sys.argv
     settings = Settings(
         _env_file=None,
         demo_mode=False,
@@ -141,6 +142,7 @@ async def main() -> int:
         enable_briefing=False,
         consensus=False,
         enable_line_items=False,
+        preprocess_orientation=preprocess,
         runs_dir=ROOT / "runs" / "stress_runs",
         cache_dir=ROOT / "runs" / "stress_cache",
     )
@@ -149,8 +151,9 @@ async def main() -> int:
         return 2
 
     rec = Reconciler(settings)
-    print(f"vision: {rec.client.endpoint.provider} / {rec.client.endpoint.model}\n")
-    names = sys.argv[1:] or list(CASES)
+    print(f"vision: {rec.client.endpoint.provider} / {rec.client.endpoint.model} "
+          f"(preprocess={preprocess})\n")
+    names = [a for a in sys.argv[1:] if a != "--preprocess"] or list(CASES)
     rows = []
     for name in names:
         if name not in CASES:

@@ -147,6 +147,12 @@ class Settings(BaseSettings):
     max_upload_bytes: int = Field(default=25 * 1024 * 1024, alias="MAX_UPLOAD_BYTES")
     image_long_edge: int = Field(default=1600, alias="IMAGE_LONG_EDGE")
     jpeg_quality: int = Field(default=85, alias="JPEG_QUALITY")
+    # Optional, off by default: auto-orient (0/90/180/270 via a projection-profile
+    # heuristic), deskew and contrast-normalise each page before it is sent to
+    # the model. The preprocessed image is the one used for extraction, evidence
+    # display and highlight boxes, and the applied rotation is recorded on the
+    # page so provenance stays honest.
+    preprocess_orientation: bool = Field(default=False, alias="PREPROCESS_ORIENTATION")
 
     request_timeout_seconds: float = Field(default=180.0, alias="REQUEST_TIMEOUT_SECONDS")
     # Hard total deadline for one HTTP round-trip, enforced with asyncio.wait_for

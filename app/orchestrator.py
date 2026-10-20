@@ -686,6 +686,7 @@ class Reconciler:
                     long_edge=self.settings.image_long_edge,
                     quality=self.settings.jpeg_quality,
                     max_pages=self.settings.max_pages_per_document,
+                    preprocess=self.settings.preprocess_orientation,
                 )
             except ValueError as exc:
                 log.info("shipment %s: rejected %s: %s", shipment_id, filename, exc)
@@ -734,6 +735,8 @@ class Reconciler:
                         sha256=pg.sha256,
                         width=pg.width,
                         height=pg.height,
+                        preprocessed=pg.preprocessed,
+                        rotation=pg.rotation,
                     )
                     for pg, path in zip(p.pages, p.page_paths)
                 ],
