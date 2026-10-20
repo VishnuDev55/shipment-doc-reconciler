@@ -429,6 +429,50 @@ async def test_a_silent_hang_is_bounded_by_the_deadline(tmp_path, monkeypatch):
     assert out.attempts and all("deadline exceeded" in a.note for a in out.attempts)
 
 
+async def test_circuit_breaker_trips_and_then_fails_fast(tmp_path, monkeypatch):
+    c = ExtractionClient(make_settings(tmp_path, circuit_breaker_threshold=3))
+    c.json_mode = "plain"
+    c._probed = True
+    fake = install(c, [status_error(503)] * 3)
+
+    async def no_sleep(_t):
+        return
+
+    monkeypatch.setattr("app.client.asyncio.sleep", no_sleep)
+    for _ in range(3):
+        await c.extract_document(document_id="d1", pages=pages())
+    assert c.degraded
+
+    calls_before = len(fake.chat.completions.calls)
+    out = await c.extract_document(document_id="d1", pages=pages())
+    assert out.status == "failed"
+    assert "degraded" in out.error.lower()
+    assert len(fake.chat.completions.calls) == calls_before, \
+        "the open breaker made a network call"
+
+
+async def test_circuit_breaker_half_open_recovers_after_cooldown(tmp_path, monkeypatch):
+    c = ExtractionClient(make_settings(
+        tmp_path, circuit_breaker_threshold=3, circuit_breaker_cooldown_seconds=0))
+    c.json_mode = "plain"
+    c._probed = True
+    fake = install(c, [status_error(503)] * 3)
+
+    async def no_sleep(_t):
+        return
+
+    monkeypatch.setattr("app.client.asyncio.sleep", no_sleep)
+    for _ in range(3):
+        await c.extract_document(document_id="d1", pages=pages())
+    assert c.degraded
+
+    # The host recovers; cooldown 0 lets the next call through as a trial.
+    fake.chat.completions.script = [good_response()]
+    out = await c.extract_document(document_id="d1", pages=pages())
+    assert out.status == "ok"
+    assert not c.degraded
+
+
 # ---------------------------------------------------------------------------
 # cache
 # ---------------------------------------------------------------------------

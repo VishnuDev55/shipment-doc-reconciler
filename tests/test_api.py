@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.export import build_zip
 from app.fields import FIELD_ORDER
-from app.main import app, configure
+from app.main import app, configure, reconciler
 from app.models import Report
 from app.orchestrator import Reconciler
 
@@ -274,6 +274,17 @@ def test_health_says_configured_but_never_the_key(client):
     blob = json.dumps(body)
     assert "sk-" not in blob
     assert "nvapi-" not in blob
+
+
+def test_health_reports_a_degraded_provider(client):
+    """The circuit breaker's state is part of readiness: an operator watching
+    /api/health must see when a host has tripped open, so they stop waiting on
+    it."""
+    rec = reconciler()
+    rec.client._consecutive_failures = rec.settings.circuit_breaker_threshold
+    body = client.get("/api/health").json()
+    assert body["vision"]["degraded"] is True
+    assert body["summary"]["degraded"] is False
 
 
 def test_ui_serves_the_narrative_section(client):

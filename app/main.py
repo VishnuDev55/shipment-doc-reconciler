@@ -354,6 +354,7 @@ def health() -> dict:
             "host": vision.host,
             "configured": bool(vision.api_key.strip()),
             "key_present": bool(vision.api_key.strip()),
+            "degraded": rec.client.degraded,
         },
         "summary": {
             "provider": summary.provider,
@@ -361,6 +362,7 @@ def health() -> dict:
             "host": summary.host,
             "configured": bool(summary.api_key.strip()),
             "key_present": bool(summary.api_key.strip()),
+            "degraded": rec.summary_client.degraded,
             "enabled": settings.enable_summary,
         },
         # Whether those model names have been confirmed against what each host

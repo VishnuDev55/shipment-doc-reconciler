@@ -93,6 +93,15 @@ class AllTransportAttemptsFailed(RuntimeError):
         super().__init__("transport failed after retries: " + " | ".join(attempts))
 
 
+class ProviderDegraded(RuntimeError):
+    """The circuit breaker is open: this host has failed too many times.
+
+    Raised immediately instead of a network call, so a degraded host is not
+    hammered while it is down. A caller (consensus, fallback) reads this to
+    route around the host rather than retry it.
+    """
+
+
 @dataclass
 class AttemptLog:
     rung: str
@@ -183,11 +192,35 @@ class ChatClient:
         self.json_mode: JsonMode = "cache" if settings.demo_mode else "plain"
         self._probed = settings.demo_mode
         self._client: AsyncOpenAI | None = None
+        # Circuit-breaker state: consecutive transport failures, and when the
+        # breaker last tripped (for the half-open cooldown).
+        self._consecutive_failures = 0
+        self._degraded_since: float | None = None
         # Guards the capability probe. Created here, not lazily: an attribute
         # named through a string never picks up the class-private mangling, so a
         # lazily-created lock looked initialised and handed out a fresh one on
         # every call. The concurrency test caught it.
         self._probe_gate = asyncio.Lock()
+
+    @property
+    def degraded(self) -> bool:
+        """True once consecutive transport failures crossed the threshold."""
+        return self._consecutive_failures >= self.settings.circuit_breaker_threshold
+
+    def _breaker_allows_trial(self) -> bool:
+        """Half-open: a degraded host may retry once after the cooldown."""
+        if not self.degraded or self._degraded_since is None:
+            return True
+        return (time.monotonic() - self._degraded_since
+                >= self.settings.circuit_breaker_cooldown_seconds)
+
+    def _record_success(self) -> None:
+        self._consecutive_failures = 0
+        self._degraded_since = None
+
+    def _record_failure(self) -> None:
+        self._consecutive_failures += 1
+        self._degraded_since = time.monotonic()
 
     @property
     def client(self) -> AsyncOpenAI:
@@ -252,6 +285,12 @@ class ChatClient:
         schedule = BACKOFF_SCHEDULE.get(self.endpoint.provider, BACKOFF_SCHEDULE["nebius"])
         if max_attempts is not None:
             schedule = schedule[:max_attempts]
+        if self.degraded and not self._breaker_allows_trial():
+            raise ProviderDegraded(
+                f"{self.endpoint.provider} is degraded after "
+                f"{self._consecutive_failures} consecutive transport failures; "
+                "circuit breaker open"
+            )
         attempts: list[str] = []
         for i in range(len(schedule)):
             try:
@@ -288,6 +327,7 @@ class ChatClient:
                         f"empty completion (content and reasoning both blank; "
                         f"finish_reason={getattr(choice, 'finish_reason', None)})"
                     )
+                self._record_success()
                 return text, used, usage_dict
             except (APITimeoutError, APIConnectionError) as exc:
                 attempts.append(f"{type(exc).__name__}: {exc}")
@@ -306,6 +346,7 @@ class ChatClient:
                 attempts.append(str(exc))
             if i < len(schedule) - 1:
                 await asyncio.sleep(schedule[i] + random.uniform(0, 0.5))
+        self._record_failure()
         raise AllTransportAttemptsFailed(attempts)
 
     async def probe(self, *, force: bool = False) -> JsonMode:

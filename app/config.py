@@ -155,6 +155,12 @@ class Settings(BaseSettings):
     # sends headers; this does. A hung call becomes a TimeoutError and falls into
     # the retry ladder instead of blocking a run forever.
     request_deadline_seconds: float = Field(default=240.0, alias="REQUEST_DEADLINE_SECONDS")
+    # Circuit breaker: after this many consecutive transport failures (503 /
+    # timeout / deadline) a provider is marked degraded and calls fail fast for
+    # the cooldown, then a single half-open trial decides recovery.
+    circuit_breaker_threshold: int = Field(default=3, alias="CIRCUIT_BREAKER_THRESHOLD")
+    circuit_breaker_cooldown_seconds: float = Field(
+        default=30.0, alias="CIRCUIT_BREAKER_COOLDOWN_SECONDS")
     max_concurrency: int = Field(default=4, alias="MAX_CONCURRENCY")
 
     # How closely a quoted evidence line has to resemble the page's own text to

@@ -1420,6 +1420,13 @@ class Reconciler:
             result.model = client.endpoint.model
             result.error = f"{client.endpoint.provider.upper()}_API_KEY not set"
             return
+        if client.degraded:
+            # The second reader is down; drop it out visibly rather than hammer
+            # it or double-count it. The primary extraction is unaffected.
+            result.status = "skipped"
+            result.model = client.endpoint.model
+            result.error = f"{client.endpoint.provider} degraded (circuit breaker open)"
+            return
 
         try:
             outcome = await client.extract_document(
