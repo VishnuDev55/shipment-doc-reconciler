@@ -1533,6 +1533,10 @@ class Reconciler:
 
         target.status = "running"
         target.error = None
+        self._emit_stage(shipment_id, document_id=target.id,
+                         document_label=target.label, stage="reading",
+                         provider=self.client.endpoint.provider,
+                         model=self.client.endpoint.model)
         refresh_report(report, self.client)
         self.store.write(report)
 
@@ -1564,6 +1568,11 @@ class Reconciler:
         refresh_report(report, self.client)
         report.risk = score_report(report)
         apply_status(report)
+        self._emit_stage(
+            shipment_id, document_id=target.id, document_label=target.label,
+            stage="done" if target.status in ("ok", "cached") else "failed",
+            provider=target.provider, model=target.model,
+        )
         self.store.write(report)
         return report
 

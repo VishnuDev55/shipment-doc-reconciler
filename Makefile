@@ -1,6 +1,6 @@
 PY := python3
 
-.PHONY: help setup setup-runtime fixtures dev run test lint ruff type coverage check e2e probe probe-live probe-diff planted planted-check planted-write capture-summaries migrate dist clean docker compose
+.PHONY: help setup setup-runtime fixtures dev run test lint ruff type coverage check e2e probe probe-live probe-diff planted planted-check planted-write capture-summaries prewarm migrate dist clean docker compose
 
 help:
 	@echo "make setup       install runtime + dev tooling (what a contributor wants)"
@@ -19,6 +19,7 @@ help:
 	@echo "make probe     self-check the demo pipeline end to end"
 	@echo "make probe-live     verify BOTH providers live (vision + Nebius summary)"
 	@echo "make probe-diff     live extractions diffed vs the authored cache"
+	@echo "make prewarm        ping both providers and fill the demo narrative cache"
 	@echo "make capture-summs  capture real AI summaries for the demo cache"
 	@echo "make migrate        re-key cache entries after a cache-format change"
 	@echo "make dist      write a clean source zip to dist/"
@@ -112,6 +113,9 @@ probe-diff:
 
 capture-summaries:
 	$(PY) scripts/capture_summaries.py
+
+prewarm:
+	$(PY) scripts/prewarm.py
 
 migrate:
 	$(PY) scripts/migrate_cache_keys.py
