@@ -1,42 +1,42 @@
 {
-  "cache_key": "00310d4c059b83e2e221c4891917a289",
+  "cache_key": "2a9be7c5414fa302bc8012d39ec84350",
   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
   "provider": "nvidia",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "page_sha256": [
     "775d3ecca0c9c1ad64e4c58f9d8c6104c5be5043f06ba3e3dc3303fcf414ec69"
   ],
   "response": {
     "doc_type": "packing_list",
-    "doc_type_reason": "Printed heading 'PACKING LIST'",
+    "doc_type_reason": "Printed heading 'PACKING LIST' on the page",
     "fields": {
       "quantity": {
         "present": true,
         "value": "100 cartons",
         "evidence_text": "TOTAL NO. OF PACKAGES 100 cartons",
         "page_index": 1,
-        "confidence": 0.99
+        "confidence": 1.0
       },
       "gross_weight": {
         "present": true,
         "value": "12,450.00 KGS",
         "evidence_text": "TOTAL GROSS WT 12,450.00 KGS",
         "page_index": 1,
-        "confidence": 0.99
+        "confidence": 1.0
       },
       "net_weight": {
         "present": true,
         "value": "11,600.00 KGS",
         "evidence_text": "TOTAL NET WT 11,600.00 KGS",
         "page_index": 1,
-        "confidence": 0.99
+        "confidence": 1.0
       },
       "container_number": {
         "present": true,
         "value": "MSKU3067322",
-        "evidence_text": "CONTAINER NO.: MSKU3067322",
+        "evidence_text": "CONTAINER NO. MSKU3067322",
         "page_index": 1,
-        "confidence": 0.99
+        "confidence": 1.0
       },
       "hs_code": {
         "present": false,
@@ -50,7 +50,7 @@
         "value": "Nordwind Industrial Supply GmbH",
         "evidence_text": "CONSIGNEE Nordwind Industrial Supply GmbH",
         "page_index": 1,
-        "confidence": 0.99
+        "confidence": 1.0
       },
       "invoice_value": {
         "present": false,
@@ -78,7 +78,7 @@
         "value": "China",
         "evidence_text": "COUNTRY OF ORIGIN China",
         "page_index": 1,
-        "confidence": 0.99
+        "confidence": 1.0
       }
     }
   },

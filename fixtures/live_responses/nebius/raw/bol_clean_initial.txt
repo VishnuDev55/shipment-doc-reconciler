@@ -1,6 +1,6 @@
 {
   "doc_type": "bill_of_lading",
-  "doc_type_reason": "The document is titled BILL OF LADING and contains standard bill of lading fields such as shipper, consignee, bill of lading number, date of issue, vessel/voyage, port of loading, port of discharge, container number, seal number, number of containers or packages, description of packages and goods, gross weight, net weight, and freight & charges.",
+  "doc_type_reason": "The document is titled BILL OF LADING at the top.",
   "fields": {
     "quantity": {
       "present": true,

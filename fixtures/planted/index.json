@@ -1,6 +1,6 @@
 {
   "generated_by": "scripts/build_fixtures.py",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "lineitems_prompt_version": "lineitems-v2",
   "model": "hand-authored-fixture",
   "note": "Hand-authored planted-error set. The pages, their text and the model responses all come from fixtures/planted.py, and no entry here was produced by a model or by an API call. Pages are stored once and shared by content hash.",

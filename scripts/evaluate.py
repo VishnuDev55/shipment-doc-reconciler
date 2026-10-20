@@ -399,6 +399,30 @@ def render(results: list[Result]) -> str:
         lines.append(live)
 
     lines += [
+        "## Vision model comparison",
+        "",
+        "Measured live on 2026-10-20 (Super-VL via `scripts/eval_model.py`, 16"
+        " documents x 2 runs); omni and MiniCPM-V rows are the replayed captures"
+        " above plus the live run.",
+        "",
+        "| Model | Host | Structured output | Parsed | Exact | Invented |"
+        " Verdicts | p50 / p95 | USD / doc |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|",
+        "| nemotron-3-nano-omni-30b-a3b-reasoning (default) | NVIDIA | json_object"
+        " | 12 / 12 | 100% | 0 | 3 / 3 | 58.8 s / 67.2 s | ~$0.002 (est.) |",
+        "| MiniCPM-V-4_5 (consensus only) | Nebius | json_object | 12 / 12 |"
+        " 100% | 4 | 2 / 3 | ~6 s | ~$0.006 |",
+        "| Nemotron-3.5-Super-VL (selectable, not recommended) | Nebius |"
+        " json_object (strict rejected) | 7 / 16 | 100% of parsed | 0 | -- |"
+        " 12.2 s / 16.0 s | $0.0053 |",
+        "",
+        "Super-VL is fast and exact when it returns clean JSON, but 9 of 16"
+        " documents failed to parse, so it does not meet the bar for default"
+        " (match omni accuracy, comparable p95, no more invented fields) and is"
+        " kept as a selectable option only. Omni dollars are an estimate because"
+        " NVIDIA publishes no per-token rate; Nebius dollars use the catalog"
+        " prices in `scripts/spend.py`.",
+        "",
         "## Reading the gap between `exact` and `verbatim`",
         "",
         "Where verbatim is lower than exact, the model transcribed loosely and"
@@ -418,7 +442,7 @@ def render(results: list[Result]) -> str:
         " disagreement the paperwork does not contain, and a shipment designed to"
         " be clean arrives at `conflicts`. It is right about the data it was"
         " handed and wrong about the world -- which is why the fallback provider"
-        " scores 1 of 3 here while still scoring 100% on every value it was"
+        " scores 2 of 3 here while still scoring 100% on every value it was"
         " actually asked to read. Showing the number rather than the summary line"
         " is the point.",
         "",
@@ -443,14 +467,14 @@ def render(results: list[Result]) -> str:
 # fails if a provider starts inventing fields or agreeing on fewer verdicts, and
 # moving a floor is a deliberate edit with a diff, never a way to pass.
 #
-# nebius is held to 6 invented fields and 1 of 3 verdicts because that is what
-# MiniCPM-V does today: it reads every printed value correctly and additionally
-# claims a PO number on each packing list and an origin on each bill of lading.
-# Recording that as the floor is the honest version of "this is not the default
-# provider".
+# nebius is held to 4 invented fields and 2 of 3 verdicts because that is what
+# MiniCPM-V does at extract-v5: it reads every printed value correctly and
+# additionally claims an origin on each bill of lading and a PO number on one
+# packing list. Recording that as the floor is the honest version of "this is
+# not the default provider".
 FLOORS = {
     "nvidia": {"exact_rate": 100.0, "invented": 0, "missed": 0, "verdicts": 3},
-    "nebius": {"exact_rate": 100.0, "invented": 6, "missed": 0, "verdicts": 1},
+    "nebius": {"exact_rate": 100.0, "invented": 4, "missed": 0, "verdicts": 2},
 }
 
 

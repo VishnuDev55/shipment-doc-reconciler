@@ -68,24 +68,24 @@ def test_normalization_absorbs_every_transcription_difference(results):
 def test_the_fallback_provider_invents_fields_and_says_so(results):
     """The count is a finding, not a failure.
 
-    MiniCPM-V reads every printed value correctly and additionally reports a PO
-    number on each packing list (it reads INVOICE REFERENCE) and an origin on
-    each bill of lading (it reads the port of loading). Pinning the number means
-    the next provider change is visible instead of deniable.
+    MiniCPM-V reads every printed value correctly and additionally reports an
+    origin on each bill of lading (it reads the port of loading) and, on one
+    packing list, a PO number (it reads INVOICE REFERENCE). Pinning the number
+    means the next provider change is visible instead of deniable.
     """
     by_provider = {r.provider: r for r in results}
     assert by_provider["nvidia"].total.invented == 0
-    assert by_provider["nebius"].total.invented == 6
+    assert by_provider["nebius"].total.invented == 4
     per_field = by_provider["nebius"].per_field
-    assert per_field["po_number"].invented == 3
+    assert per_field["po_number"].invented == 1
     assert per_field["country_of_origin"].invented == 3
 
 
 def test_verdict_agreement_differs_by_provider(results):
     by_provider = {r.provider: r for r in results}
     assert len(by_provider["nvidia"].verdicts_ok) == 3
-    assert len(by_provider["nebius"].verdicts_ok) == 1, (
-        "the invented PO numbers make the clean fixture read as conflicting; if"
+    assert len(by_provider["nebius"].verdicts_ok) == 2, (
+        "the invented fields make the messy fixture read as conflicting; if"
         " that ever stops being true, this number and docs/EVAL.md both change"
     )
     assert all("MISMATCH" not in row for row in by_provider["nvidia"].verdicts_ok)

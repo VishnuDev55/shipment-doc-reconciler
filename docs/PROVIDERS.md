@@ -104,10 +104,29 @@ declare `text+image->text` modality. New vision-capable names present this date:
 model on this host), `Qwen/Qwen3.8-27B`, `deepseek-ai/DeepSeek-V4.1-Flash`,
 `moonshotai/Kimi-K2.6`, `moonshotai/Kimi-K3`, `meta-models/muse-spark-open`,
 `zai-org/GLM-5.3-Flash`, plus the already-used `openbmb/MiniCPM-V-4_5`.
-**Per-token prices are not published** on the vendor pages this repo can reach, so
-no rate for `Nemotron-3.5-Super-VL` is recorded here — it is also a much larger
-120B-class model than the nano default, so it would cost materially more per token
-and was **not** used for anything without a price.
+
+### Nemotron-3.5-Super-VL, evaluated and not recommended
+
+The verbose catalog does publish this model's facts: `text+image->text`,
+1,048,576 context, **$0.30 / $0.90 per million tokens** (input/output),
+300 req/min, 2M tok/min, bf16. It was run live over the 12 fixture documents and
+the 4 stress documents (twice each, `scripts/eval_model.py`):
+
+- The probe **downgraded `strict` → `json_object`** ("strict accepted but
+  returned unusable JSON"), so it never honours json_schema.
+- **9 of 16 documents failed to parse.** The ladder's last error was consistently
+  a malformed body ("no balanced JSON object found" / "extracted first balanced
+  object; unrepaired") — the reasoning model emits JSON the repair ladder cannot
+  salvage, burning ~30k tokens per failed document doing it.
+- On the 7 documents it did parse, accuracy was 86/86 exact, 0 invented, 54/54
+  absent-correct, at p50 12.2 s — fast and exact *when it returns clean JSON*.
+
+That failure rate disqualifies it as a default and makes it a poor selectable
+option as-is: a model that fails to produce parseable output on half of real
+documents is a transcription lottery, not a fallback. It remains selectable via
+`VISION_PROVIDER=nebius` + `NEBIUS_VISION_MODEL=nvidia/Nemotron-3.5-Super-VL`
+for anyone who wants to re-test it, but no prompt was tuned to it and none is
+recommended.
 
 ## Documents are rasterised, not uploaded
 

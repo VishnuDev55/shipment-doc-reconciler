@@ -1,14 +1,14 @@
 {
-  "cache_key": "a8f9fa2515702743b2a6cb86f98f8441",
+  "cache_key": "09b20d5a774b316200371cc7ef48c63d",
   "model": "openbmb/MiniCPM-V-4_5",
   "provider": "nebius",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "page_sha256": [
     "775d3ecca0c9c1ad64e4c58f9d8c6104c5be5043f06ba3e3dc3303fcf414ec69"
   ],
   "response": {
     "doc_type": "packing_list",
-    "doc_type_reason": "The document is titled \"PACKING LIST\" and contains details such as consignee, packing list number, date, invoice reference, country of origin, container number, and a table with descriptions, quantities, weights, and volumes.",
+    "doc_type_reason": "The document is titled \"PACKING LIST\" at the top.",
     "fields": {
       "quantity": {
         "present": true,
@@ -34,7 +34,7 @@
       "container_number": {
         "present": true,
         "value": "MSKU3067322",
-        "evidence_text": "MSKU3067322",
+        "evidence_text": "CONTAINER NO. MSKU3067322",
         "page_index": 1,
         "confidence": 1.0
       },
@@ -48,7 +48,7 @@
       "consignee_name": {
         "present": true,
         "value": "Nordwind Industrial Supply GmbH",
-        "evidence_text": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "CONSIGNEE Nordwind Industrial Supply GmbH",
         "page_index": 1,
         "confidence": 1.0
       },
@@ -67,16 +67,16 @@
         "confidence": 0.0
       },
       "po_number": {
-        "present": true,
-        "value": "HW-2026-0912",
-        "evidence_text": "HW-2026-0912",
+        "present": false,
+        "value": null,
+        "evidence_text": "",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.0
       },
       "country_of_origin": {
         "present": true,
         "value": "China",
-        "evidence_text": "China",
+        "evidence_text": "COUNTRY OF ORIGIN China",
         "page_index": 1,
         "confidence": 1.0
       }

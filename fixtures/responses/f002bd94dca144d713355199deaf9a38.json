@@ -1,0 +1,85 @@
+{
+  "cache_key": "f002bd94dca144d713355199deaf9a38",
+  "model": "hand-authored-fixture",
+  "prompt_version": "extract-v5",
+  "page_sha256": [
+    "de06839883ef0c6a813ba3beeb28994b5780de2c08377138412c3dd93da86e7c"
+  ],
+  "response": {
+    "doc_type": "commercial_invoice",
+    "doc_type_reason": "Header and layout indicate a commercial invoice.",
+    "fields": {
+      "quantity": {
+        "present": true,
+        "value": "1,200 pieces",
+        "evidence_text": "Total quantity 1,200 pieces",
+        "page_index": 1,
+        "confidence": 0.96
+      },
+      "gross_weight": {
+        "present": true,
+        "value": "12.450,00 kg",
+        "evidence_text": "Total gross weight 12.450,00 kg",
+        "page_index": 1,
+        "confidence": 0.93
+      },
+      "net_weight": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "container_number": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "hs_code": {
+        "present": true,
+        "value": "8517.62.0090",
+        "evidence_text": "HS code 8517.62.0090",
+        "page_index": 1,
+        "confidence": 0.94
+      },
+      "consignee_name": {
+        "present": true,
+        "value": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "Consignee Nordwind Industrial Supply GmbH",
+        "page_index": 1,
+        "confidence": 0.98
+      },
+      "invoice_value": {
+        "present": true,
+        "value": "FOB NINGBO USD 8,420.00",
+        "evidence_text": "TOTAL AMOUNT FOB NINGBO USD 8,420.00",
+        "page_index": 1,
+        "confidence": 0.9
+      },
+      "incoterms": {
+        "present": true,
+        "value": "FOB Ningbo (Incoterms 2020)",
+        "evidence_text": "Terms of delivery FOB Ningbo (Incoterms 2020)",
+        "page_index": 1,
+        "confidence": 0.95
+      },
+      "po_number": {
+        "present": true,
+        "value": "PO 4410-DE",
+        "evidence_text": "Purchase order PO 4410-DE",
+        "page_index": 1,
+        "confidence": 0.97
+      },
+      "country_of_origin": {
+        "present": true,
+        "value": "Made in P.R.C.",
+        "evidence_text": "Country of origin Made in P.R.C.",
+        "page_index": 1,
+        "confidence": 0.88
+      }
+    }
+  },
+  "_provenance": "HAND-AUTHORED fixture response. Not produced by any model. Seeds DEMO_MODE so the app can be built and shown without a live Nebius API key."
+}

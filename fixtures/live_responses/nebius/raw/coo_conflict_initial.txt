@@ -1,6 +1,6 @@
 {
   "doc_type": "certificate_of_origin",
-  "doc_type_reason": "CERTIFICATE OF ORIGIN Form A — declared by the exporter, verified by the issuing body",
+  "doc_type_reason": "CERTIFICATE OF ORIGIN is clearly printed at the top of the document.",
   "fields": {
     "quantity": {
       "present": true,

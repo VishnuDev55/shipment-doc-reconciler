@@ -1,0 +1,85 @@
+{
+  "cache_key": "e5543ebc0afd653732e77f02f92f2d45",
+  "model": "hand-authored-fixture",
+  "prompt_version": "extract-v5",
+  "page_sha256": [
+    "3b67f9dece64a4d1a1be3ae39bada237fb49517ce99c4501843cac5b5c2f7a65"
+  ],
+  "response": {
+    "doc_type": "bill_of_lading",
+    "doc_type_reason": "Header and layout indicate a bill of lading.",
+    "fields": {
+      "quantity": {
+        "present": true,
+        "value": "100 CARTONS",
+        "evidence_text": "No. of containers or packages 100 CARTONS",
+        "page_index": 1,
+        "confidence": 0.95
+      },
+      "gross_weight": {
+        "present": true,
+        "value": "27,447.00 LBS",
+        "evidence_text": "Gross weight 27,447.00 LBS",
+        "page_index": 1,
+        "confidence": 0.94
+      },
+      "net_weight": {
+        "present": true,
+        "value": "25,573.63 LBS",
+        "evidence_text": "Net weight 25,573.63 LBS",
+        "page_index": 1,
+        "confidence": 0.93
+      },
+      "container_number": {
+        "present": true,
+        "value": "MSKU3067322",
+        "evidence_text": "Container no. MSKU3067322",
+        "page_index": 1,
+        "confidence": 0.96
+      },
+      "hs_code": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "consignee_name": {
+        "present": true,
+        "value": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "Consignee Nordwind Industrial Supply GmbH",
+        "page_index": 1,
+        "confidence": 0.97
+      },
+      "invoice_value": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "incoterms": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "po_number": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "country_of_origin": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      }
+    }
+  },
+  "_provenance": "HAND-AUTHORED fixture response. Not produced by any model. Seeds DEMO_MODE so the app can be built and shown without a live Nebius API key."
+}

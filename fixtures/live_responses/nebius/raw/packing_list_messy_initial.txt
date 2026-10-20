@@ -5,21 +5,21 @@
     "quantity": {
       "present": true,
       "value": "100 cartons",
-      "evidence_text": "100 cartons",
+      "evidence_text": "TOTAL NO. OF PACKAGES 100 cartons",
       "page_index": 2,
       "confidence": 1.0
     },
     "gross_weight": {
       "present": true,
       "value": "12,450.00 KGS",
-      "evidence_text": "12,450.00 KGS",
+      "evidence_text": "TOTAL GROSS WT 12,450.00 KGS",
       "page_index": 2,
       "confidence": 1.0
     },
     "net_weight": {
       "present": true,
       "value": "11,600.00 KGS",
-      "evidence_text": "11,600.00 KGS",
+      "evidence_text": "TOTAL NET WT 11,600.00 KGS",
       "page_index": 2,
       "confidence": 1.0
     },

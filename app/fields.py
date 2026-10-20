@@ -127,53 +127,54 @@ TYPICALLY_IN: dict[FieldKey, str] = {
 SURFACE_HINTS: dict[FieldKey, str] = {
     "quantity": (
         "Look for QUANTITY, QTY, TOTAL QTY, NO. OF PACKAGES, CARTONS, PALLETS, "
-        "PIECES. Return the TOTAL for the shipment, not a per-line figure. "
+        "PIECES, MENGE, ANZAHL, QUANTITE. Return the TOTAL for the shipment, not "
+        "a per-line figure. "
         "Include the package unit if printed next to it (e.g. '100 CARTONS')."
     ),
     "gross_weight": (
-        "Look for GROSS WEIGHT, G.W., TOTAL GROSS WT, BRUTTO, GEWICHT. Return the "
+        "Look for GROSS WEIGHT, G.W., TOTAL GROSS WT, BRUTTO, GEWICHT, POIDS BRUT. Return the "
         "TOTAL gross weight for the whole shipment, never a per-carton figure and "
         "never the net weight. Copy the unit exactly as printed (KGS, LBS, MT)."
     ),
     "container_number": (
-        "Look for CONTAINER NO., CTNR, CONTAINER NUMBER, EQUIPMENT. It is normally "
+        "Look for CONTAINER NO., CTNR, CONTAINER NUMBER, EQUIPMENT, N° CONTENEUR, CONTENEUR NR. It is normally "
         "4 uppercase letters followed by 7 digits. Copy it exactly, including any "
         "spaces or dots you can see."
     ),
     "hs_code": (
-        "Look for HS CODE, H.S. CODE, HTS, TARIFF CODE, HS-NUMMER. Return the code "
+        "Look for HS CODE, H.S. CODE, HTS, TARIFF CODE, HS-NUMMER, WARENNUMMER, ZOLLTARIFNUMMER. Return the code "
         "for the goods. If several different codes appear, return the first one and "
         "quote the line it came from."
     ),
     "consignee_name": (
-        "Look for CONSIGNEE, BUYER, SHIP TO, DELIVER TO, EMPFÄNGER. Return the "
+        "Look for CONSIGNEE, BUYER, SHIP TO, DELIVER TO, EMPFÄNGER, DESTINATAIRE. Return the "
         "consignee's name only, not the address. Copy punctuation and legal suffixes "
         "exactly as printed."
     ),
     "invoice_value": (
-        "Look for TOTAL, TOTAL AMOUNT, GRAND TOTAL, TOTAL DUE, SAY ... ONLY. Return "
+        "Look for TOTAL, TOTAL AMOUNT, GRAND TOTAL, TOTAL DUE, SAY ... ONLY, RECHNUNGSBETRAG, GESAMTBETRAG, MONTANT TOTAL. Return "
         "the final total invoice amount including the currency as printed "
         "(e.g. 'USD 8,420.00', '12.500,00 EUR')."
     ),
     "net_weight": (
-        "Look for NET WEIGHT, NET WT, N.W., NETTO. Return the TOTAL net weight for "
+        "Look for NET WEIGHT, NET WT, N.W., NETTO, POIDS NET. Return the TOTAL net weight for "
         "the whole shipment, never a per-carton figure and never the gross weight. "
         "Copy the unit exactly as printed."
     ),
     "incoterms": (
-        "Look for INCOTERMS, INCO TERMS, TERMS OF DELIVERY, and a three-letter code "
+        "Look for INCOTERMS, INCO TERMS, TERMS OF DELIVERY, LIEFERBEDINGUNG, and a three-letter code "
         "followed by a place (e.g. 'CIF HAMBURG', 'FCA SHANGHAI'). Return the code "
         "and the place exactly as printed."
     ),
     "po_number": (
-        "Look for PO NO., PURCHASE ORDER, ORDER NO., CUSTOMER ORDER REF. Return the "
+        "Look for PO NO., PURCHASE ORDER, ORDER NO., CUSTOMER ORDER REF., BESTELLNUMMER, AUFTRAGSNUMMER, N° DE COMMANDE. Return the "
         "reference exactly as printed. A row labelled INVOICE NO. or INVOICE "
         "REFERENCE is the seller's own number, not a purchase order: if nothing "
         "purchase-order-like is printed, return present=false rather than "
         "reaching for the nearest reference."
     ),
     "country_of_origin": (
-        "Look for COUNTRY OF ORIGIN, ORIGIN, MADE IN, PAYS D'ORIGINE. Return the "
+        "Look for COUNTRY OF ORIGIN, ORIGIN, MADE IN, PAYS D'ORIGINE, URSPRUNGSLAND. Return the "
         "country as printed (e.g. 'GERMANY', 'DE', 'Made in Germany'). A port of "
         "loading, a port of discharge or any other place name is NOT the origin: "
         "'Ningbo, China' under PORT OF LOADING does not make China the stated "

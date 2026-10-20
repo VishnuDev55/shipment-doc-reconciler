@@ -1,8 +1,8 @@
 {
-  "cache_key": "8aa7cc80ef21d535fb79224fbafd8fb3",
+  "cache_key": "f57fee93e78f67bd88f54dfec5009f47",
   "model": "openbmb/MiniCPM-V-4_5",
   "provider": "nebius",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "page_sha256": [
     "e8427bed0aef5b25db014336fc10e9ab017b2a8f352414af33b96e2ee770b6af",
     "8c853302de8f3465eccc33fd99e892bc338e746c2f03a1c5ce671cb77c69a42f"
@@ -14,21 +14,21 @@
       "quantity": {
         "present": true,
         "value": "100 cartons",
-        "evidence_text": "100 cartons",
+        "evidence_text": "TOTAL NO. OF PACKAGES 100 cartons",
         "page_index": 2,
         "confidence": 1.0
       },
       "gross_weight": {
         "present": true,
         "value": "12,450.00 KGS",
-        "evidence_text": "12,450.00 KGS",
+        "evidence_text": "TOTAL GROSS WT 12,450.00 KGS",
         "page_index": 2,
         "confidence": 1.0
       },
       "net_weight": {
         "present": true,
         "value": "11,600.00 KGS",
-        "evidence_text": "11,600.00 KGS",
+        "evidence_text": "TOTAL NET WT 11,600.00 KGS",
         "page_index": 2,
         "confidence": 1.0
       },

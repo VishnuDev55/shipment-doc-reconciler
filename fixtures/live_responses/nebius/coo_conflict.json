@@ -1,14 +1,14 @@
 {
-  "cache_key": "57b7d64b64cd782e30c14d8790096a8b",
+  "cache_key": "e4b8174930645ff761282a32ca1cfd24",
   "model": "openbmb/MiniCPM-V-4_5",
   "provider": "nebius",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "page_sha256": [
     "32cf72223ef33646c8e7dcce9044137aa1187a0d751a0ae15989b7814d19b5b5"
   ],
   "response": {
     "doc_type": "certificate_of_origin",
-    "doc_type_reason": "CERTIFICATE OF ORIGIN Form A \u2014 declared by the exporter, verified by the issuing body",
+    "doc_type_reason": "CERTIFICATE OF ORIGIN is clearly printed at the top of the document.",
     "fields": {
       "quantity": {
         "present": true,

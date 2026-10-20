@@ -1,14 +1,14 @@
 {
-  "cache_key": "d5d1c41171cd53d30f621cc29da9892b",
+  "cache_key": "6badb893880f93e8f446456eceb89382",
   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
   "provider": "nvidia",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "page_sha256": [
     "b34ac09700e830aae36cbcc00186169f5f7848b919a7ef7bb32b453eabf21c7e"
   ],
   "response": {
     "doc_type": "bill_of_lading",
-    "doc_type_reason": "Printed heading 'BILL OF LADING' at top of page",
+    "doc_type_reason": "Printed heading 'BILL OF LADING' at top of the page",
     "fields": {
       "quantity": {
         "present": true,

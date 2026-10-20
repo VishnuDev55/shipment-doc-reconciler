@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # Version tags. Bump when behaviour changes so a cached response can never be
 # silently reconciled against an incompatible ruleset.
-PROMPT_VERSION = "extract-v4"
+PROMPT_VERSION = "extract-v5"
 NORMALIZER_VERSION = "norm-v1"
 COMPARATOR_VERSION = "cmp-v1"
 # Line items are a separate contract read from the same page images. It has to

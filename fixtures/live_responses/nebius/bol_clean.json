@@ -1,14 +1,14 @@
 {
-  "cache_key": "61494762282d49adf2f1baa300fd2acc",
+  "cache_key": "cb9e453e3a2af8464ac1954fbb8a0b61",
   "model": "openbmb/MiniCPM-V-4_5",
   "provider": "nebius",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "page_sha256": [
     "d15bccd4f5dc5519367b20773a8e854550febd1abd19d71737962d13ed9f7e8b"
   ],
   "response": {
     "doc_type": "bill_of_lading",
-    "doc_type_reason": "The document is titled BILL OF LADING and contains standard bill of lading fields such as shipper, consignee, bill of lading number, date of issue, vessel/voyage, port of loading, port of discharge, container number, seal number, number of containers or packages, description of packages and goods, gross weight, net weight, and freight & charges.",
+    "doc_type_reason": "The document is titled BILL OF LADING at the top.",
     "fields": {
       "quantity": {
         "present": true,

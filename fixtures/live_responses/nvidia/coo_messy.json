@@ -1,35 +1,35 @@
 {
-  "cache_key": "8b99446c31c5f8450bf2978141ffb51c",
+  "cache_key": "cfa21d07d05073ddf16ac39ac4f5e462",
   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
   "provider": "nvidia",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "page_sha256": [
     "f8de5afa46cbb20d516df23c9700b821eaf7b6c051fcd25ec3bdf5717adca4cf"
   ],
   "response": {
     "doc_type": "certificate_of_origin",
-    "doc_type_reason": "Printed heading 'CERTIFICATE OF ORIGIN' at top of page",
+    "doc_type_reason": "The document has the printed heading \"CERTIFICATE OF ORIGIN\" at the top.",
     "fields": {
       "quantity": {
         "present": true,
         "value": "100 CARTONS",
         "evidence_text": "Number and kind of packages 100 CARTONS",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.9
       },
       "gross_weight": {
         "present": true,
         "value": "12,450.00 KGS",
         "evidence_text": "Gross weight (kg) 12,450.00 KGS",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.9
       },
       "net_weight": {
         "present": true,
         "value": "11,600.00 KGS",
         "evidence_text": "Net weight (kg) 11,600.00 KGS",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.9
       },
       "container_number": {
         "present": false,
@@ -43,14 +43,14 @@
         "value": "8517.62",
         "evidence_text": "3. HS CODE 8517.62",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.9
       },
       "consignee_name": {
         "present": true,
         "value": "Nordwind Industrial Supply GmbH",
-        "evidence_text": "2. CONSIGNEE Nordwind Industrial Supply GmbH",
+        "evidence_text": "Nordwind Industrial Supply GmbH",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.9
       },
       "invoice_value": {
         "present": false,
@@ -78,7 +78,7 @@
         "value": "People's Republic of China",
         "evidence_text": "People's Republic of China",
         "page_index": 1,
-        "confidence": 1.0
+        "confidence": 0.9
       }
     }
   },

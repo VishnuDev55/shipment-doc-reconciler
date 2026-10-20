@@ -1,14 +1,14 @@
 {
-  "cache_key": "7d0ce998632a472a323010efd77cdd24",
+  "cache_key": "bd63b963dd9c3cf01f19cb4066b3c2f7",
   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
   "provider": "nvidia",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "page_sha256": [
     "4de89e14bcfe251353ee6ab65eb8b9b54898f6ff16022ab1a0d60d34e75239a4"
   ],
   "response": {
     "doc_type": "commercial_invoice",
-    "doc_type_reason": "The page shows the heading 'COMMERCIAL INVOICE' at the top, indicating it is a commercial invoice.",
+    "doc_type_reason": "Printed heading 'COMMERCIAL INVOICE'",
     "fields": {
       "quantity": {
         "present": true,

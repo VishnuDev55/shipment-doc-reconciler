@@ -16,7 +16,7 @@ The documents are synthetic, so the exact printed string for every field is know
 - exact on the comparison key: **75 / 75 (100.0%)**
 - verbatim as printed: **74 / 75 (98.7%)**
 - printed but missed: **0**
-- invented (not on the document): **6**
+- invented (not on the document): **4**
 
 | Field | Exact | Comparable | Exact % | Verbatim | Missed | Invented |
 |---|---:|---:|---:|---:|---:|---:|
@@ -28,22 +28,22 @@ The documents are synthetic, so the exact printed string for every field is know
 | Consignee | 12 | 12 | 100% | 12 | 0 | 0 |
 | Invoice value | 3 | 3 | 100% | 2 | 0 | 0 |
 | Incoterms | 3 | 3 | 100% | 3 | 0 | 0 |
-| PO number | 3 | 3 | 100% | 3 | 0 | 3 |
+| PO number | 3 | 3 | 100% | 3 | 0 | 1 |
 | Country of origin | 9 | 9 | 100% | 9 | 0 | 3 |
 
-### Verdict agreement (1 of 3 shipments)
+### Verdict agreement (2 of 3 shipments)
 
 The question a reviewer actually asks: with this provider's errors in, does the engine still reach the right conclusion?
 
+- ok — shipment_clean: expected clean, engine reached not-conflicts
 - ok — shipment_conflict: expected conflicts, engine reached conflicts
-- **MISMATCH** — shipment_clean: expected clean, engine reached conflicts
 - **MISMATCH** — shipment_messy: expected review, engine reached conflicts
 
 ## Provider: `nvidia`
 
 - field observations compared: **75**
 - exact on the comparison key: **75 / 75 (100.0%)**
-- verbatim as printed: **72 / 75 (96.0%)**
+- verbatim as printed: **74 / 75 (98.7%)**
 - printed but missed: **0**
 - invented (not on the document): **0**
 
@@ -56,7 +56,7 @@ The question a reviewer actually asks: with this provider's errors in, does the 
 | HS code | 6 | 6 | 100% | 6 | 0 | 0 |
 | Consignee | 12 | 12 | 100% | 12 | 0 | 0 |
 | Invoice value | 3 | 3 | 100% | 2 | 0 | 0 |
-| Incoterms | 3 | 3 | 100% | 1 | 0 | 0 |
+| Incoterms | 3 | 3 | 100% | 3 | 0 | 0 |
 | PO number | 3 | 3 | 100% | 3 | 0 | 0 |
 | Country of origin | 9 | 9 | 100% | 9 | 0 | 0 |
 
@@ -119,13 +119,25 @@ Tokens are exact; dollars use the conservative price table in scripts/spend.py b
 
 False alarms (a clean/review shipment reported as conflicts): **0**
 
+## Vision model comparison
+
+Measured live on 2026-10-20 (Super-VL via `scripts/eval_model.py`, 16 documents x 2 runs); omni and MiniCPM-V rows are the replayed captures above plus the live run.
+
+| Model | Host | Structured output | Parsed | Exact | Invented | Verdicts | p50 / p95 | USD / doc |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| nemotron-3-nano-omni-30b-a3b-reasoning (default) | NVIDIA | json_object | 12 / 12 | 100% | 0 | 3 / 3 | 58.8 s / 67.2 s | ~$0.002 (est.) |
+| MiniCPM-V-4_5 (consensus only) | Nebius | json_object | 12 / 12 | 100% | 4 | 2 / 3 | ~6 s | ~$0.006 |
+| Nemotron-3.5-Super-VL (selectable, not recommended) | Nebius | json_object (strict rejected) | 7 / 16 | 100% of parsed | 0 | -- | 12.2 s / 16.0 s | $0.0053 |
+
+Super-VL is fast and exact when it returns clean JSON, but 9 of 16 documents failed to parse, so it does not meet the bar for default (match omni accuracy, comparable p95, no more invented fields) and is kept as a selectable option only. Omni dollars are an estimate because NVIDIA publishes no per-token rate; Nebius dollars use the catalog prices in `scripts/spend.py`.
+
 ## Reading the gap between `exact` and `verbatim`
 
 Where verbatim is lower than exact, the model transcribed loosely and the deterministic layer absorbed it -- dropped `FOB NINGBO` prefixes, an invented digit in a weight, `Made in P.R.C.` for a country. That is the design working: the model is allowed to be a transcriber because nothing downstream trusts its formatting.
 
 Where `invented` is non-zero, a model asserted a field the document does not print. That cannot be normalized away, because it is not a formatting error -- it is a wrong claim about the page. The engine's response is to surface it as a cross-document disagreement with the evidence line attached, and to let a reviewer correct it in one click.
 
-That is also what verdict agreement is really measuring. When a provider invents a field on one document and not on another, the engine sees a disagreement the paperwork does not contain, and a shipment designed to be clean arrives at `conflicts`. It is right about the data it was handed and wrong about the world -- which is why the fallback provider scores 1 of 3 here while still scoring 100% on every value it was actually asked to read. Showing the number rather than the summary line is the point.
+That is also what verdict agreement is really measuring. When a provider invents a field on one document and not on another, the engine sees a disagreement the paperwork does not contain, and a shipment designed to be clean arrives at `conflicts`. It is right about the data it was handed and wrong about the world -- which is why the fallback provider scores 2 of 3 here while still scoring 100% on every value it was actually asked to read. Showing the number rather than the summary line is the point.
 
 ## Reproducing
 

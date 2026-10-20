@@ -1,14 +1,14 @@
 {
-  "cache_key": "3af82f0f708e954d96ce8af31b495a85",
+  "cache_key": "723163874b7924f9b9b99a58e209553e",
   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
   "provider": "nvidia",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "page_sha256": [
     "32cf72223ef33646c8e7dcce9044137aa1187a0d751a0ae15989b7814d19b5b5"
   ],
   "response": {
     "doc_type": "certificate_of_origin",
-    "doc_type_reason": "Printed heading 'CERTIFICATE OF ORIGIN' at top of page",
+    "doc_type_reason": "Printed heading \"CERTIFICATE OF ORIGIN\" at top of page",
     "fields": {
       "quantity": {
         "present": true,
@@ -41,14 +41,14 @@
       "hs_code": {
         "present": true,
         "value": "8517.62.00",
-        "evidence_text": "8517.62.00",
+        "evidence_text": "3. HS CODE 8517.62.00",
         "page_index": 1,
         "confidence": 0.9
       },
       "consignee_name": {
         "present": true,
         "value": "Nordwind Industrial Supply GmbH",
-        "evidence_text": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "2. CONSIGNEE Nordwind Industrial Supply GmbH",
         "page_index": 1,
         "confidence": 0.9
       },
@@ -76,7 +76,7 @@
       "country_of_origin": {
         "present": true,
         "value": "China",
-        "evidence_text": "China",
+        "evidence_text": "Country of origin China",
         "page_index": 1,
         "confidence": 0.9
       }

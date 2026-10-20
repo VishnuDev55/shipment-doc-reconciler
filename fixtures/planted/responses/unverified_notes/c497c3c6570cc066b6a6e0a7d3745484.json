@@ -1,9 +1,0 @@
-{
-  "raw_text": "We need to output a single JSON object with explanation <=200 chars. The question: \"what is the most likely cause of the mismatch?\" The evidence: quoted line not found on page. Likely cause: typo or formatting difference (e.g., extra space, abbreviation). So explanation: \"Typo or formatting difference (extra space/period) causing line not found.\" Must be <=200 chars. Provide JSON: {\"explanation\":\"Typo or formatting difference (extra space/period) causing the line not to match.\"} That's within 200 chars.",
-  "model": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
-  "provider": "nebius",
-  "note": {
-    "explanation": "Typo or formatting difference (extra space/period) causing the line not to match."
-  },
-  "_provenance": "LIVE API"
-}

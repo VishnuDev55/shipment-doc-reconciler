@@ -1,0 +1,85 @@
+{
+  "cache_key": "3e22cb8cb88606d1adf16349292ffb5e",
+  "model": "hand-authored-fixture",
+  "prompt_version": "extract-v5",
+  "page_sha256": [
+    "a232532be6a948c5cda2b4ee017ef327f498ec3a2c9ab8c25ac1e59a80115b60"
+  ],
+  "response": {
+    "doc_type": "packing_list",
+    "doc_type_reason": "Header and layout indicate a packing list.",
+    "fields": {
+      "quantity": {
+        "present": true,
+        "value": "100 CARTONS",
+        "evidence_text": "Total quantity 100 CARTONS",
+        "page_index": 1,
+        "confidence": 0.96
+      },
+      "gross_weight": {
+        "present": true,
+        "value": "12,450.00 KGS",
+        "evidence_text": "Total gross weight 12,450.00 KGS",
+        "page_index": 1,
+        "confidence": 0.96
+      },
+      "net_weight": {
+        "present": true,
+        "value": "11,600.00 KGS",
+        "evidence_text": "Total net weight 11,600.00 KGS",
+        "page_index": 1,
+        "confidence": 0.96
+      },
+      "container_number": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "hs_code": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "consignee_name": {
+        "present": true,
+        "value": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "Consignee Nordwind Industrial Supply GmbH",
+        "page_index": 1,
+        "confidence": 0.96
+      },
+      "invoice_value": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "incoterms": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "po_number": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "country_of_origin": {
+        "present": true,
+        "value": "China",
+        "evidence_text": "Country of origin China",
+        "page_index": 1,
+        "confidence": 0.96
+      }
+    }
+  },
+  "_provenance": "HAND-AUTHORED fixture response. Not produced by any model. Seeds DEMO_MODE for the planted-error evaluation so it runs offline."
+}

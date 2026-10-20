@@ -1,14 +1,14 @@
 {
-  "cache_key": "fc7138bdd887d3aee72c0d4d9897e8be",
+  "cache_key": "109cb8b90642304086bc601d6e26aefd",
   "model": "openbmb/MiniCPM-V-4_5",
   "provider": "nebius",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "page_sha256": [
     "3b67f9dece64a4d1a1be3ae39bada237fb49517ce99c4501843cac5b5c2f7a65"
   ],
   "response": {
     "doc_type": "bill_of_lading",
-    "doc_type_reason": "The document is titled \"BILL OF LADING\" at the top.",
+    "doc_type_reason": "The document is titled BILL OF LADING at the top.",
     "fields": {
       "quantity": {
         "present": true,

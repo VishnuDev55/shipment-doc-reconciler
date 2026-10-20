@@ -1,14 +1,14 @@
 {
-  "cache_key": "f96206150e3a919df15ce2b654a9e5dd",
+  "cache_key": "876f488e77c66a4694931963e852756e",
   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
   "provider": "nvidia",
-  "prompt_version": "extract-v4",
+  "prompt_version": "extract-v5",
   "page_sha256": [
     "724c00828b5b21816cf31b199cd83a24ab76070756da8d04e5bc40c96c2ec445"
   ],
   "response": {
     "doc_type": "certificate_of_origin",
-    "doc_type_reason": "Printed heading 'CERTIFICATE OF ORIGIN' at top of page",
+    "doc_type_reason": "Printed heading 'CERTIFICATE OF ORIGIN'",
     "fields": {
       "quantity": {
         "present": true,
