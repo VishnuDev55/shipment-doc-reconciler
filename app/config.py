@@ -149,6 +149,12 @@ class Settings(BaseSettings):
     jpeg_quality: int = Field(default=85, alias="JPEG_QUALITY")
 
     request_timeout_seconds: float = Field(default=180.0, alias="REQUEST_TIMEOUT_SECONDS")
+    # Hard total deadline for one HTTP round-trip, enforced with asyncio.wait_for
+    # around the whole call. request_timeout_seconds is the SDK's per-read
+    # timeout, which does not bound a request that opens a connection and never
+    # sends headers; this does. A hung call becomes a TimeoutError and falls into
+    # the retry ladder instead of blocking a run forever.
+    request_deadline_seconds: float = Field(default=240.0, alias="REQUEST_DEADLINE_SECONDS")
     max_concurrency: int = Field(default=4, alias="MAX_CONCURRENCY")
 
     # How closely a quoted evidence line has to resemble the page's own text to

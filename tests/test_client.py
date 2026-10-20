@@ -398,6 +398,37 @@ async def test_persistent_5xx_reports_transport_failure(tmp_path, monkeypatch):
     assert "503" in out.error
 
 
+class NeverRespondingCompletions:
+    """A transport that opens and then never answers — the silent-hang case.
+
+    The SDK's read timeout does not cover this (measured live: the omni host did
+    it under load); the request_deadline_seconds deadline must.
+    """
+
+    async def create(self, **kwargs):
+        await asyncio.Event().wait()  # never resolves
+
+
+async def test_a_silent_hang_is_bounded_by_the_deadline(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    c = ExtractionClient(make_settings(tmp_path, request_deadline_seconds=0.2))
+    c.json_mode = "plain"
+    c._probed = True
+    c._client = SimpleNamespace(chat=SimpleNamespace(
+        completions=NeverRespondingCompletions()))
+
+    async def no_sleep(_t):
+        return
+
+    monkeypatch.setattr("app.client.asyncio.sleep", no_sleep)
+    out = await c.extract_document(document_id="d1", pages=pages())
+    assert out.status == "failed"
+    assert "deadline exceeded" in out.error
+    # Every schedule slot became a deadline expiry, not a hang: the ladder ran.
+    assert out.attempts and all("deadline exceeded" in a.note for a in out.attempts)
+
+
 # ---------------------------------------------------------------------------
 # cache
 # ---------------------------------------------------------------------------

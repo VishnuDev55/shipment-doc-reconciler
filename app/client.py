@@ -263,7 +263,15 @@ class ChatClient:
                 }
                 if response_format is not None:
                     kwargs["response_format"] = response_format
-                completion = await self.client.chat.completions.create(**kwargs)
+                # The SDK's per-read timeout does not bound a request that opens
+                # a connection and never sends headers (measured live: the omni
+                # host did exactly that under load). The deadline bounds the
+                # whole round-trip, so a silent hang becomes a TimeoutError and
+                # falls into the retry ladder instead of blocking the run.
+                completion = await asyncio.wait_for(
+                    self.client.chat.completions.create(**kwargs),
+                    timeout=self.settings.request_deadline_seconds,
+                )
                 choice = completion.choices[0]
                 message = choice.message
                 if getattr(message, "refusal", None):
@@ -283,6 +291,10 @@ class ChatClient:
                 return text, used, usage_dict
             except (APITimeoutError, APIConnectionError) as exc:
                 attempts.append(f"{type(exc).__name__}: {exc}")
+            except TimeoutError as exc:
+                # asyncio.wait_for's deadline (a hung connection that never sent
+                # headers). Retryable for the same reason as the SDK timeouts.
+                attempts.append(f"deadline exceeded: {type(exc).__name__}")
             except APIStatusError as exc:
                 attempts.append(f"HTTP {exc.status_code}")
                 if exc.status_code not in RETRYABLE_STATUS:
