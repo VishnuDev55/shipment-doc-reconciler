@@ -35,8 +35,9 @@ def test_record_and_summary_round_trip(log):
     s = log.summary()
     assert s["calls"] == 2
     assert s["total_tokens"] == 140
-    # 100*0.05 + 40*0.10 = 5 + 4 = 9 micro-dollars -> 0.000009
-    assert s["total_usd_est"] == pytest.approx(0.000009, abs=1e-9)
+    # 100*0.06 + 40*0.24 = 6 + 9.6 = 15.6 micro-dollars -> 0.0000156
+    # (authoritative Nebius verbose-catalog prices)
+    assert s["total_usd_est"] == pytest.approx(0.0000156, abs=1e-9)
     assert "nebius" in s["per_provider_usd_est"]
 
 
@@ -48,7 +49,7 @@ def test_a_zero_usage_entry_costs_nothing(log):
 def test_cost_of_uses_the_table_and_a_blended_override():
     table = spend.cost_of("nebius", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
                           1_000_000, 1_000_000, blended=None)
-    assert table == pytest.approx(0.05 + 0.10, abs=1e-9)
+    assert table == pytest.approx(0.06 + 0.24, abs=1e-9)
     blended = spend.cost_of("nebius", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
                             1_000_000, 1_000_000, blended=1.0)
     assert blended == pytest.approx(2.0, abs=1e-9)

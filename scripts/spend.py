@@ -1,10 +1,12 @@
 """Spend log for live API calls.
 
 Tokens are exact — taken from the `usage` object each provider response carries.
-Dollars are an *estimate*: build.nvidia.com and nebius.com do not publish
-per-token rates on their model pages (checked 2026-10-16), so the price table
-below is conservative third-party list pricing, rounded up, and labelled as an
-estimate. The provider's invoice is the only authoritative bill.
+Dollars use per-token prices: Nebius publishes them in its verbose catalog
+(GET /models?verbose=true), so its rows are authoritative (2026-10-19);
+build.nvidia.com publishes none, so its row is a conservative third-party
+estimate, labelled as such. Image tokens bill as part of prompt_tokens; if a
+response reports zero image cost, the full-token figure is the conservative
+upper bound.
 
 Keys are never read, written or echoed here. The log lives in
 runs/spend_log.json, which is gitignored like the rest of runs/.
@@ -27,21 +29,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LOG = ROOT / "runs" / "spend_log.json"
 
-# (input, output) USD per million tokens. ESTIMATES, rounded up; vendors do not
-# publish rates on their pages, so these are third-party list prices. Set
-# USD_PER_MTOK in .env to a blended rate to override every provider/model.
+# (input, output) USD per million tokens. Nebius rows are authoritative from
+# its verbose catalog (/models?verbose=true, 2026-10-19); the NVIDIA row is an
+# estimate (build.nvidia.com publishes no rate). Image tokens bill as part of
+# prompt_tokens; if a response reports zero image cost, the full-token figure is
+# the conservative upper bound.
 PRICE_USD_PER_MTOK: dict[str, dict[str, tuple[float, float]]] = {
     "nvidia": {
+        # ESTIMATE — build.nvidia.com publishes no rate.
         "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": (0.10, 0.20),
     },
     "nebius": {
-        "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B": (0.05, 0.10),
-        "openbmb/MiniCPM-V-4_5": (0.10, 0.10),
+        "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B": (0.06, 0.24),
+        "openbmb/MiniCPM-V-4_5": (0.658, 1.11),
+        "nvidia/Nemotron-3.5-Super-VL": (0.30, 0.90),
     },
 }
 FALLBACK = (0.10, 0.10)
 
-BUDGET_USD = 8.0
+BUDGET_USD = 5.0
 
 
 def _load() -> dict:
@@ -121,7 +127,7 @@ def summary() -> dict:
         "total_usd_est": total,
         "per_provider_usd_est": per_provider,
         "per_model_usd_est": per_model,
-        "rate": "blended USD_PER_MTOK" if blended is not None else "estimated table",
+        "rate": "blended USD_PER_MTOK" if blended is not None else "price table",
     }
 
 
