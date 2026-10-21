@@ -380,6 +380,19 @@ main > *, .panel, .doc, .doc-body { min-width: 0; }
   border-left: 3px solid var(--bad); border-radius: var(--radius-sm);
 }
 
+/* An in-page correction dialog, not window.prompt: dialogs are unsupported in
+   some embedded browsers, and a prompt cannot validate, style or explain. */
+.modal {
+  width: min(30rem, calc(100vw - 2rem)); border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg); padding: 1.25rem; background: var(--surface);
+  color: var(--ink); box-shadow: var(--shadow-lg);
+}
+.modal::backdrop { background: color-mix(in oklab, var(--bg) 60%, #000 40%); }
+.modal h2 { margin: 0 0 .35rem; font-size: 1.05rem; }
+.modal .field-label { display: block; margin-top: .8rem; }
+.modal .input { width: 100%; }
+.modal .row-actions { margin-top: 1rem; justify-content: flex-end; }
+
 .note {
   font-size: .78rem; line-height: 1.5; color: var(--ink-2);
   background: var(--surface-sunk); border-radius: var(--radius);

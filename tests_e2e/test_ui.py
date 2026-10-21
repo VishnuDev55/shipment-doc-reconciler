@@ -175,6 +175,46 @@ def test_a_page_chip_opens_the_page_with_the_quoted_line_on_it(report_page):
     assert box.locator(".lb-evidence").inner_text().strip() != ""
 
 
+def test_the_correction_dialog_edits_without_a_native_prompt(report_page, app):
+    """window.prompt is unsupported in some embedded browsers and throws without
+    a trace. The correction must be an in-page dialog: focusable, cancellable,
+    validated, and recorded in the audit trail."""
+    page = report_page
+    sid = _shipment_id(page)
+    row = page.locator("#cmp tbody tr").filter(has_text="Quantity").first
+    row.locator(".edit-value").first.click()
+    dialog = page.locator("#correction-dialog")
+    dialog.wait_for(state="visible", timeout=10_000)
+    assert dialog.locator("#correction-value").input_value() != ""
+
+    # Empty input stays in the dialog and says why.
+    page.fill("#correction-value", "")
+    page.locator("#correction-save").click()
+    assert page.locator("#correction-error").is_visible()
+    assert dialog.is_visible()
+
+    page.fill("#correction-value", "120 CARTONS")
+    page.fill("#correction-actor", "e2e-ui")
+    page.locator("#correction-save").click()
+    dialog.wait_for(state="hidden", timeout=20_000)
+
+    corrected = page.locator("#cmp td.corrected").first
+    assert corrected.count() >= 1
+    assert "corrected by e2e-ui" in corrected.inner_text()
+    trail = _api(app, f"/api/shipments/{sid}/corrections")
+    assert any(c["actor"] == "e2e-ui" and c["corrected_value"] == "120 CARTONS"
+               for c in trail["corrections"])
+
+
+def test_the_correction_dialog_cancels_without_changing_anything(report_page):
+    page = report_page
+    before = page.locator("#cmp").inner_text()
+    page.locator(".edit-value").first.click()
+    page.locator("#correction-cancel").click()
+    assert page.locator("#correction-dialog").is_hidden()
+    assert page.locator("#cmp").inner_text() == before
+
+
 def test_a_correction_marks_the_row_and_survives_a_reload(report_page, app):
     """The reviewer flow, end to end: change a value through the API, reload, and
     the row must show it was corrected *and* what the model originally said."""
@@ -207,6 +247,25 @@ def test_a_correction_marks_the_row_and_survives_a_reload(report_page, app):
 # ---------------------------------------------------------------------------
 # layout and access control
 # ---------------------------------------------------------------------------
+
+
+def test_a_history_failure_is_shown_not_rendered_as_empty(page, app):
+    """A 500 used to be rendered as "No runs in this container yet": an outage
+    that looked like emptiness, hiding every run the user had."""
+    def fail_history(route):
+        if route.request.method == "GET" and route.request.url.split("?")[0].endswith("/api/shipments"):
+            route.fulfill(status=500, content_type="application/json",
+                          body='{"detail": "simulated outage"}')
+        else:
+            route.continue_()
+
+    page.route("**/api/shipments**", fail_history)
+    page.goto(app.base_url + "/")
+    message = page.locator("#history .alert")
+    message.wait_for(timeout=10_000)
+    assert "Could not load run history" in message.inner_text()
+    assert "simulated outage" in message.inner_text()
+    assert "No runs in this container yet" not in page.locator("#history").inner_text()
 
 
 def test_the_table_scrolls_on_a_phone_instead_of_reflowing(app, new_page):

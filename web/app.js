@@ -85,6 +85,7 @@ const state = {
   // where any script on this origin can read it.
   apiKey: '',
   reviewer: '',
+  pendingCorrection: null,
   clearedKeys: new Set(),
 };
 
@@ -249,24 +250,38 @@ async function loadFixtures() {
       note.textContent = data.note;
     }
   } catch (err) {
-    /* the rail is a convenience; the file picker still works without it */
+    // The file picker still works, but silence here looked like a server with
+    // no fixtures. Say what failed instead of rendering nothing.
+    const note = $('#fixtures-note');
+    note.hidden = false;
+    note.className = 'alert';
+    note.textContent = 'Could not load sample shipments: ' + err.message;
   }
 }
 
 async function loadHistory() {
   try {
     const data = await getJSON('/api/shipments');
-    renderHistory(data.shipments || []);
+    renderHistory(data.shipments || [], data.skipped || 0);
   } catch (err) {
-    renderHistory([]);
+    const host = $('#history');
+    host.innerHTML = '';
+    const p = el('p', 'run-empty alert', 'Could not load run history: ' + err.message);
+    host.appendChild(p);
   }
 }
 
-function renderHistory(rows) {
+function renderHistory(rows, skipped = 0) {
   const host = $('#history');
   host.innerHTML = '';
+  if (skipped > 0) {
+    host.appendChild(el('p', 'run-empty',
+      `${skipped} run${skipped === 1 ? '' : 's'} on disk could not be read ` +
+      `and ${skipped === 1 ? 'is' : 'are'} not listed.`));
+  }
   if (!rows.length) {
-    host.appendChild(el('p', 'run-empty', 'No runs in this container yet.'));
+    host.appendChild(el('p', 'run-empty',
+      skipped ? 'No readable runs in this container.' : 'No runs in this container yet.'));
     return;
   }
   rows.forEach((row) => {
@@ -411,6 +426,12 @@ function wireButtons() {
   $('#save-config').addEventListener('click', saveConfig);
   $('#copy-link').addEventListener('click', copyRunLink);
   $('#warn-config').addEventListener('click', openDrawer);
+  $('#correction-form').addEventListener('submit', submitCorrection);
+  $('#correction-cancel').addEventListener('click', () => $('#correction-dialog').close());
+  $('#correction-dialog').addEventListener('close', () => {
+    state.pendingCorrection = null;
+    $('#correction-error').hidden = true;
+  });
   document.querySelectorAll('[data-clear]').forEach((btn) =>
     btn.addEventListener('click', () => clearKey(btn.dataset.clear)));
   document.addEventListener('keydown', (e) => {
@@ -1421,14 +1442,51 @@ function correctedBy(v, field) {
   return active.length ? active[active.length - 1] : null;
 }
 
-async function correctValue(documentId, field, current) {
-  const entered = window.prompt(
-    `Correct "${field}" on this document.\n\nThe model read: ${current}\n` +
-    'Enter the value exactly as it appears on the document.', current);
-  if (entered === null) return;
-  const value = entered.trim();
-  if (!value) { setStatus('An empty value is a deletion, not a correction — use Revert.', true); return; }
-  await postCorrection(documentId, field, value);
+function correctValue(documentId, field, current) {
+  const dialog = $('#correction-dialog');
+  state.pendingCorrection = { documentId, field };
+  $('#correction-title').textContent = `Correct “${field}”`;
+  $('#correction-context').textContent = current
+    ? `The model read: ${current}. Enter the value exactly as it appears on the document.`
+    : 'The model read nothing here. Enter the value exactly as it appears on the document.';
+  const input = $('#correction-value');
+  input.value = current || '';
+  $('#correction-actor').value = state.reviewer || '';
+  $('#correction-error').hidden = true;
+  input.setCustomValidity('');
+  dialog.showModal();
+  input.focus();
+  input.select();
+}
+
+async function submitCorrection(event) {
+  event.preventDefault();
+  const dialog = $('#correction-dialog');
+  const value = $('#correction-value').value.trim();
+  const actor = $('#correction-actor').value.trim() || 'reviewer';
+  const target = state.pendingCorrection;
+  const error = $('#correction-error');
+  if (!target) return;
+  if (!value) {
+    error.textContent = 'An empty value is a deletion, not a correction — use Revert.';
+    error.hidden = false;
+    $('#correction-value').focus();
+    return;
+  }
+  const save = $('#correction-save');
+  save.disabled = true;
+  error.hidden = true;
+  try {
+    state.reviewer = actor;
+    await postCorrection(target.documentId, target.field, value, actor);
+    dialog.close();
+    setStatus('');
+  } catch (err) {
+    error.textContent = 'Could not apply that correction: ' + err.message;
+    error.hidden = false;
+  } finally {
+    save.disabled = false;
+  }
 }
 
 async function revertValue(documentId, field) {
@@ -1439,37 +1497,33 @@ async function revertValue(documentId, field) {
   );
 }
 
-async function postCorrection(documentId, field, value) {
-  await request(
+async function postCorrection(documentId, field, value, actor = 'reviewer') {
+  return mutate(
     `/api/shipments/${encodeURIComponent(state.shipmentId)}/documents/` +
     `${encodeURIComponent(documentId)}/fields/${encodeURIComponent(field)}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value, actor: reviewerName() }),
+      body: JSON.stringify({ value, actor }),
     },
   );
 }
 
-function reviewerName() {
-  // No accounts here, so the trail records who they say they are. Worth asking
-  // once per tab: an unattributed change is harder to defend to an auditor.
-  if (!state.reviewer) {
-    const asked = window.prompt('Who is making this correction? (recorded in the audit trail)', '');
-    state.reviewer = (asked || '').trim() || 'reviewer';
-  }
-  return state.reviewer;
+/** POST a mutation, repaint from the recomputed report, and let the caller handle failure. */
+async function mutate(path, init) {
+  const res = await fetch(path, init);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || ('HTTP ' + res.status));
+  state.report = body;
+  renderReport(body);
+  loadHistory();
+  return body;
 }
 
-/** POST a correction, then repaint from the recomputed report the server returns. */
+/** POST a correction and show the outcome in the page status; used by Revert. */
 async function request(path, init) {
   try {
-    const res = await fetch(path, init);
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.detail || ('HTTP ' + res.status));
-    state.report = body;
-    renderReport(body);
-    loadHistory();
+    await mutate(path, init);
     setStatus('');
   } catch (err) {
     setStatus('Could not apply that correction: ' + err.message, true);

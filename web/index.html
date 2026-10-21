@@ -364,6 +364,22 @@
   </footer>
 </aside>
 
+<dialog id="correction-dialog" class="modal" aria-labelledby="correction-title">
+  <form id="correction-form" novalidate>
+    <h2 id="correction-title">Correct this value</h2>
+    <p id="correction-context" class="hint"></p>
+    <label class="field-label" for="correction-value">Value exactly as printed</label>
+    <input type="text" id="correction-value" class="input" autocomplete="off" spellcheck="false">
+    <p id="correction-error" class="alert" role="alert" hidden></p>
+    <label class="field-label" for="correction-actor">Your name (recorded in the audit trail)</label>
+    <input type="text" id="correction-actor" class="input" autocomplete="name" placeholder="reviewer">
+    <div class="row-actions">
+      <button type="button" id="correction-cancel" class="btn btn-quiet">Cancel</button>
+      <button type="submit" id="correction-save" class="btn btn-primary">Save correction</button>
+    </div>
+  </form>
+</dialog>
+
 <script src="/static/app.js"></script>
 </body>
 </html>
