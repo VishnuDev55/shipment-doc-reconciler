@@ -18,7 +18,8 @@ from pathlib import Path
 from .config import COMPARATOR_VERSION, NORMALIZER_VERSION, PROMPT_VERSION
 from .fields import FIELD_LABEL, FIELD_ORDER
 from .models import Report
-from .transparency import cost_line, model_steps, powered_by, source_word, totals
+from .sections import transparency, visible_findings
+from .transparency import cost_line, powered_by, source_word
 
 STATUS_LABEL = {
     "consistent": "Consistent",
@@ -255,7 +256,7 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
         f'{esc(f.label)} — {esc(f.detail)}'
         + (f' <em>{esc(" · ".join(f.documents))}</em>' if f.documents else "")
         + "</li>"
-        for f in status.findings if f.severity != "info"
+        for f in visible_findings(report)
     )
     status_html = (
         f'<div class="statusbar {esc(status.banner)}"><b>{esc(status.headline)}</b>'
@@ -308,6 +309,7 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
         )
     else:
         banner = ""
+    steps, tokens, ms = transparency(report)
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shipment reconciliation {esc(report.shipment_id)}</title>
@@ -450,8 +452,8 @@ table.prov td {{ padding:4px 10px 4px 0; vertical-align:top; }}
     f'<td>{s["tries"]}</td>'
     f'<td>{s["usage"].total if s["usage"] else 0}</td>'
     f'<td>{s["latency_ms"]}</td></tr>'
-    for s in model_steps(report))}</tbody></table>
-<p class="sub">{esc(powered_by(report))}<br>{esc(cost_line(report, *totals(model_steps(report))))}</p>
+    for s in steps)}</tbody></table>
+<p class="sub">{esc(powered_by(report))}<br>{esc(cost_line(report, tokens, ms))}</p>
 <footer>prompt {esc(report.run.prompt_version or PROMPT_VERSION)} ·
 normalizer {esc(report.run.normalizer_version or NORMALIZER_VERSION)} ·
 comparator {esc(report.run.comparator_version or COMPARATOR_VERSION)}<br>
