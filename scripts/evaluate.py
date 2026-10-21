@@ -45,6 +45,7 @@ from app.normalize import normalize_field  # noqa: E402
 LIVE_DIR = ROOT / "fixtures" / "live_responses"
 AUTHORED_DIR = ROOT / "fixtures" / "responses"
 DOC_OUT = ROOT / "docs" / "EVAL.md"
+MODEL_COMPARISON = ROOT / "fixtures" / "model_comparison.json"
 
 
 @dataclass
@@ -193,15 +194,23 @@ def _score_verdicts(result: Result, index: dict, providers: list[str]) -> None:
                     normalized=normalize_field(key, extracted),
                 ))
         conflict = False
+        suspicious = False
         for key in FIELD_ORDER:
             obs = observations.get(key) or []
             if len(obs) < 2:
                 continue
-            if compare_field(key, obs).status == "conflict":
+            status = compare_field(key, obs).status
+            if status == "conflict":
                 conflict = True
+            elif status == "suspicious":
+                suspicious = True
         want = expected_verdict(shipment)
-        got = "conflicts" if conflict else "not-conflicts"
-        ok = (got == "conflicts") == (want == "conflicts")
+        # Three classes, because the product has three: a shipment that needs a
+        # human glance is not the same answer as one that is clean. Collapsing
+        # review into "not conflicts" credited an engine that missed the very
+        # warning the messy fixture exists to test.
+        got = "conflicts" if conflict else "review" if suspicious else "clean"
+        ok = got == want
         (result.verdicts_ok if ok else result.verdicts_bad).append(
             f"{shipment}: expected {want}, engine reached {got}"
         )
@@ -267,7 +276,7 @@ def _live_block() -> str:
             "### Consensus agreement (MiniCPM-V second reader)",
             "",
             f"- field readings compared: **{compared}**, diverged: **{diverged}**"
-            f" → agreement **{agreement:.1f}%**",
+            f" -> agreement **{agreement:.1f}%**",
             "",
             "A divergence is a review marker, not a verdict: the primary extraction"
             " stays authoritative, and two readers agreeing is not proof either.",
@@ -322,6 +331,44 @@ def _live_block() -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def _comparison_block() -> list[str]:
+    """The measured model table, read from committed data rather than typed here.
+
+    The rows are produced by scripts/eval_model.py (and, for the two providers,
+    by the captures this same file scores), so `--check` can detect a stale
+    document instead of re-rendering yesterday's numbers forever.
+    """
+    try:
+        data = json.loads(MODEL_COMPARISON.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    models = data.get("models") or []
+    if not models:
+        return []
+    lines = [
+        "## Vision model comparison",
+        "",
+        f"Measured live on {data.get('measured_at', '')}. {data.get('note', '')}".strip(),
+        "",
+        "| Model | Host | Structured output | Parsed | Exact | Invented |"
+        " Verdicts | p50 / p95 | USD / doc |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in models:
+        lines.append(
+            f"| {row.get('label') or row.get('model')} | {row.get('host', '')} |"
+            f" {row.get('structured_output', '')} | {row.get('parsed', '')} |"
+            f" {row.get('exact', '')} | {row.get('invented', '')} |"
+            f" {row.get('verdicts', '')} | {row.get('p50', '')} / {row.get('p95', '')} |"
+            f" {row.get('usd', '')} |"
+        )
+    interpretation = data.get("interpretation")
+    if interpretation:
+        lines += ["", interpretation]
+    lines.append("")
+    return lines
 
 
 def render(results: list[Result]) -> str:
@@ -398,31 +445,8 @@ def render(results: list[Result]) -> str:
     if live:
         lines.append(live)
 
+    lines += _comparison_block()
     lines += [
-        "## Vision model comparison",
-        "",
-        "Measured live on 2026-10-20 (Super-VL via `scripts/eval_model.py`, 16"
-        " documents x 2 runs); omni and MiniCPM-V rows are the replayed captures"
-        " above plus the live run.",
-        "",
-        "| Model | Host | Structured output | Parsed | Exact | Invented |"
-        " Verdicts | p50 / p95 | USD / doc |",
-        "|---|---|---|---:|---:|---:|---:|---:|---:|",
-        "| nemotron-3-nano-omni-30b-a3b-reasoning (default) | NVIDIA | json_object"
-        " | 12 / 12 | 100% | 0 | 3 / 3 | 58.8 s / 67.2 s | ~$0.002 (est.) |",
-        "| MiniCPM-V-4_5 (consensus only) | Nebius | json_object | 12 / 12 |"
-        " 100% | 4 | 2 / 3 | ~6 s | ~$0.006 |",
-        "| Nemotron-3.5-Super-VL (selectable, not recommended) | Nebius |"
-        " json_object (strict rejected) | 7 / 16 | 100% of parsed | 0 | -- |"
-        " 12.2 s / 16.0 s | $0.0053 |",
-        "",
-        "Super-VL is fast and exact when it returns clean JSON, but 9 of 16"
-        " documents failed to parse, so it does not meet the bar for default"
-        " (match omni accuracy, comparable p95, no more invented fields) and is"
-        " kept as a selectable option only. Omni dollars are an estimate because"
-        " NVIDIA publishes no per-token rate; Nebius dollars use the catalog"
-        " prices in `scripts/spend.py`.",
-        "",
         "## Reading the gap between `exact` and `verbatim`",
         "",
         "Where verbatim is lower than exact, the model transcribed loosely and"
@@ -500,6 +524,15 @@ def check(results: list[Result]) -> list[str]:
     return problems
 
 
+def doc_problem(results: list[Result]) -> str | None:
+    """The generated document is part of the measurement: a stale copy is a fail."""
+    expected = render(results)
+    actual = DOC_OUT.read_text(encoding="utf-8") if DOC_OUT.is_file() else ""
+    if actual.strip() != expected.strip():
+        return "docs/EVAL.md is stale -- run `python scripts/evaluate.py --write`"
+    return None
+
+
 def main() -> int:
     results = run()
     print(render(results))
@@ -509,6 +542,9 @@ def main() -> int:
         print(f"\nwrote {DOC_OUT.relative_to(ROOT)}")
     if "--check" in sys.argv:
         problems = check(results)
+        stale = doc_problem(results)
+        if stale:
+            problems.append(stale)
         if problems:
             print("\n".join(f"EVAL FAIL: {p}" for p in problems))
             return 1

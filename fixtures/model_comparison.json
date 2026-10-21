@@ -1,0 +1,49 @@
+{
+  "measured_at": "2026-10-20",
+  "note": "Omni and MiniCPM-V rows come from the replayed captures above plus the live run; Super-VL via scripts/eval_model.py, 16 documents x 2 runs. These rows are data, not prose in the generator.",
+  "interpretation": "Super-VL is fast and exact when it returns clean JSON, but 9 of 16 documents failed to parse, so it does not meet the bar for default (match omni accuracy, comparable p95, no more invented fields) and is kept as a selectable option only. Omni dollars are an estimate because NVIDIA publishes no per-token rate; Nebius dollars use the catalog prices in `scripts/spend.py`.",
+  "models": [
+    {
+      "model": "nemotron-3-nano-omni-30b-a3b-reasoning",
+      "label": "nemotron-3-nano-omni-30b-a3b-reasoning (default)",
+      "host": "NVIDIA",
+      "structured_output": "json_object",
+      "parsed": "12 / 12",
+      "exact": "100%",
+      "invented": 0,
+      "verdicts": "3 / 3",
+      "p50": "58.8 s",
+      "p95": "67.2 s",
+      "usd": "~$0.002 (est.)",
+      "source": "fixtures/live_responses + live run"
+    },
+    {
+      "model": "MiniCPM-V-4_5",
+      "label": "MiniCPM-V-4_5 (consensus only)",
+      "host": "Nebius",
+      "structured_output": "json_object",
+      "parsed": "12 / 12",
+      "exact": "100%",
+      "invented": 4,
+      "verdicts": "2 / 3",
+      "p50": "~6 s",
+      "p95": "~6 s",
+      "usd": "~$0.006",
+      "source": "fixtures/live_responses + live run"
+    },
+    {
+      "model": "nvidia/Nemotron-3.5-Super-VL",
+      "label": "Nemotron-3.5-Super-VL (selectable, not recommended)",
+      "host": "Nebius",
+      "structured_output": "json_object (strict rejected)",
+      "parsed": "7 / 16",
+      "exact": "100% of parsed",
+      "invented": 0,
+      "verdicts": "--",
+      "p50": "12.2 s",
+      "p95": "16.0 s",
+      "usd": "$0.0053",
+      "source": "scripts/eval_model.py, 16 documents x 2 runs"
+    }
+  ]
+}

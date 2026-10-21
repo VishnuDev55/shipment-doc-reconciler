@@ -18,6 +18,7 @@ import importlib.util
 import json
 import sys
 import time
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -232,7 +233,50 @@ async def main() -> int:
     print(f"latency p50 {p50 / 1000:.1f}s, p95 {p95 / 1000:.1f}s, n={len(lat)}")
     print(f"reasoning (completion) tokens: {reasoning_tokens}, total tokens: {grand_tokens}")
     print(f"cost: ${grand_cost:.4f}  mode: {mode}")
+
+    if "--write-comparison" in sys.argv:
+        _write_comparison(model, mode, total, aggregate, grand_cost, p50, p95)
+        print(f"wrote {model} to fixtures/model_comparison.json")
     return 0
+
+
+def _write_comparison(model: str, mode: str, total: dict, aggregate: dict,
+                      grand_cost: float, p50: int, p95: int) -> None:
+    """Update this model's measured row in the committed comparison data.
+
+    Other models' rows are preserved: this command measures one model, and a
+    single run must not silently delete the rest of the table.
+    """
+    path = ROOT / "fixtures" / "model_comparison.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {"measured_at": "", "note": "", "interpretation": "", "models": []}
+
+    documents = len(aggregate)
+    parsed = sum(1 for agg in aggregate.values()
+                 if agg["runs"] and all(r == "ok" for r in agg["runs"]))
+    exact = (100.0 * total["exact"] / total["comparable"]
+             if total["comparable"] else 0.0)
+    row = {
+        "model": model,
+        "label": model,
+        "host": "Nebius",
+        "structured_output": mode,
+        "parsed": f"{parsed} / {documents}",
+        "exact": f"{exact:.0f}% of parsed",
+        "invented": total["invented"],
+        "verdicts": "--",
+        "p50": f"{p50 / 1000:.1f} s",
+        "p95": f"{p95 / 1000:.1f} s",
+        "usd": f"${grand_cost / documents:.4f}" if documents else "$0.0000",
+        "source": f"scripts/eval_model.py, {documents} documents x {RUNS} runs",
+    }
+    models = [m for m in (payload.get("models") or []) if m.get("model") != model]
+    models.append(row)
+    payload["models"] = models
+    payload["measured_at"] = date.today().isoformat()
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

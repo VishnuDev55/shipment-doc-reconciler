@@ -35,7 +35,7 @@ The documents are synthetic, so the exact printed string for every field is know
 
 The question a reviewer actually asks: with this provider's errors in, does the engine still reach the right conclusion?
 
-- ok — shipment_clean: expected clean, engine reached not-conflicts
+- ok — shipment_clean: expected clean, engine reached clean
 - ok — shipment_conflict: expected conflicts, engine reached conflicts
 - **MISMATCH** — shipment_messy: expected review, engine reached conflicts
 
@@ -64,9 +64,9 @@ The question a reviewer actually asks: with this provider's errors in, does the 
 
 The question a reviewer actually asks: with this provider's errors in, does the engine still reach the right conclusion?
 
-- ok — shipment_clean: expected clean, engine reached not-conflicts
+- ok — shipment_clean: expected clean, engine reached clean
 - ok — shipment_conflict: expected conflicts, engine reached conflicts
-- ok — shipment_messy: expected review, engine reached not-conflicts
+- ok — shipment_messy: expected review, engine reached review
 
 ## Live run (2026-10-19)
 
@@ -91,7 +91,7 @@ Measured live against NVIDIA nemotron-3-nano-omni (primary) with MiniCPM-V conse
 
 ### Consensus agreement (MiniCPM-V second reader)
 
-- field readings compared: **110**, diverged: **5** → agreement **95.5%**
+- field readings compared: **110**, diverged: **5** -> agreement **95.5%**
 
 A divergence is a review marker, not a verdict: the primary extraction stays authoritative, and two readers agreeing is not proof either.
 
@@ -121,12 +121,12 @@ False alarms (a clean/review shipment reported as conflicts): **0**
 
 ## Vision model comparison
 
-Measured live on 2026-10-20 (Super-VL via `scripts/eval_model.py`, 16 documents x 2 runs); omni and MiniCPM-V rows are the replayed captures above plus the live run.
+Measured live on 2026-10-20. Omni and MiniCPM-V rows come from the replayed captures above plus the live run; Super-VL via scripts/eval_model.py, 16 documents x 2 runs. These rows are data, not prose in the generator.
 
 | Model | Host | Structured output | Parsed | Exact | Invented | Verdicts | p50 / p95 | USD / doc |
 |---|---|---|---:|---:|---:|---:|---:|---:|
 | nemotron-3-nano-omni-30b-a3b-reasoning (default) | NVIDIA | json_object | 12 / 12 | 100% | 0 | 3 / 3 | 58.8 s / 67.2 s | ~$0.002 (est.) |
-| MiniCPM-V-4_5 (consensus only) | Nebius | json_object | 12 / 12 | 100% | 4 | 2 / 3 | ~6 s | ~$0.006 |
+| MiniCPM-V-4_5 (consensus only) | Nebius | json_object | 12 / 12 | 100% | 4 | 2 / 3 | ~6 s / ~6 s | ~$0.006 |
 | Nemotron-3.5-Super-VL (selectable, not recommended) | Nebius | json_object (strict rejected) | 7 / 16 | 100% of parsed | 0 | -- | 12.2 s / 16.0 s | $0.0053 |
 
 Super-VL is fast and exact when it returns clean JSON, but 9 of 16 documents failed to parse, so it does not meet the bar for default (match omni accuracy, comparable p95, no more invented fields) and is kept as a selectable option only. Omni dollars are an estimate because NVIDIA publishes no per-token rate; Nebius dollars use the catalog prices in `scripts/spend.py`.
