@@ -44,3 +44,8 @@ playwright-report/
 .live_runcache/
 
 .probe_cache/
+
+# Local tooling output and hand-off notes — not project files.
+graphify-out/
+.freebuff/
+HANDOFF.md
