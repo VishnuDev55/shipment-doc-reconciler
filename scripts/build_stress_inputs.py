@@ -179,6 +179,33 @@ def case_german() -> None:
         note="German labels and decimal commas (12.450,00 / 8.420,00)")
 
 
+def case_french() -> None:
+    """A French invoice: French labels, decimal commas, same numbers."""
+    name = "french"
+    html = """<html><body style="font-family: Helvetica; font-size: 10pt">
+<h2>FACTURE COMMERCIALE</h2>
+<table><tr><td>Num&eacute;ro de facture</td><td>FR-9911</td></tr>
+<tr><td>Destinataire</td><td>Baltic Trading SARL</td></tr>
+<tr><td>N&deg; de commande</td><td>PO 4410-FR</td></tr>
+<tr><td>Conditions de livraison</td><td>CIF Hamburg</td></tr>
+<tr><td>Pays d'origine</td><td>China</td></tr></table>
+<table><tr><th>D&eacute;signation</th><th>Quantit&eacute;</th><th>Prix unitaire</th><th>Montant</th></tr>
+<tr><td>Vanne 4 pouces</td><td>100 CARTONS</td><td>84,20</td><td>8.420,00</td></tr></table>
+<p>QUANTITE: 100 CARTONS</p>
+<p>POIDS BRUT: 12.450,00 KGS</p>
+<p>CODE SH: 8517.62.00</p>
+<p>MONTANT TOTAL: 8.420,00 USD</p></body></html>"""
+    _save_png(_pages(html_to_pdf_bytes(html))[0], f"{name}.png")
+    _write_truth(name, {
+        "quantity": "100 CARTONS", "gross_weight": "12.450,00 KGS",
+        "net_weight": None, "container_number": None, "hs_code": "8517.62.00",
+        "consignee_name": "Baltic Trading SARL", "invoice_value": "8.420,00 USD",
+        "incoterms": "CIF Hamburg", "po_number": "PO 4410-FR",
+        "country_of_origin": "China",
+    }, doc_type="commercial_invoice",
+        note="French labels and decimal commas (12.450,00 / 8.420,00)")
+
+
 def case_absent() -> None:
     """An invoice that genuinely prints no PO number and no origin."""
     name = "absent"
@@ -206,6 +233,7 @@ def main() -> int:
     case_phone_photo()
     case_two_page()
     case_german()
+    case_french()
     case_absent()
     print(f"\nstress inputs -> {OUT}")
     return 0

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -30,7 +31,7 @@ from app.orchestrator import Reconciler  # noqa: E402
 from app.providers import vision_endpoint  # noqa: E402
 
 STRESS = ROOT / "runs" / "stress"
-CASES = ("phone_photo", "two_page", "german", "absent")
+CASES = ("phone_photo", "two_page", "german", "french", "absent")
 
 
 def _expected_canonical(field: str, raw: str | None) -> str | None:
@@ -128,7 +129,7 @@ async def main() -> int:
         return 2
     from dotenv import dotenv_values
 
-    env = dotenv_values(ROOT / ".env")
+    env = {**dotenv_values(ROOT / ".env"), **os.environ}
     preprocess = "--preprocess" in sys.argv
     settings = Settings(
         _env_file=None,
