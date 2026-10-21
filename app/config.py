@@ -97,7 +97,10 @@ class Settings(BaseSettings):
     # ambiguous, and a draft email describing the discrepancies. Both are
     # additive: neither can change a status, a verdict or a shipment state.
     enable_adjudication: bool = Field(default=True, alias="ENABLE_ADJUDICATION")
-    enable_briefing: bool = Field(default=True, alias="ENABLE_BRIEFING")
+    # Deprecated: the AI-written draft email. Superseded by correction_email.py,
+    # which drafts the same letter by rule with no model in the loop. Kept so
+    # existing deployments that opted in keep working; off by default.
+    enable_briefing: bool = Field(default=False, alias="ENABLE_BRIEFING")
 
     # Read every page with a second provider and flag the fields the two did not
     # agree on. Off by default because it doubles the token spend of a run, and
