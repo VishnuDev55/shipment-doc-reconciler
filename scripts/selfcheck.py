@@ -14,9 +14,9 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts._common import ROOT  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.fields import FIELD_ORDER  # noqa: E402
 from app.orchestrator import Reconciler  # noqa: E402

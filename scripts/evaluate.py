@@ -34,9 +34,9 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts._common import ROOT  # noqa: E402
 from app.cache import AUTHORED_MARKER  # noqa: E402
 from app.fields import FIELD_LABEL, FIELD_ORDER  # noqa: E402
 from app.models import ExtractionResponse  # noqa: E402
