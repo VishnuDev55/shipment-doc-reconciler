@@ -364,7 +364,7 @@ Development sequence, for the record:
 1. API research against Nebius docs; scaffold and connection verification.
 2. Schemas, normalizers, comparison engine — test-first, no API key available.
 3. Synthetic fixtures + `DEMO_MODE` response cache; full application built and
-   tested offline (201 tests).
+   tested offline.
 4. Nebius key provided → live verification, which exposed that the brief's model
    is unavailable on that account and corrected the `json_schema` envelope.
 5. NVIDIA key provided → two-provider architecture, live verification of both
