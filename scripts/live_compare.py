@@ -23,6 +23,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import spend  # noqa: E402
 
 from app.cache import cache_key  # noqa: E402
 from app.providers import vision_endpoint  # noqa: E402
@@ -216,6 +219,10 @@ async def main() -> int:
                 not_captured += 1
                 continue
             calls += 1
+            usage = {k: sum(a.usage.get(k, 0) for a in outcome.attempts if a.usage)
+                     for k in ("prompt", "completion", "total")}
+            spend.record(outcome.provider, outcome.model, usage,
+                         note=f"capture {fname}")
 
             page_sha = [p.sha256 for p in res["pages"]]
             authored = load_authored(page_sha, doc["doc_type"])

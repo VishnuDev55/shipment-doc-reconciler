@@ -47,7 +47,8 @@ PRICE_USD_PER_MTOK: dict[str, dict[str, tuple[float, float]]] = {
 }
 FALLBACK = (0.10, 0.10)
 
-BUDGET_USD = 5.0
+BUDGET_USD = 30.0
+BUDGET_PER_PROVIDER_USD = 15.0
 
 
 def _load() -> dict:
@@ -160,9 +161,16 @@ def main(argv: list[str] | None = None) -> int:
     for provider, usd in sorted(s["per_provider_usd_est"].items()):
         print(f"  {provider:8} ${usd:.4f}")
     over = s["total_usd_est"] >= BUDGET_USD
-    print(f"budget: ${BUDGET_USD:.0f}  ->  "
-          f"{'OVER BUDGET — stop and report' if over else 'ok'}")
-    return 2 if over else 0
+    over_provider = [p for p, usd in s["per_provider_usd_est"].items()
+                     if usd >= BUDGET_PER_PROVIDER_USD]
+    print(f"budget: ${BUDGET_USD:.0f} total / ${BUDGET_PER_PROVIDER_USD:.0f} per provider")
+    if over_provider:
+        print(f"OVER PROVIDER BUDGET: {', '.join(over_provider)} — stop and report")
+    elif over:
+        print("OVER TOTAL BUDGET — stop and report")
+    else:
+        print("ok")
+    return 2 if (over or over_provider) else 0
 
 
 if __name__ == "__main__":
