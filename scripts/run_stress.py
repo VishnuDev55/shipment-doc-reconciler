@@ -27,6 +27,7 @@ from app.fields import FIELD_ORDER  # noqa: E402
 from app.models import ExtractedField  # noqa: E402
 from app.normalize import normalize_field  # noqa: E402
 from app.orchestrator import Reconciler  # noqa: E402
+from app.providers import vision_endpoint  # noqa: E402
 
 STRESS = ROOT / "runs" / "stress"
 CASES = ("phone_photo", "two_page", "german", "absent")
@@ -134,9 +135,12 @@ async def main() -> int:
         demo_mode=False,
         vision_provider=env.get("VISION_PROVIDER", "nvidia"),
         nvidia_api_key=env.get("NVIDIA_API_KEY", ""),
-        nebius_api_key="",
+        nebius_api_key=env.get("NEBIUS_API_KEY", ""),
         nvidia_base_url=env.get("NVIDIA_BASE_URL",
                                  "https://integrate.api.nvidia.com/v1/"),
+        nebius_base_url=env.get("NEBIUS_BASE_URL",
+                                 "https://api.tokenfactory.nebius.com/v1/"),
+        nebius_vision_model=env.get("NEBIUS_VISION_MODEL", ""),
         enable_summary=False,
         enable_adjudication=False,
         enable_briefing=False,
@@ -146,8 +150,9 @@ async def main() -> int:
         runs_dir=ROOT / "runs" / "stress_runs",
         cache_dir=ROOT / "runs" / "stress_cache",
     )
-    if not settings.has_nvidia_key:
-        print("BLOCKED: NVIDIA_API_KEY not set")
+    endpoint = vision_endpoint(settings)
+    if not endpoint.api_key.strip():
+        print(f"BLOCKED: no API key for vision provider '{endpoint.provider}'")
         return 2
 
     rec = Reconciler(settings)
