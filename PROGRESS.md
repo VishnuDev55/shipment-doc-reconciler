@@ -47,7 +47,7 @@ Legend: ✅ done here · ⚠️ needs you · ❌ blocked
 | 7 | Platform feedback, specific not generic | ✅ | SUBMISSION.md §"Feedback on the Nebius and NVIDIA platforms" — 7 items, each with the actual error text |
 | 8 | VIDEO_SCRIPT.md, ≤3 min, covers how both providers were used | ✅ | `VIDEO_SCRIPT.md` — 8 shots, timings from **measured** latency, real captured summary text, honesty checklist |
 | 9 | `docker build` verified | ⚠️ **needs you** | No docker/podman binary or daemon in this sandbox. Dockerfile audited statically (see below) and the app runs under its exact `CMD` locally — but the build itself has never executed |
-| 10 | Tests green, zero live calls in CI | ✅ | 297 passed; **enforced in-repo** by the socket guard in `tests/conftest.py` (blocks every non-loopback connect and resolution), itself covered by `test_offline_guard.py`. The delivered repo had no mechanism behind this claim |
+| 10 | Tests green, zero live calls in CI | ✅ | Offline suite green (count is not pinned in prose); **enforced in-repo** by the socket guard in `tests/conftest.py` (blocks every non-loopback connect and resolution), itself covered by `test_offline_guard.py`. The delivered repo had no mechanism behind this claim |
 | 11 | No API key committed or packaged | ✅ | Scanned all 119 tracked files and every zip entry for both key values and any assigned `*_API_KEY=` line: none |
 
 ### Two things I want to be precise about, not optimistic
@@ -629,7 +629,7 @@ asked for comes back as `present=false` and reads as "not printed" rather than
 "not extracted". `tests/test_prompt.py` pins that, and
 `tests/test_normalize_categorical.py` covers the three new normalizers.
 
-**Measured:** 619 tests passing in ~18s, zero network calls (socket guard), lint
+**Measured:** the offline suite green, zero network calls (socket guard), lint
 clean, `scripts/selfcheck.py` passing with all ten fields asserted per fixture,
 and the UI checked in a browser at 390 and 1280 px — ten rows, correct labels, no
 snake_case leaks, no page-level overflow, and a new field's correction round-trip
@@ -764,7 +764,7 @@ correction rung and no ladder (a failure here returns a reason, because the
 scalar report is already correct without it), and the orchestrator writing the
 section *after* the report has been settled and persisted.
 
-**Verified.** 772 tests, pyflakes and ruff clean, selfcheck green. The
+**Verified.** Offline suite green, pyflakes and ruff clean, selfcheck green. The
 default-off path is pinned by running the same fixture shipment twice and
 asserting the comparisons, summary, risk note, sanity findings and every document
 dump are identical with the flag on and off. End to end through a running server

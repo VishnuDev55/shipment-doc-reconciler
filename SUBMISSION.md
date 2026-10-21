@@ -385,7 +385,7 @@ render.yaml        Render Blueprint, free tier, DEMO_MODE=true
 .env.example       both keys, with signup URLs and comments
 Makefile           setup / dev / test / probe / probe-live / dist
 app/               FastAPI, clients, normalizers, comparison engine, export
-tests/             619 tests, ~20s, zero live API calls (enforced by a socket
+tests/             offline suite, zero live API calls (enforced by a socket
                    guard in tests/conftest.py, itself under test)
 fixtures/          9 synthetic documents + 3-layer response cache
 scripts/           fixture builder, demo self-check, live probes, migration
