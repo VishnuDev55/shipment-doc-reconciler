@@ -61,6 +61,22 @@ Retries happen **below** the parse ladder, so a 503 never burns a rung. A run th
 spent its one correction call on a transport error would have wasted the only
 attempt that could have fixed a malformed response.
 
+### Cross-provider fallback
+
+A document the configured host cannot answer is re-read on the other host, once,
+per document (`VISION_FALLBACK`, default on; off in `DEMO_MODE`). It fires only
+when the primary produced nothing usable — an exception or a null response —
+never for a partial extraction, and only when the other host has a real key and
+a closed breaker. Both attempts are kept: the document carries the merged
+attempt and token counts, and the surviving answer is stamped with the host that
+actually read it plus a routing note the UI and both reports render.
+
+Live check, 2026-10-21 (`scripts/live_fallback_check.py`): with the NVIDIA base
+URL pointed at a dead local port, the document still arrived — status `ok`,
+`nebius / openbmb/MiniCPM-V-4_5`, note `nvidia returned nothing usable; read on
+nebius instead`. No NVIDIA tokens were spent; the Nebius call is in the spend
+log.
+
 ## Model discovery: NVIDIA publishes no modality at all
 
 `GET /v1/models` on `integrate.api.nvidia.com` returns 81 rows carrying only
