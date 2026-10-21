@@ -142,6 +142,9 @@ def diff_field(key: str, live, authored_fields: dict) -> list[str]:
 
 
 async def main() -> int:
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(__doc__.strip())
+        return 0
     settings = Settings()
     ep = vision_endpoint(settings)
     if not ep.api_key.strip():
@@ -206,11 +209,22 @@ async def main() -> int:
                 print(f"  {fname}: CALL FAILED {type(exc).__name__}: {exc}")
                 continue
             outcome = res["outcome"]
+            live = (outcome.source == "live_api" and not outcome.used_cache
+                    and bool(outcome.attempts))
+            if live:
+                calls += 1
+                usage = {k: sum(a.usage.get(k, 0) for a in outcome.attempts if a.usage)
+                         for k in ("prompt", "completion", "total")}
+                # Recorded before the parse check: a call that failed to parse
+                # still cost tokens, and the spend log is the budget's only
+                # evidence.
+                spend.record(outcome.provider, outcome.model, usage,
+                             note=f"capture {fname}")
             if outcome.response is None:
                 print(f"  {fname}: FAILED to parse -> {outcome.error}")
                 not_captured += 1
                 continue
-            if outcome.source != "live_api" or outcome.used_cache:
+            if not live:
                 # A replay is not a capture. These fixtures are worth committing
                 # only because a model really produced them, so refuse to write
                 # one out under a LIVE provenance label.
@@ -218,11 +232,6 @@ async def main() -> int:
                       f"{outcome.source}, cache={outcome.used_cache}) -- refusing")
                 not_captured += 1
                 continue
-            calls += 1
-            usage = {k: sum(a.usage.get(k, 0) for a in outcome.attempts if a.usage)
-                     for k in ("prompt", "completion", "total")}
-            spend.record(outcome.provider, outcome.model, usage,
-                         note=f"capture {fname}")
 
             page_sha = [p.sha256 for p in res["pages"]]
             authored = load_authored(page_sha, doc["doc_type"])
