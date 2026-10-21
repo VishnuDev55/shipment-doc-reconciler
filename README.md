@@ -1371,11 +1371,24 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 - **MiniCPM-V downgrades `strict` → `json_object` live.** Its strict probe
   "accepted but returned unusable JSON", which the probe ladder already handles
   and tests pin; consensus therefore runs on `json_object`.
-- **Non-English labels are a real gap.** A German invoice with decimal commas
-  (`12.450,00 KGS`, `8.420,00 USD`) normalized correctly, but the German labels
-  `Warennummer` (HS code) and `Bestellnummer` (PO) were read as absent. The
-  model reads the numbers; it does not map the foreign field names. Recorded in
-  the stress test rather than tuned away.
+- **Non-English labels now map, measured live on 2026-10-21.** The German case
+  used to return `Warennummer` (HS code) and `Bestellnummer` (PO) as absent
+  because the prompt named only English surface forms. With the German/French
+  synonyms in the v5 hints, Nebius MiniCPM-V read the German case **10/10**
+  fields and the French case **10/10**, zero invented on both. The quantity
+  normalizer also learned `KARTONS`/`COLIS`/`PALETTEN` so a German invoice and
+  an English packing list compare on the same unit instead of "unknown". NVIDIA
+  omni hung past 150 s on the German case, so no omni number is claimed.
+- **Preprocessing a bad phone photo measurably helps.** The same rotated,
+  sheared, darkened, scribbled-on photo, same model (MiniCPM-V), once with
+  `PREPROCESS_ORIENTATION=false` and once with it on: **6/10 fields and one
+  invented value before; 8/10 and zero invented after**. The two remaining
+  misses are a misread HS digit and the total hidden under the stamp. NVIDIA
+  omni hung on both variants.
+- **A failed document is re-read on the other host.** Live check on 2026-10-21
+  (`scripts/live_fallback_check.py`): with the primary NVIDIA endpoint pointed
+  at a dead port, the document still arrived — `ok`, stamped
+  `nebius / openbmb/MiniCPM-V-4_5`, with the routing note in the report.
 - **Goods lines are the dominant live cost.** Four more omni calls per shipment
   took ~6–7 minutes on a degraded host — far more than extraction or the summary
   — because the same slow primary model is reused for the opt-in line read.
