@@ -32,9 +32,9 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts._common import ROOT  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.models import Report  # noqa: E402
 from app.orchestrator import Reconciler  # noqa: E402

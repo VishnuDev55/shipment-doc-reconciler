@@ -17,9 +17,9 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts._common import ROOT, html_to_pdf_bytes  # noqa: E402
 from PIL import Image, ImageDraw  # noqa: E402
 from fixtures.templates import invoice  # noqa: E402
 
@@ -29,17 +29,6 @@ OUT = ROOT / "runs" / "stress"
 FIELDS = ("quantity", "gross_weight", "net_weight", "container_number", "hs_code",
           "consignee_name", "invoice_value", "incoterms", "po_number",
           "country_of_origin")
-
-
-def _pdf_bytes(html: str) -> bytes:
-    from xhtml2pdf import pisa
-
-    buf = io.BytesIO()
-    pisa.CreatePDF(io.BytesIO(html.encode("utf-8")), dest=buf)
-    pdf = buf.getvalue()
-    if len(pdf) < 600:
-        raise RuntimeError("renderer produced an empty PDF")
-    return pdf
 
 
 def _pages(pdf: bytes, *, scale: float = 2.0) -> list[Image.Image]:
@@ -96,7 +85,7 @@ def case_phone_photo() -> None:
     """Rotated 90°, sheared, darkened, JPEG-crushed, with a stamp and a scrawl
     over the total amount."""
     name = "phone_photo"
-    img = _pages(_pdf_bytes(_invoice_html()))[0]
+    img = _pages(html_to_pdf_bytes(_invoice_html()))[0]
     img = img.rotate(90, expand=True, resample=Image.BICUBIC, fillcolor=(250, 250, 250))
     # Horizontal shear: (1, 0.15) skews the image sideways like a phone angle.
     w, h = img.size
@@ -152,7 +141,7 @@ td, th { border: 1px solid #999; padding: 2mm; }
 <tr><td>HS code</td><td>8517.62.00</td></tr>
 <tr><td>TOTAL AMOUNT</td><td>USD 8,420.00</td></tr>
 </tbody></table></div></body></html>"""
-    pages = _pages(_pdf_bytes(html))
+    pages = _pages(html_to_pdf_bytes(html))
     _save_pdf(pages, f"{name}.pdf")
     _write_truth(name, {
         "quantity": "100 CARTONS", "gross_weight": "12,450.00 KGS",
@@ -179,7 +168,7 @@ def case_german() -> None:
 <p>Bruttogewicht: 12.450,00 KGS</p>
 <p>Warennummer: 8517.62.00</p>
 <p>GESAMTBETRAG: 8.420,00 USD</p></body></html>"""
-    _save_png(_pages(_pdf_bytes(html))[0], f"{name}.png")
+    _save_png(_pages(html_to_pdf_bytes(html))[0], f"{name}.png")
     _write_truth(name, {
         "quantity": "100 KARTONS", "gross_weight": "12.450,00 KGS",
         "net_weight": None, "container_number": None, "hs_code": "8517.62.00",
@@ -202,7 +191,7 @@ def case_absent() -> None:
 <p>Total gross weight: 12,450.00 KGS</p>
 <p>HS code: 8517.62.00</p>
 <p>TOTAL AMOUNT: USD 8,420.00</p></body></html>"""
-    _save_png(_pages(_pdf_bytes(html))[0], f"{name}.png")
+    _save_png(_pages(html_to_pdf_bytes(html))[0], f"{name}.png")
     _write_truth(name, {
         "quantity": "100 CARTONS", "gross_weight": "12,450.00 KGS",
         "net_weight": None, "container_number": None, "hs_code": "8517.62.00",
