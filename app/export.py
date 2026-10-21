@@ -182,11 +182,13 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
                     f'<td>{esc(f.evidence_text)}</td><td>p{f.page_index}</td>'
                     f'<td>{f.confidence:.2f}</td></tr>'
                 )
+        notes_html = "".join(f'<div class="note">{esc(n)}</div>' for n in doc.notes)
         doc_rows.append(
             f'<details><summary><b>{esc(doc.label)}</b> '
             f'<span class="pill {doc.status}">{esc(doc.status)}</span> '
             f'<span class="muted">{esc(doc.detected_doc_type or doc.declared_doc_type or "?")} · '
             f'{len(doc.pages)} page(s) · {doc.attempts} attempt(s)</span></summary>'
+            f'{notes_html}'
             f'<table class="ev"><thead><tr><th>Field</th><th>Verbatim value</th>'
             f'<th>Evidence line</th><th>Page</th><th>Conf.</th></tr></thead>'
             f'<tbody>{evidence_rows or "<tr><td colspan=5 class=muted>nothing extracted</td></tr>"}</tbody></table>'
@@ -355,6 +357,7 @@ summary {{ cursor:pointer; }}
 .pill.partial,.pill.running {{ background:#fff4e0; color:var(--warn); }}
 .pill.cached {{ background:#eef1f4; color:var(--muted); }}
 .muted {{ color:var(--muted); font-size:12px; }}
+.note {{ margin:8px 0; padding:7px 10px; border-left:3px solid #8896a5; background:#f4f6f8; font-size:12px; }}
 table.ev {{ width:100%; border-collapse:collapse; margin:10px 0; font-size:12px; }}
 table.ev td, table.ev th {{ border-bottom:1px solid var(--line); padding:4px 6px; text-align:left; }}
 .pages {{ display:flex; flex-wrap:wrap; gap:10px; }}

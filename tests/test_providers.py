@@ -6,13 +6,14 @@ Zero live calls. Everything here runs against fake transports.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from app.cache import ResponseCache, cache_key
-from app.client import ExtractionClient, _message_text
+from app.client import ExtractionClient, ExtractionOutcome, _message_text
 from app.config import Settings
 from app.models import DocumentReport, ExtractionResponse, Report, RunInfo
 from app.normalize import normalize_field
@@ -622,3 +623,239 @@ async def test_summary_returns_last_attempt_if_still_bad_and_caller_rejects(tmp_
     await rec._write_summary(report)
     assert report.narrative.status == "failed"
     assert report.narrative.text is None
+
+
+# ---------------------------------------------------------------------------
+# cross-provider fallback: a document the primary host failed is not lost
+# ---------------------------------------------------------------------------
+
+
+def _pages():
+    from app.ingest import ingest
+
+    return ingest("invoice_clean.png",
+                  (REPO / "fixtures" / "images" / "invoice_clean.png").read_bytes())
+
+
+def _payload() -> ExtractionResponse:
+    """A full extraction body from the fixture cache (captured model output)."""
+    index = json.loads((REPO / "fixtures" / "index.json").read_text(encoding="utf-8"))
+    doc = index["shipments"]["shipment_clean"]["documents"][0]
+    body = json.loads(
+        (REPO / "fixtures" / "responses" / f"{doc['cache_key']}.json")
+        .read_text(encoding="utf-8")
+    )["response"]
+    return ExtractionResponse.model_validate(body)
+
+
+def _ok(provider: str, model: str) -> ExtractionOutcome:
+    return ExtractionOutcome(
+        response=_payload(), status="ok", attempts=[], issues=[], dropped_fields=[],
+        used_cache=False, used_fallback_schema=False, source="live_api",
+        provider=provider, model=model,
+    )
+
+
+def _failed(provider: str, model: str, error: str) -> ExtractionOutcome:
+    return ExtractionOutcome(
+        response=None, status="failed", attempts=[], issues=[], dropped_fields=[],
+        used_cache=False, used_fallback_schema=False, error=error,
+        provider=provider, model=model,
+    )
+
+
+def _capture_stages(rec: Reconciler) -> list[dict]:
+    """Collect stage events instead of publishing them to SSE listeners."""
+    events: list[dict] = []
+
+    def capture(shipment_id, **kwargs):
+        events.append(kwargs)
+
+    rec._emit_stage = capture  # type: ignore[method-assign]
+    return events
+
+
+async def _read(rec: Reconciler, tmp_path, document_id="d1"):
+    return await rec._extract_with_fallback(
+        shipment_id="s1", document_id=document_id, document_label="Invoice",
+        pages=_pages(), declared_doc_type="commercial_invoice",
+        raw_dir=tmp_path / "raw",
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_document_the_primary_host_failed_reads_on_the_other(tmp_path):
+    rec = Reconciler(base(tmp_path))
+    events = _capture_stages(rec)
+    asked: list[dict] = []
+
+    async def primary_dies(**kwargs):
+        raise RuntimeError("worker local total request limit reached")
+
+    async def other_reads(**kwargs):
+        asked.append(kwargs)
+        return _ok("nebius", NEBIUS_FALLBACK_VISION_MODEL)
+
+    rec.client.extract_document = primary_dies  # type: ignore[method-assign]
+    rec._consensus_client("nebius").extract_document = other_reads  # type: ignore[method-assign]
+
+    res = await _read(rec, tmp_path)
+
+    assert isinstance(res, ExtractionOutcome) and res.response is not None
+    assert res.provider == "nebius", "the surviving answer must be credited to the host that gave it"
+    assert res.model == NEBIUS_FALLBACK_VISION_MODEL
+    assert [e["provider"] for e in events] == ["nvidia", "nebius"], (
+        "the timeline has to show the document moving to the other host"
+    )
+    # The fallback's evidence is written under its own name, so a later read of
+    # the primary's raw body cannot be confused with the one that answered.
+    assert asked[0]["document_id"] == "d1_fb"
+    assert asked[0]["pages"][0].sha256 == _pages()[0].sha256, (
+        "the same images must be handed over, not a fresh upload"
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_answer_the_primary_did_produce_is_never_rewritten(tmp_path):
+    """A partial extraction is still the configured provider's answer. Routing
+    it elsewhere would trade a usable document for someone else's opinion."""
+    rec = Reconciler(base(tmp_path))
+    asked: list[dict] = []
+
+    async def primary_answers(**kwargs):
+        return _ok("nvidia", NVIDIA_VISION_MODEL)
+
+    async def other_reads(**kwargs):
+        asked.append(kwargs)
+        return _ok("nebius", NEBIUS_FALLBACK_VISION_MODEL)
+
+    rec.client.extract_document = primary_answers  # type: ignore[method-assign]
+    rec._consensus_client("nebius").extract_document = other_reads  # type: ignore[method-assign]
+
+    res = await _read(rec, tmp_path)
+    assert res.provider == "nvidia"
+    assert asked == [], "the other host must not be paid for a document that was answered"
+
+
+@pytest.mark.asyncio
+async def test_the_fallback_can_be_switched_off(tmp_path):
+    rec = Reconciler(base(tmp_path, vision_fallback=False))
+    _capture_stages(rec)
+
+    async def primary_dies(**kwargs):
+        raise RuntimeError("boom")
+
+    rec.client.extract_document = primary_dies  # type: ignore[method-assign]
+
+    res = await _read(rec, tmp_path)
+    assert isinstance(res, RuntimeError) and "boom" in str(res)
+    assert rec._consensus_clients == {}, "an off switch that still built a client is not off"
+
+
+@pytest.mark.asyncio
+async def test_a_host_without_a_key_is_not_asked_to_fall_back(tmp_path):
+    rec = Reconciler(base(tmp_path, nebius_api_key=""))
+    _capture_stages(rec)
+
+    async def primary_dies(**kwargs):
+        raise RuntimeError("boom")
+
+    rec.client.extract_document = primary_dies  # type: ignore[method-assign]
+
+    res = await _read(rec, tmp_path)
+    assert isinstance(res, RuntimeError) and "boom" in str(res)
+    assert "fallback" not in str(res)
+
+
+@pytest.mark.asyncio
+async def test_when_both_hosts_fail_the_error_names_both(tmp_path):
+    rec = Reconciler(base(tmp_path))
+    _capture_stages(rec)
+
+    async def primary_dies(**kwargs):
+        raise RuntimeError("deadline exceeded")
+
+    async def other_fails(**kwargs):
+        return _failed("nebius", NEBIUS_FALLBACK_VISION_MODEL, "circuit breaker open")
+
+    rec.client.extract_document = primary_dies  # type: ignore[method-assign]
+    rec._consensus_client("nebius").extract_document = other_fails  # type: ignore[method-assign]
+
+    res = await _read(rec, tmp_path)
+    assert isinstance(res, RuntimeError)
+    assert "deadline exceeded" in str(res)
+    assert "nebius" in str(res) and "circuit breaker open" in str(res)
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_loses_a_host_still_delivers_the_document(tmp_path):
+    """The whole point of the routing, end to end: the shipment finishes with a
+    document a dead primary provider would otherwise have taken with it."""
+    rec = Reconciler(base(tmp_path, model_discovery=False, enable_summary=False,
+                          enable_adjudication=False, enable_briefing=False))
+
+    async def primary_dies(**kwargs):
+        return _failed("nvidia", NVIDIA_VISION_MODEL, "transport failed: HTTP 503")
+
+    async def other_reads(**kwargs):
+        return _ok("nebius", NEBIUS_FALLBACK_VISION_MODEL)
+
+    rec.client.extract_document = primary_dies  # type: ignore[method-assign]
+    rec._consensus_client("nebius").extract_document = other_reads  # type: ignore[method-assign]
+
+    blob = (REPO / "fixtures" / "images" / "invoice_clean.png").read_bytes()
+    sid, _ = await rec.create_shipment([("invoice_clean.png", "commercial_invoice", blob)])
+    await rec.wait(sid, timeout=60)
+
+    report = rec.get(sid)
+    doc = report.documents[0]
+    assert doc.status in ("ok", "partial")
+    assert doc.extraction is not None
+    assert doc.provider == "nebius"
+    assert report.run.vision_provider == "nvidia", (
+        "the configured primary stays on the run; the fallback is per document"
+    )
+    assert any("read on nebius instead" in i for i in doc.notes), doc.notes
+
+    # The routing note must be visible in the artifacts, not just the model: a
+    # report that shows a nebius answer on an nvidia run without saying why is
+    # not honest.
+    from app.export import standalone_html
+    from app.pdf import report_html
+
+    assert "read on nebius instead" in standalone_html(report)
+    assert "read on nebius instead" in report_html(report)
+
+
+@pytest.mark.asyncio
+async def test_an_open_breaker_on_both_hosts_is_reported_not_retried(tmp_path):
+    """The other host's breaker being open is not a reason to try it anyway;
+    that is what the breaker exists to prevent."""
+    from app.client import ProviderDegraded
+
+    rec = Reconciler(base(tmp_path))
+    _capture_stages(rec)
+
+    async def primary_dies(**kwargs):
+        raise ProviderDegraded("circuit breaker open")
+
+    rec.client.extract_document = primary_dies  # type: ignore[method-assign]
+    other = rec._consensus_client("nebius")
+    other._consecutive_failures = other.settings.circuit_breaker_threshold
+
+    res = await _read(rec, tmp_path)
+    assert isinstance(res, ProviderDegraded), (
+        "the primary's breaker-open error is what the report must show"
+    )
+    assert "fallback" not in str(res), "a degraded host must not be called at all"
+
+
+def test_consensus_provider_pinning_to_the_primary_disables_fallback(tmp_path):
+    """CONSENSUS_PROVIDER can point the second reader at the primary's host;
+    there is then nowhere to fall back to, and paying the same host twice is
+    worse than failing honestly."""
+    rec = Reconciler(base(tmp_path))
+    assert rec._fallback_client() is not None
+
+    pinned = Reconciler(base(tmp_path, consensus_provider="nvidia"))
+    assert pinned._fallback_client() is None
