@@ -29,16 +29,17 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
-from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 
-from .config import PROJECT_ROOT, _usable, get_settings
+from .auth import SESSION_TTL_SECONDS, _issue_session, _sessions, require_api_key
+from .config import PROJECT_ROOT, get_settings
+from .config_view import _require_config_token, config_view, sanitize_config_updates
 from .correct import CorrectionError, active_corrections, correction_trail
-from .limits import RateLimiter
 from .export import build_zip, fixture_manifest
-from .pdf import render_pdf
 from .models import (ConfigUpdate, CorrectionRequest, Report, RetryRequest, SessionRequest)
 from .orchestrator import Reconciler
+from .pdf import render_pdf
+from .ratelimit import _client_key, _limiter_for
 from .textlayer import PageText, load_sidecar
 
 STATIC_DIR = PROJECT_ROOT / "web"
@@ -96,42 +97,6 @@ app = FastAPI(
 
 _reconciler: Reconciler | None = None
 
-# Budget for the one endpoint that spends money. Owned per process, and reset
-# whenever a new reconciler is injected, so an unrelated test cannot be the
-# reason a 429 appeared.
-_limiter = RateLimiter()
-
-
-def _limiter_for() -> RateLimiter:
-    limit = active_settings().run_limit_per_minute
-    if _limiter.limit != limit:
-        _limiter.limit = limit
-        _limiter.reset()
-    return _limiter
-
-
-def _client_key(request: Request) -> str:
-    """Who to charge the budget to.
-
-    The API key when one was supplied, because that is the only identity that
-    exists here; otherwise the peer address, taking the first hop of
-    X-Forwarded-For since a proxy is the normal way to reach this app. A shared
-    key is one budget by design -- if it is being shared, that is the deployment
-    problem to fix, not something to hide here.
-    """
-    key = (request.headers.get("x-api-key") or "").strip()
-    if not key:
-        auth = (request.headers.get("authorization") or "").strip()
-        if auth[:7].lower() == "bearer ":
-            key = auth[7:].strip()
-    if key:
-        return "key:" + key[-12:]
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return "ip:" + forwarded.split(",")[0].strip()
-    client = request.client
-    return "ip:" + (client.host if client else "unknown")
-
 
 def reconciler() -> Reconciler:
     global _reconciler
@@ -153,79 +118,6 @@ def active_settings():
     environment rather than the configuration actually serving requests.
     """
     return reconciler().settings
-
-
-API_KEY_HEADER = APIKeyHeader(
-    name="X-API-Key",
-    auto_error=False,
-    description="Required when the deployment sets API_KEYS. Also accepted as "
-                "`Authorization: Bearer <key>`.",
-)
-
-# Long enough to survive a demo and a working session, short enough that losing
-# the process invalidating it is not an outage. In-process by design: this app
-# is one worker with a filesystem store, and a cookie that outlived a restart
-# would be a secret with no way to revoke it.
-SESSION_TTL_SECONDS = 12 * 60 * 60
-_sessions: dict[str, float] = {}
-
-
-def _issue_session() -> str:
-    import secrets
-    import time
-
-    now = time.time()
-    for token in [t for t, expires in _sessions.items() if expires <= now]:
-        _sessions.pop(token, None)
-    token = secrets.token_urlsafe(32)
-    _sessions[token] = now + SESSION_TTL_SECONDS
-    return token
-
-
-def _session_valid(request: Request) -> bool:
-    import time
-
-    token = request.cookies.get("sdr_session") or ""
-    expires = _sessions.get(token)
-    if not expires:
-        return False
-    if expires < time.time():
-        _sessions.pop(token, None)
-        return False
-    return True
-
-
-def require_api_key(request: Request,
-                    supplied: str | None = Depends(API_KEY_HEADER)) -> None:
-    """Accept the request only if it carries a configured key or a live session.
-
-    An empty API_KEYS means an open deployment, which is the documented default
-    for the keyless demo, so this returns rather than refusing. When keys exist
-    the comparison is constant-time against each of them, and neither the value
-    supplied nor the value expected is echoed back or logged: a 401 body that
-    repeats a caller's key would put that key in somebody's access log.
-    """
-    allowed = active_settings().api_key_list
-    if not allowed:
-        return
-
-    if _session_valid(request):
-        return
-
-    candidates = [supplied] if supplied else []
-    bearer = (request.headers.get("authorization") or "").strip()
-    if bearer[:7].lower() == "bearer ":
-        candidates.append(bearer[7:].strip())
-
-    for given in (c.strip() for c in candidates if c and c.strip()):
-        if any(hmac.compare_digest(given, key) for key in allowed):
-            return
-    raise HTTPException(
-        status_code=401,
-        detail="this deployment requires an API key: send X-API-Key or "
-               "Authorization: Bearer, or POST the key to /api/session",
-        headers={"WWW-Authenticate": "X-API-Key"},
-    )
 
 
 @app.post("/api/session", tags=["auth"])
@@ -400,55 +292,6 @@ async def refresh_models() -> dict:
 # runtime configuration
 # ---------------------------------------------------------------------------
 
-# GET returns a mask and the browser re-submits untouched fields, so the marker
-# is how POST tells "left alone" from "a key someone actually typed".
-MASK_MARK = "…"
-
-
-def _mask(key: str) -> str:
-    """Identify a key without revealing it."""
-    key = (key or "").strip()
-    if not key:
-        return ""
-    if len(key) <= 9:
-        return MASK_MARK * 4
-    return f"{key[:5]}{MASK_MARK}{key[-4:]}"
-
-
-def _require_config_token(request: Request) -> None:
-    """Reject unless the shared secret matches, when one is configured.
-
-    Constant-time comparison: this is a secret, and an endpoint whose check can
-    be timed is an endpoint that can be searched a character at a time.
-    """
-    expected = reconciler().settings.config_token.strip()
-    if not expected:
-        return
-    supplied = request.headers.get("x-config-token", "")
-    if not hmac.compare_digest(supplied, expected):
-        raise HTTPException(401, "a valid X-Config-Token header is required for this deployment")
-
-
-def config_view() -> dict:
-    s = reconciler().settings
-    return {
-        "editable": s.gui_config_enabled,
-        "token_required": bool(s.config_token.strip()),
-        "demo_mode": s.demo_mode,
-        "enable_summary": s.enable_summary,
-        "consensus": s.consensus,
-        "vision_provider": s.vision_provider,
-        "keys": {
-            "nvidia": {"set": s.has_nvidia_key, "masked": _mask(s.nvidia_api_key)},
-            "nebius": {"set": s.has_nebius_key, "masked": _mask(s.nebius_api_key)},
-        },
-        "models": {
-            "nvidia_vision": s.nvidia_vision_model,
-            "nebius_vision": s.nebius_vision_model,
-            "nebius_summary": s.nebius_summary_model,
-        },
-    }
-
 
 @app.get("/api/config", dependencies=[Depends(require_api_key)])
 def get_config(request: Request) -> dict:
@@ -476,20 +319,9 @@ def set_config(request: Request, body: ConfigUpdate) -> dict:
     # operator who sees 401 on a locked deployment goes to the wrong setting.
     _require_config_token(request)
 
-    updates = body.model_dump(exclude_unset=True, exclude_none=True)
-
-    for field in ("nvidia_api_key", "nebius_api_key"):
-        if field not in updates:
-            continue
-        value = updates[field].strip()
-        if MASK_MARK in value:
-            del updates[field]
-            continue
-        if value and not _usable(value):
-            raise HTTPException(
-                400, f"{field}: {value!r} is a template placeholder, not a real key"
-            )
-        updates[field] = value
+    updates = sanitize_config_updates(
+        body.model_dump(exclude_unset=True, exclude_none=True)
+    )
 
     if not updates:
         raise HTTPException(400, "no changes supplied")
