@@ -21,6 +21,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import spend  # noqa: E402
 
 from openai import APIStatusError  # noqa: E402
 
@@ -105,6 +108,9 @@ async def check_vision(settings: Settings) -> str | None:
 
     print(f"status={out.status} attempts={len(out.attempts)} cache={out.used_cache} "
           f"latency={out.total_latency_ms} ms")
+    usage = {k: sum(a.usage.get(k, 0) for a in out.attempts if a.usage)
+             for k in ("prompt", "completion", "total")}
+    spend.record(out.provider, out.model, usage, note="probe vision")
     for a in out.attempts:
         print(f"  rung {a.rung:12} ok={a.ok} usage={a.usage} {a.note[:70]}")
     if out.response is None:
@@ -180,6 +186,7 @@ async def check_summary(settings: Settings) -> None:
         return
 
     print(f"usage: {usage}")
+    spend.record(ep.provider, ep.model, usage, note="probe summary")
     print(f"model wrote: {text}")
     ok = summary_is_plausible(text)
     print(f"passes the plausibility guard: {ok}")
