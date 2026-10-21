@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -179,6 +180,44 @@ def test_a_run_with_unreadable_meta_falls_back_to_its_mtime(tmp_path):
     import os
     os.utime(path, (old.timestamp(), old.timestamp()))
     assert store.purge_older_than(24) == ["ancient0000001"]
+
+
+def test_one_undecodable_report_does_not_hide_the_rest(tmp_path):
+    """A legacy cp1252 report is repaired; a corrupt one is counted, and neither
+    can abort the list. The bug was measured: one bad file 500'd the endpoint
+    and the UI rendered the outage as an empty history."""
+    store = RunStore(tmp_path / "runs")
+    for name, payload in (
+        ("utf8run0000001", {"state": "done", "documents": [], "summary": {}}),
+        ("cp1252run00001", {
+            "state": "done", "documents": [], "summary": {},
+            "note": "an em dash — written by the old locale codec",
+        }),
+    ):
+        store.create(name)
+        raw = json.dumps(payload, ensure_ascii=False)
+        (store.dir(name) / "report.json").write_bytes(
+            raw.encode("utf-8") if name.startswith("utf8") else raw.encode("cp1252")
+        )
+    store.create("corruptrun0001")
+    (store.dir("corruptrun0001") / "report.json").write_bytes(b"{not json")
+
+    rows, skipped = store.list_shipments()
+    assert {r["shipment_id"] for r in rows} == {"utf8run0000001", "cp1252run00001"}
+    assert skipped == 1
+    repaired = (store.dir("cp1252run00001") / "report.json").read_text(encoding="utf-8")
+    assert "em dash" in repaired
+
+
+def test_the_api_reports_how_many_runs_were_skipped(tmp_path):
+    settings = settings_for(tmp_path)
+    configure(Reconciler(settings))
+    store = RunStore(settings.runs_dir)
+    store.create("corruptrun0001")
+    (store.dir("corruptrun0001") / "report.json").write_bytes(b"{not json")
+    res = TestClient(app).get("/api/shipments")
+    assert res.status_code == 200
+    assert res.json() == {"shipments": [], "skipped": 1}
 
 
 # ---------------------------------------------------------------------------

@@ -787,7 +787,8 @@ def get_report_pdf(shipment_id: str) -> Response:
 
 @app.get("/api/shipments", dependencies=[Depends(require_api_key)])
 def list_shipments() -> dict:
-    return {"shipments": reconciler().store.list_shipments()}
+    rows, skipped = reconciler().store.list_shipments()
+    return {"shipments": rows, "skipped": skipped}
 
 
 @app.get("/api/fixture/{name}", dependencies=[Depends(require_api_key)])

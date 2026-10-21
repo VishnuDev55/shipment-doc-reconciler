@@ -151,28 +151,61 @@ class RunStore:
             out.append(f"pages/{name}")
         return out
 
-    def list_shipments(self, limit: int = 20) -> list[dict]:
-        rows = []
+    def list_shipments(self, limit: int = 20) -> tuple[list[dict], int]:
+        """Readable runs plus a count of runs that could not be read.
+
+        One unreadable report must never empty the whole history. Older runs on
+        Windows were written in the locale codec, so a report can be valid JSON
+        that is not valid UTF-8; that case is repaired in place. Genuinely
+        corrupt files are skipped and counted, because hiding them entirely is
+        how a corrupt run becomes invisible instead of visible.
+        """
+        rows: list[dict] = []
+        skipped = 0
         for d in sorted(self.root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
             report = d / "report.json"
             if not report.is_file():
                 continue
             try:
-                data = json.loads(report.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
+                raw = report.read_bytes()
+            except OSError as exc:
+                skipped += 1
+                log.warning("could not read run %s: %s", d.name, exc)
+                continue
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                # A legacy run written with the Windows locale codec. Re-save it
+                # as UTF-8 so the repair happens once, not on every request.
+                try:
+                    text = raw.decode("cp1252")
+                    report.write_text(text, encoding="utf-8")
+                except (UnicodeDecodeError, OSError) as exc:
+                    skipped += 1
+                    log.warning("could not decode run %s: %s", d.name, exc)
+                    continue
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError as exc:
+                skipped += 1
+                log.warning("could not parse run %s: %s", d.name, exc)
+                continue
+            if not isinstance(data, dict):
+                skipped += 1
+                log.warning("run %s has a non-object report", d.name)
                 continue
             rows.append(
                 {
                     "shipment_id": d.name,
                     "state": data.get("state"),
-                    "documents": len(data.get("documents", [])),
-                    "summary": data.get("summary", {}),
+                    "documents": len(data.get("documents", []) or []),
+                    "summary": data.get("summary") or {},
                     "updated_at": data.get("updated_at"),
                 }
             )
             if len(rows) >= limit:
                 break
-        return rows
+        return rows, skipped
 
 
 def _safe_name(name: str) -> str:
