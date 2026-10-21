@@ -159,6 +159,10 @@ def test_weight_canonical_format():
         ("500 PCS", 500, "piece"),
         ("12 BOXES", 12, "box"),
         ("40 CASES", 40, "case"),
+        # German/French package words must not read as an unknown unit.
+        ("100 KARTONS", 100, "carton"),
+        ("100 COLIS", 100, "package"),
+        ("24 PALETTEN", 24, "pallet"),
         ("7", 7, None),
         ("12,450.00 KGS", None, None),  # weight, not a count
     ],
@@ -167,6 +171,13 @@ def test_quantity_count_and_unit(raw, count, unit):
     res = norm_quantity(raw)
     assert res.count == count, f"{raw} -> count={res.count}"
     assert res.unit == unit, f"{raw} -> unit={res.unit}"
+
+
+def test_a_german_carton_compares_equal_to_an_english_one():
+    """A German invoice and an English packing list name the same packaging in
+    different languages; the compare_key must agree or the tool reports a unit
+    conflict the paperwork does not contain."""
+    assert norm_quantity("100 KARTONS").compare_key == norm_quantity("100 CARTONS").compare_key
 
 
 def test_quantity_compare_key_includes_unit():
