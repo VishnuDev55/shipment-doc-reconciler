@@ -57,10 +57,13 @@ class FakeCompletions:
 
     async def create(self, **kwargs):
         self.calls.append(kwargs)
-        text = self.script[min(len(self.calls) - 1, len(self.script) - 1)]
-        if isinstance(text, Exception):
-            raise text
-        return _completion(text)
+        item = self.script[min(len(self.calls) - 1, len(self.script) - 1)]
+        if isinstance(item, Exception):
+            raise item
+        if isinstance(item, tuple):
+            text, completion_tokens = item
+            return _completion(text, completion_tokens=completion_tokens)
+        return _completion(item)
 
 
 class FakeChat:
@@ -75,12 +78,16 @@ class FakeClient:
         self.chat = FakeChat(script)
 
 
-def _completion(text: str):
+def _completion(text: str, *, completion_tokens: int | None = None):
     from types import SimpleNamespace
 
     msg = SimpleNamespace(content=text, refusal=None)
     choice = SimpleNamespace(message=msg, finish_reason="stop")
-    return SimpleNamespace(choices=[choice], usage=None)
+    usage = None
+    if completion_tokens is not None:
+        usage = SimpleNamespace(prompt_tokens=100, completion_tokens=completion_tokens,
+                                total_tokens=100 + completion_tokens)
+    return SimpleNamespace(choices=[choice], usage=usage)
 
 
 def good_response() -> str:
@@ -290,6 +297,25 @@ async def test_rung_4_costs_exactly_one_extra_call(tmp_path):
     correction = fake.chat.completions.calls[1]["messages"]
     assert correction[2]["role"] == "assistant" and "total gibberish" in correction[2]["content"]
     assert "could not be used" in correction[3]["content"]
+
+
+@pytest.mark.asyncio
+async def test_a_truncated_reasoning_reply_gets_one_headroom_retry(tmp_path):
+    """Super-VL spent all 1600 completion tokens thinking, then wrote no JSON.
+
+    Retrying the same messages with a bigger budget must recover it without
+    changing the prompt or spending the correction rung first.
+    """
+    c = ExtractionClient(make_settings(tmp_path))
+    c.json_mode = "plain"
+    c._probed = True
+    fake = install(c, [("The user wants me to extract ten fields from this invoice.", 1600),
+                       good_response()])
+    out = await c.extract_document(document_id="d1", pages=pages())
+    assert out.status == "ok"
+    assert [a.rung for a in out.attempts] == ["initial", "extended"]
+    assert fake.chat.completions.calls[1]["max_tokens"] == 4800
+    assert fake.chat.completions.calls[1]["messages"] == fake.chat.completions.calls[0]["messages"]
 
 
 @pytest.mark.asyncio
