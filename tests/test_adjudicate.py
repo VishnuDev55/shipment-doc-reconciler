@@ -452,7 +452,7 @@ def test_risk_note_labels_itself_deterministic_in_the_model():
 
 @pytest.mark.asyncio
 async def test_a_clean_shipment_writes_no_letter(tmp_path):
-    rec, calls = live_rec(tmp_path)
+    rec, calls = live_rec(tmp_path, enable_briefing=True)
     report = report_with(comparison("party_name", "consistent"))
     assert not has_discrepancies(report)
 
@@ -464,7 +464,7 @@ async def test_a_clean_shipment_writes_no_letter(tmp_path):
 
 @pytest.mark.asyncio
 async def test_a_draft_is_built_only_from_decided_verdicts(tmp_path):
-    rec, _ = live_rec(tmp_path)
+    rec, _ = live_rec(tmp_path, enable_briefing=True)
     report = report_with(comparison("party_name", "conflict"))
     asked: list[str] = []
 

@@ -66,6 +66,7 @@ failure mode that was observed or reasoned out, and each is pinned by a test.
 
 **Optional model calls, all additive**
 - `summary.py` / `narrative_cache.py` — an executive summary. `adjudicate.py` — a second opinion on genuinely ambiguous comparisons. Neither can change a status, and both are marked superseded when a human corrects a value underneath them.
+- The AI briefing (`ENABLE_BRIEFING`, `build_briefing_prompt` in `adjudicate.py`) is **deprecated**: `correction_email.py` drafts the same supplier letter by rule with no model in the loop. The code path and the config option remain, but the default is off and it is no longer part of the recommended flow.
 - `consensus.py` — a second provider reads the same pages; disagreement is a review marker, not a verdict.
 
 **Around the edges**
