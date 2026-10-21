@@ -129,6 +129,12 @@ useful; a 500 is not. The same rule applies downward: a cache write failure does
 not lose a successful extraction, and a narrative failure does not change a
 verdict.
 
+A per-document cross-provider fallback (`VISION_FALLBACK`, default on) reads a
+document on the other host when the configured one returns nothing usable —
+never a partial answer, and never in DEMO_MODE. The surviving answer is stamped
+on the document's own provider/model, so the report still names who really read
+it.
+
 ## Storage
 
 `runs/{shipment_id}/` holds `report.json`, the page images, `raw/` model bodies

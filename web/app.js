@@ -1614,6 +1614,8 @@ function renderDocuments(report) {
 
     if (doc.error) box.appendChild(el('p', 'alert', doc.error));
 
+    (doc.notes || []).forEach((n) => box.appendChild(el('p', 'note', n)));
+
     if (doc.status === 'failed') {
       const row = el('div', 'row-actions');
       const retry = el('button', 'btn btn-quiet', 'Retry this document');

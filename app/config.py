@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     # "nebius" switches to MiniCPM-V on Token Factory as a fallback if the
     # NVIDIA key is unavailable or its shared workers stay saturated.
     vision_provider: str = Field(default="nvidia", alias="VISION_PROVIDER")
+    # When the configured provider returns nothing usable for a document -- the
+    # breaker is open, the host never answered, or the output never parsed --
+    # read that one document on the other host instead of failing it. It needs
+    # the other host's key to do anything, it is per document rather than per
+    # run, and it never fires in DEMO_MODE. Each fallback is stamped on the
+    # document's own provider/model, so the report says who really read it.
+    vision_fallback: bool = Field(default=True, alias="VISION_FALLBACK")
     # Override the model ids without touching code. Empty = provider default.
     nvidia_vision_model: str = Field(default="", alias="NVIDIA_VISION_MODEL")
     nebius_vision_model: str = Field(default="", alias="NEBIUS_VISION_MODEL")

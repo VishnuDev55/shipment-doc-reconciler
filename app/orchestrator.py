@@ -361,6 +361,17 @@ def apply_outcome(target: DocumentReport, res: ExtractionOutcome | Exception) ->
     target.error = "; ".join(res.issues[:4]) if res.dropped_fields else None
 
 
+def extraction_unusable(res: ExtractionOutcome | Exception) -> bool:
+    """True when a document produced nothing a report can be built from.
+
+    Used by the fallback routing: a partial extraction is still an answer and
+    must stay on the configured provider, while a failure or an exception is
+    the only state in which asking the other host is better than shipping an
+    empty row.
+    """
+    return isinstance(res, Exception) or res.response is None
+
+
 def load_pages(run_dir: Path, doc: DocumentReport) -> list[PageImage]:
     """Re-read persisted page JPEGs so a retry needs no fresh upload."""
     pages: list[PageImage] = []
@@ -847,18 +858,15 @@ class Reconciler:
         async def one(p: PreparedDocument) -> None:
             doc = by_id[p.doc_id]
             doc.status = "running"
-            self._emit_stage(shipment_id, document_id=doc.id, document_label=doc.label,
-                             stage="reading", provider=self.client.endpoint.provider,
-                             model=self.client.endpoint.model)
-            try:
-                res: ExtractionOutcome | Exception = await self.client.extract_document(
-                    document_id=p.doc_id,
-                    pages=p.pages,
-                    declared_doc_type=p.declared_doc_type,
-                    raw_dir=raw_dir,
-                )
-            except Exception as exc:  # noqa: BLE001 - one doc must not kill the run
-                res = exc
+            res = await self._extract_with_fallback(
+                shipment_id=shipment_id,
+                document_id=doc.id,
+                document_label=doc.label,
+                pages=p.pages,
+                declared_doc_type=p.declared_doc_type,
+                raw_dir=raw_dir,
+                record=doc,
+            )
             apply_outcome(doc, res)
             # Before anything reads the quotes. Exclusion itself happens in
             # _observations, so the comparisons published below are already the
@@ -1384,6 +1392,118 @@ class Reconciler:
             return configured
         return "nebius" if self.client.endpoint.provider == "nvidia" else "nvidia"
 
+    def _fallback_client(self) -> ExtractionClient | None:
+        """The other host's vision client, when it can actually be called.
+
+        Nothing here is a new concept: consensus already builds a client for the
+        other provider, and this reuses that cache so a run never pays two
+        capability probes for the same host. Returns None when the fallback is
+        switched off, when the other host has no key, or when its own circuit
+        breaker is open -- each of those turns a retry into noise.
+        """
+        if self.settings.demo_mode or not self.settings.vision_fallback:
+            return None
+        provider = self._consensus_provider()
+        if provider == self.client.endpoint.provider:
+            # CONSENSUS_PROVIDER can pin both roles to one host; that leaves
+            # nowhere to fall back to, and retrying the same endpoint would
+            # only spend the same tokens twice.
+            return None
+        client = self._consensus_client(provider)
+        if not _key_is_real(client.endpoint.api_key):
+            return None
+        if client.degraded:
+            return None
+        return client
+
+    async def _extract_with_fallback(
+        self,
+        *,
+        shipment_id: str,
+        document_id: str,
+        document_label: str,
+        pages: list[PageImage],
+        declared_doc_type: str | None,
+        raw_dir: Path,
+        record: DocumentReport | None = None,
+    ) -> ExtractionOutcome | Exception:
+        """Read one document, then the other host only if this one produced
+        nothing.
+
+        A hung or saturated provider used to cost the document: the deadline and
+        the breaker made that failure fast and honest, but still a failure. The
+        second host is only asked when the first produced no extraction at all,
+        so a partial or merely slow answer is never rewritten by someone else.
+        Both attempts land in the same raw-evidence directory, and whichever
+        answer survives is the one stamped on the document's own provider and
+        model fields -- the report says who really read it.
+
+        `record`, when given, is the document being read. A fallback that
+        answered is appended to its issues, so the settled report says the
+        routing happened rather than only showing a provider that differs from
+        the one on the run.
+        """
+        self._emit_stage(shipment_id, document_id=document_id,
+                         document_label=document_label, stage="reading",
+                         provider=self.client.endpoint.provider,
+                         model=self.client.endpoint.model)
+        try:
+            res: ExtractionOutcome | Exception = await self.client.extract_document(
+                document_id=document_id,
+                pages=pages,
+                declared_doc_type=declared_doc_type,
+                raw_dir=raw_dir,
+            )
+        except Exception as exc:  # noqa: BLE001 - one doc must not kill the run
+            res = exc
+
+        fallback = self._fallback_client()
+        if fallback is None or not extraction_unusable(res):
+            return res
+
+        self._emit_stage(shipment_id, document_id=document_id,
+                         document_label=document_label, stage="reading",
+                         provider=fallback.endpoint.provider,
+                         model=fallback.endpoint.model)
+        try:
+            alt: ExtractionOutcome | Exception = await fallback.extract_document(
+                document_id=f"{document_id}_fb",
+                pages=pages,
+                declared_doc_type=declared_doc_type,
+                raw_dir=raw_dir,
+            )
+        except Exception as exc:  # noqa: BLE001 - a fallback is optional
+            alt = exc
+        if not extraction_unusable(alt):
+            if record is not None:
+                note = (f"{self.client.endpoint.provider} returned nothing usable; "
+                        f"read on {fallback.endpoint.provider} instead")
+                # A document can be retried more than once; the note is a fact
+                # about the read, not a tally of attempts.
+                if note not in record.notes:
+                    record.notes.append(note)
+            # The primary's attempt was paid for and its raw body is on disk;
+            # the transparency table must not pretend only the fallback ran.
+            if isinstance(res, ExtractionOutcome) and isinstance(alt, ExtractionOutcome):
+                alt.attempts = list(res.attempts) + list(alt.attempts)
+                alt.raw_files = list(dict.fromkeys(res.raw_files + alt.raw_files))
+            return alt
+
+        # Both hosts produced nothing. The primary's error is the one a reader
+        # will act on, so it stays first and the fallback is appended to it
+        # rather than replacing it.
+        alt_note = (
+            (alt.error or "returned nothing usable")
+            if isinstance(alt, ExtractionOutcome)
+            else f"{type(alt).__name__}: {alt}"
+        )
+        note = (f"primary {self.client.endpoint.provider} yielded nothing; "
+                f"fallback {fallback.endpoint.provider} failed: {alt_note}")
+        if isinstance(res, ExtractionOutcome):
+            res.error = f"{res.error or 'extraction failed'}; {note}"[:400]
+            return res
+        return RuntimeError(f"{type(res).__name__}: {res}; {note}")
+
     def _consensus_client(self, provider: str) -> ExtractionClient:
         client = self._consensus_clients.get(provider)
         if client is None:
@@ -1533,22 +1653,18 @@ class Reconciler:
 
         target.status = "running"
         target.error = None
-        self._emit_stage(shipment_id, document_id=target.id,
-                         document_label=target.label, stage="reading",
-                         provider=self.client.endpoint.provider,
-                         model=self.client.endpoint.model)
         refresh_report(report, self.client)
         self.store.write(report)
 
-        try:
-            res: ExtractionOutcome | Exception = await self.client.extract_document(
-                document_id=target.id,
-                pages=pages,
-                declared_doc_type=target.declared_doc_type,
-                raw_dir=self.store.dir(shipment_id) / "raw",
-            )
-        except Exception as exc:  # noqa: BLE001
-            res = exc
+        res = await self._extract_with_fallback(
+            shipment_id=shipment_id,
+            document_id=target.id,
+            document_label=target.label,
+            pages=pages,
+            declared_doc_type=target.declared_doc_type,
+            raw_dir=self.store.dir(shipment_id) / "raw",
+            record=target,
+        )
 
         apply_outcome(target, res)
         if target.extraction is not None:

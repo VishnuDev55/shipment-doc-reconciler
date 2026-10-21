@@ -741,6 +741,10 @@ class DocumentReport(BaseModel):
     status: DocStatus = "pending"
     attempts: int = 0
     error: str | None = None
+    # Human-readable notes about how this document was read -- for example, a
+    # cross-provider fallback. Diagnostics, not a failure: a clean document can
+    # carry a note without becoming partial.
+    notes: list[str] = Field(default_factory=list)
     pages: list[PageRef] = Field(default_factory=list)
     extraction: ExtractionResponse | None = None
     normalized: dict[FieldKey, NormalizedField] = Field(default_factory=dict)

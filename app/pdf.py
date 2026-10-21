@@ -404,12 +404,16 @@ def _documents(report: Report) -> str:
         f"<td class='num'>{d.attempts}</td></tr>"
         for d in report.documents
     )
+    notes = "".join(
+        f"<p class='small'><b>{esc(d.label)}</b>: {esc(n)}</p>"
+        for d in report.documents for n in d.notes
+    )
     return f"""<h2>Documents read</h2>
 <table><thead><tr><th style="width:22%">File</th><th style="width:12%">Type</th>
 <th style="width:8%">Status</th><th style="width:18%">Model</th>
 <th style="width:14%">Source</th><th style="width:6%">Tok</th>
 <th style="width:6%">ms</th><th style="width:5%">Try</th></tr></thead>
-<tbody>{rows}</tbody></table>"""
+<tbody>{rows}</tbody></table>{notes}"""
 
 
 def _transparency(report: Report) -> str:

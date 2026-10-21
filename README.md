@@ -317,6 +317,7 @@ NEBIUS_SUMMARY_MODEL=                # blank = nvidia/NVIDIA-Nemotron-3-Nano-30B
 # --- routing ---
 VISION_PROVIDER=nvidia               # nvidia (default) | nebius (MiniCPM-V fallback)
 DEMO_MODE=false                      # false = make real calls
+VISION_FALLBACK=true                 # re-read a failed document on the other host
 ENABLE_SUMMARY=true
 ```
 
