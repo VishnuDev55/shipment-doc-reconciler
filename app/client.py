@@ -69,6 +69,15 @@ BACKOFF_SCHEDULE: dict[str, tuple[float, ...]] = {
 # model (permanent), 400/422 mean the request itself was wrong.
 RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 
+# A reasoning model spends completion tokens on chain-of-thought before it ever
+# writes the JSON. Measured live: Nemotron-3.5-Super-VL used the whole 1600-token
+# budget on reasoning and returned no object at all, then truncated the object it
+# wrote on the correction rung. When a response ends exactly on the ceiling we
+# retry that rung once with headroom instead of blaming the model's JSON.
+EXTRACT_MAX_TOKENS = 1600
+EXTRACT_HEADROOM_TOKENS = 4800
+EXTRACT_TOKEN_CEILING = 8192
+
 
 class ConfigError(RuntimeError):
     """A permanent local misconfiguration (no key, DEMO_MODE on).
@@ -546,17 +555,22 @@ class ExtractionClient(ChatClient):
 
         # Rungs 1-3 run inside parse_extraction on each call's output; rungs 4
         # and 5 are the two extra calls. Walked by index because the list grows.
-        stages: list[tuple[str, list[dict], dict | None]] = [("initial", messages, fmt)]
+        # Each stage carries its own token budget so a reasoning model can be
+        # retried with headroom without changing what any prompt asks for.
+        stages: list[tuple[str, list[dict], dict | None, int]] = [
+            ("initial", messages, fmt, EXTRACT_MAX_TOKENS)
+        ]
         bad_reason = ""
         stage_i = 0
+        headroom_granted = False
 
         while stage_i < len(stages):
-            rung, msgs, response_format = stages[stage_i]
+            rung, msgs, response_format, token_budget = stages[stage_i]
             stage_i += 1
             started = time.monotonic()
             try:
                 raw, field_used, usage = await self.transport_call(
-                    msgs, response_format=response_format
+                    msgs, response_format=response_format, max_tokens=token_budget
                 )
             except (APIStatusError, AllTransportAttemptsFailed, RuntimeError) as exc:
                 note = status_note(exc)
@@ -594,10 +608,28 @@ class ExtractionClient(ChatClient):
                 )
 
             bad_text, bad_reason = raw, parsed.error or "unparsable"
-            if rung == "initial":
-                stages.append(("corrected", correction_messages(bad_text, bad_reason, msgs), fmt))
-            elif rung == "corrected":
-                stages.append(("simplified", simplified_messages(declared_doc_type, uris), None))
+            # `usage` is empty only in tests/fakes; a live response that ends on
+            # the exact token ceiling was cut off, not answered badly. Grant one
+            # headroom retry of the same conversation before changing the prompt.
+            truncated = bool(usage) and usage.get("completion", 0) >= token_budget
+            next_budget = token_budget
+            if truncated and not headroom_granted and token_budget < EXTRACT_TOKEN_CEILING:
+                headroom_granted = True
+                next_budget = min(
+                    max(token_budget * 3, EXTRACT_HEADROOM_TOKENS), EXTRACT_TOKEN_CEILING
+                )
+                stages.insert(stage_i, ("extended", msgs, response_format, next_budget))
+            if rung == "corrected":
+                stages.append(("simplified", simplified_messages(declared_doc_type, uris),
+                               None, next_budget))
+            # A headroom retry reuses the initial messages, so the correction
+            # queued by the initial rung is still the right next step. Do not
+            # queue a second copy when the extended rung also fails.
+            elif (rung in ("initial", "extended")
+                   and not any(s[0] == "corrected" for s in stages[stage_i:])):
+                stages.append(("corrected",
+                               correction_messages(bad_text, bad_reason, msgs),
+                               fmt, next_budget))
 
         return ExtractionOutcome(
             response=None, status="failed", attempts=logs,

@@ -121,15 +121,15 @@ False alarms (a clean/review shipment reported as conflicts): **0**
 
 ## Vision model comparison
 
-Measured live on 2026-10-20. Omni and MiniCPM-V rows come from the replayed captures above plus the live run; Super-VL via scripts/eval_model.py, 16 documents x 2 runs. These rows are data, not prose in the generator.
+Measured live on 2026-10-21. Omni and MiniCPM-V rows come from the replayed captures above plus the live run; Super-VL via scripts/eval_model.py, 16 documents x 2 runs. These rows are data, not prose in the generator.
 
 | Model | Host | Structured output | Parsed | Exact | Invented | Verdicts | p50 / p95 | USD / doc |
 |---|---|---|---:|---:|---:|---:|---:|---:|
 | nemotron-3-nano-omni-30b-a3b-reasoning (default) | NVIDIA | json_object | 12 / 12 | 100% | 0 | 3 / 3 | 58.8 s / 67.2 s | ~$0.002 (est.) |
 | MiniCPM-V-4_5 (consensus only) | Nebius | json_object | 12 / 12 | 100% | 4 | 2 / 3 | ~6 s / ~6 s | ~$0.006 |
-| Nemotron-3.5-Super-VL (selectable, not recommended) | Nebius | json_object (strict rejected) | 7 / 16 | 100% of parsed | 0 | -- | 12.2 s / 16.0 s | $0.0053 |
+| Nemotron-3.5-Super-VL (selectable) | Nebius | json_object (strict rejected) | 16 / 16 | 99.0% (204/206) | 0 | -- | 4.5 s / 21.2 s | $0.0034 |
 
-Super-VL is fast and exact when it returns clean JSON, but 9 of 16 documents failed to parse, so it does not meet the bar for default (match omni accuracy, comparable p95, no more invented fields) and is kept as a selectable option only. Omni dollars are an estimate because NVIDIA publishes no per-token rate; Nebius dollars use the catalog prices in `scripts/spend.py`.
+Re-measured 2026-10-21 after a fix on our side: 16/16 documents parse, 204/206 fields exact (99.0%), 0 invented, 112/112 absent-correct, p50 4.5 s, p95 21.2 s, $0.0034 per document. The earlier 9-of-16 failure rate was our own 1600-token completion ceiling rather than the model's JSON: Super-VL reasons in content before it writes the object, so the object never arrived; app/client.py now grants one headroom retry when a response ends exactly on the ceiling. It stays out of the default for three reasons: strict json_schema is still rejected (json_object only), both missed fields were on the phone-photo stress document, and the three-shipment verdict check has never been run for it. Omni dollars are an estimate because NVIDIA publishes no per-token rate; Nebius dollars use the catalog prices in `scripts/spend.py`.
 
 ## Reading the gap between `exact` and `verbatim`
 

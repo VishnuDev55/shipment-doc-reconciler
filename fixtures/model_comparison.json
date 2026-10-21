@@ -1,7 +1,7 @@
 {
-  "measured_at": "2026-10-20",
+  "measured_at": "2026-10-21",
   "note": "Omni and MiniCPM-V rows come from the replayed captures above plus the live run; Super-VL via scripts/eval_model.py, 16 documents x 2 runs. These rows are data, not prose in the generator.",
-  "interpretation": "Super-VL is fast and exact when it returns clean JSON, but 9 of 16 documents failed to parse, so it does not meet the bar for default (match omni accuracy, comparable p95, no more invented fields) and is kept as a selectable option only. Omni dollars are an estimate because NVIDIA publishes no per-token rate; Nebius dollars use the catalog prices in `scripts/spend.py`.",
+  "interpretation": "Re-measured 2026-10-21 after a fix on our side: 16/16 documents parse, 204/206 fields exact (99.0%), 0 invented, 112/112 absent-correct, p50 4.5 s, p95 21.2 s, $0.0034 per document. The earlier 9-of-16 failure rate was our own 1600-token completion ceiling rather than the model's JSON: Super-VL reasons in content before it writes the object, so the object never arrived; app/client.py now grants one headroom retry when a response ends exactly on the ceiling. It stays out of the default for three reasons: strict json_schema is still rejected (json_object only), both missed fields were on the phone-photo stress document, and the three-shipment verdict check has never been run for it. Omni dollars are an estimate because NVIDIA publishes no per-token rate; Nebius dollars use the catalog prices in `scripts/spend.py`.",
   "models": [
     {
       "model": "nemotron-3-nano-omni-30b-a3b-reasoning",
@@ -33,17 +33,17 @@
     },
     {
       "model": "nvidia/Nemotron-3.5-Super-VL",
-      "label": "Nemotron-3.5-Super-VL (selectable, not recommended)",
+      "label": "Nemotron-3.5-Super-VL (selectable)",
       "host": "Nebius",
       "structured_output": "json_object (strict rejected)",
-      "parsed": "7 / 16",
-      "exact": "100% of parsed",
+      "parsed": "16 / 16",
+      "exact": "99.0% (204/206)",
       "invented": 0,
       "verdicts": "--",
-      "p50": "12.2 s",
-      "p95": "16.0 s",
-      "usd": "$0.0053",
-      "source": "scripts/eval_model.py, 16 documents x 2 runs"
+      "p50": "4.5 s",
+      "p95": "21.2 s",
+      "usd": "$0.0034",
+      "source": "scripts/eval_model.py, 16 documents x 2 runs (headroom retry)"
     }
   ]
 }

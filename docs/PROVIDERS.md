@@ -105,28 +105,55 @@ model on this host), `Qwen/Qwen3.8-27B`, `deepseek-ai/DeepSeek-V4.1-Flash`,
 `moonshotai/Kimi-K2.6`, `moonshotai/Kimi-K3`, `meta-models/muse-spark-open`,
 `zai-org/GLM-5.3-Flash`, plus the already-used `openbmb/MiniCPM-V-4_5`.
 
-### Nemotron-3.5-Super-VL, evaluated and not recommended
+### Nemotron-3.5-Super-VL: the ceiling was ours, not the model's
 
 The verbose catalog does publish this model's facts: `text+image->text`,
 1,048,576 context, **$0.30 / $0.90 per million tokens** (input/output),
 300 req/min, 2M tok/min, bf16. It was run live over the 12 fixture documents and
-the 4 stress documents (twice each, `scripts/eval_model.py`):
+the 4 stress documents (twice each, `scripts/eval_model.py`) — first on
+2026-10-20, then again on 2026-10-21 after a fix on our side.
 
-- The probe **downgraded `strict` → `json_object`** ("strict accepted but
-  returned unusable JSON"), so it never honours json_schema.
-- **9 of 16 documents failed to parse.** The ladder's last error was consistently
-  a malformed body ("no balanced JSON object found" / "extracted first balanced
-  object; unrepaired") — the reasoning model emits JSON the repair ladder cannot
-  salvage, burning ~30k tokens per failed document doing it.
-- On the 7 documents it did parse, accuracy was 86/86 exact, 0 invented, 54/54
-  absent-correct, at p50 12.2 s — fast and exact *when it returns clean JSON*.
+**What the first run showed.** The probe **downgraded `strict` → `json_object`**
+("strict accepted but returned unusable JSON"), so it never honours json_schema,
+and **9 of 16 documents failed to parse**. The ladder's last error was
+consistently a malformed body ("no balanced JSON object found" / "extracted first
+balanced object; unrepaired"), and every failed document burned ~30k tokens
+getting there.
 
-That failure rate disqualifies it as a default and makes it a poor selectable
-option as-is: a model that fails to produce parseable output on half of real
-documents is a transcription lottery, not a fallback. It remains selectable via
-`VISION_PROVIDER=nebius` + `NEBIUS_VISION_MODEL=nvidia/Nemotron-3.5-Super-VL`
-for anyone who wants to re-test it, but no prompt was tuned to it and none is
-recommended.
+**What was actually wrong.** Nothing in the model's JSON. This one reasons *in
+`content`* — the chain of thought and the answer arrive in the same string — so
+with `max_tokens=1600` the whole budget was spent thinking and the object never
+started. The diagnostic that proved it (`runs/diag_supervl.py`) is one document,
+three rungs, printing head and tail of each: rung 1 was 4,664 characters of pure
+reasoning with no `{` anywhere in it, rung 2 wrote a real object that was cut off
+mid-string, rung 3 reasoned again and was cut off. Every rung ended at *exactly*
+the ceiling, which is the signature — a model that had decided to stop would have
+ended below it.
+
+`app/client.py` now checks that signature instead of blaming the parse: when a
+response's `completion_tokens` equals the `max_tokens` it was asked for, that
+rung is retried **once**, with the same messages, at 4,800 tokens (ceiling
+8,192). It is one extra call only for models that reason in `content`, and it
+changes no prompt, so no prompt version and no cache was invalidated. Live
+afterwards: rung 1 still burns 1,600 tokens on reasoning, rung 2 returns a clean
+object, status `ok`.
+
+**Re-run, 2026-10-21 (`scripts/eval_model.py`, 16 documents × 2 runs):**
+
+- **16 / 16 documents parsed**, 0 failures (was 7 / 16).
+- **204 / 206 fields exact (99.0%)**, 0 invented, 112 / 112 absent-correct.
+  The 2 misses are both on `stress phone_photo`, and both are misses rather than
+  wrong claims.
+- p50 **4.5 s**, p95 **21.2 s**, $0.0034 per document over 32 runs.
+
+**Why it is still not the default.** `strict` json_schema is rejected (json_object
+only, so schema violations depend on the repair ladder), the two misses land on
+the input type this app exists to handle, and no three-shipment verdict check has
+ever been run for it — the verdict column in `docs/EVAL.md` is `--` for that row.
+It is selectable via `VISION_PROVIDER=nebius` +
+`NEBIUS_VISION_MODEL=nvidia/Nemotron-3.5-Super-VL`, the numbers above say what to
+expect, and no prompt was tuned to it. The default remains
+`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` on NVIDIA.
 
 ## Documents are rasterised, not uploaded
 
