@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -904,8 +905,6 @@ def _best_sentence_slice(text: str) -> str:
 
 
 def re_is_structural(line: str) -> bool:
-    import re
-
     return bool(re.match(r"^\s*(\d+[.)]|[-*]|#{1,6}\s|\*\*|Step |Analysis|Thought)", line))
 
 
