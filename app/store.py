@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import secrets
 import shutil
+import tempfile
+import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +24,10 @@ from pathlib import Path
 from .models import Report
 
 log = logging.getLogger("sdr.store")
+
+# Enough to outlast a held handle, small enough that a genuinely stuck file
+# still surfaces as an error instead of a stalled request.
+_REPLACE_ATTEMPTS = 5
 
 
 def new_shipment_id() -> str:
@@ -98,14 +105,25 @@ class RunStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         # Write-then-rename: the frontend polls this file, and a half-written
         # JSON read mid-poll would surface as a spurious parse error.
-        tmp = path.with_suffix(".json.tmp")
-        # Pinned to utf-8, not the locale default. Report text carries the values
-        # as printed -- umlauts in a consignee, an em dash in a reason -- and on
-        # Windows the default codec is cp1252, which writes those as bytes no
-        # UTF-8 reader can decode. A run directory then stops being portable
-        # between this machine and the container it deploys to.
-        tmp.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-        tmp.replace(path)
+        #
+        # The temp name is unique per write, not fixed. Every settled document
+        # of one shipment funnels through this method from the thread pool, and
+        # with a shared name the first rename moves the file the second one is
+        # about to rename: that writer then fails on a file it can no longer
+        # find, and the report loses an update.
+        fd, name = tempfile.mkstemp(dir=path.parent, prefix=".report-", suffix=".tmp")
+        tmp = Path(name)
+        try:
+            # Pinned to utf-8, not the locale default. Report text carries the values
+            # as printed -- umlauts in a consignee, an em dash in a reason -- and on
+            # Windows the default codec is cp1252, which writes those as bytes no
+            # UTF-8 reader can decode. A run directory then stops being portable
+            # between this machine and the container it deploys to.
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(report.model_dump_json(indent=2))
+            _replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)  # already gone once the rename succeeded
         if self.on_write is not None:
             # Every mutation of a report already funnels through here, so this is
             # the one place a progress listener can hook without touching the
@@ -211,3 +229,23 @@ class RunStore:
 def _safe_name(name: str) -> str:
     keep = "".join(c if c.isalnum() or c in "-_." else "_" for c in Path(name).name)
     return keep[:80] or "file"
+
+
+def _replace(tmp: Path, path: Path) -> None:
+    """Rename into place, tolerating the Windows rename-onto-a-held-file error.
+
+    Every settled document funnels a write for the same shipment through the
+    thread pool, so two threads can reach ``report.json`` at once. POSIX silently
+    replaces the target; Windows raises PermissionError for the instant another
+    handle is still open on it. Retrying a bounded number of times turns that
+    race into a slightly later write; a plain loop would turn it into a hang, so
+    the last attempt propagates.
+    """
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(0.05 * (attempt + 1))
