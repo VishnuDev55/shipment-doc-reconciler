@@ -141,6 +141,18 @@ it.
 and the export artifacts. There is no database, deliberately: a run is a document
 about documents, and a directory a person can `ls` survives the app.
 
+## Known seams
+
+Two globals are deliberate and worth naming rather than hiding. `get_settings()`
+in `app/config.py` is `@lru_cache`d so a process reads its environment once, and
+`app/main.py` keeps `_reconciler` behind `reconciler()` / `configure()`. The
+injection point is what lets every test configure a reconciler without touching
+the environment; replacing the cache with a per-request read and threading the
+reconciler through FastAPI state is a design change, not a rename, and 18 tests
+in `tests/test_config.py` depend on the current shape. Until that seam is built:
+one process, one settings object, one reconciler, and `configure()` is the only
+supported way to replace it.
+
 ---
 
 ## Where to look for a specific thing
