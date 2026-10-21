@@ -24,9 +24,9 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts._common import ROOT  # noqa: E402
 from app.cache import AUTHORED_MARKER, cache_key  # noqa: E402
 from app.config import PROMPT_VERSION  # noqa: E402
 

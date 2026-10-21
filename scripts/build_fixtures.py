@@ -31,9 +31,9 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts._common import ROOT, html_to_pdf_bytes  # noqa: E402
 from PIL import Image, ImageFilter  # noqa: E402
 
 from app.cache import cache_key  # noqa: E402
@@ -56,17 +56,6 @@ PLANTED_DIR = ROOT / "fixtures" / "planted"
 PLANTED_IMG = PLANTED_DIR / "images"
 PLANTED_TEXT = PLANTED_DIR / "text"
 PLANTED_CACHE = PLANTED_DIR / "responses"
-
-
-def html_to_pdf_bytes(html: str) -> bytes:
-    from xhtml2pdf import pisa
-
-    buf = io.BytesIO()
-    pisa.CreatePDF(io.StringIO(html), dest=buf)
-    pdf = buf.getvalue()
-    if len(pdf) < 600:
-        raise RuntimeError("render produced a suspiciously small PDF")
-    return pdf
 
 
 def pdf_to_pages(pdf: bytes, *, scale: float = 2.0) -> list[Image.Image]:
