@@ -47,7 +47,7 @@ PRICE_USD_PER_MTOK: dict[str, dict[str, tuple[float, float]]] = {
 }
 FALLBACK = (0.10, 0.10)
 
-BUDGET_USD = 30.0
+BUDGET_USD = 20.0
 BUDGET_PER_PROVIDER_USD = 15.0
 
 
