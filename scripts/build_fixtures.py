@@ -318,6 +318,22 @@ def _write_authored(path: Path, model: str, prompt_version: str,
     }, indent=2))
 
 
+def _cache_provenance() -> tuple[int, int]:
+    """Count the two kinds of cache entry, so the note cannot claim one kind."""
+    authored = live = 0
+    for path in CACHE_DIR.glob("*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        marker = str(payload.get("_provenance", "")).upper()
+        if "HAND-AUTHORED" in marker:
+            authored += 1
+        elif marker:
+            live += 1
+    return authored, live
+
+
 def main() -> int:
     model = AUTHORED_LABEL
     _reset_output_dirs()
@@ -402,6 +418,7 @@ def main() -> int:
             written += 1
             print(f"  {shipment_name}/{doc_type}: {len(all_pages)} page(s) -> {key}")
 
+    authored, live = _cache_provenance()
     (ROOT / "fixtures" / "index.json").write_text(
         json.dumps(
             {
@@ -409,9 +426,13 @@ def main() -> int:
                 "prompt_version": PROMPT_VERSION,
                 "model": model,
                 "note": (
-                    "Fixtures and cached responses are hand-authored synthetic data. "
-                    "They are NOT model output and prove nothing about live API behaviour."
+                    f"Fixture images and the {authored} hand-authored cache entries "
+                    "are synthetic and prove nothing about live API behaviour. "
+                    f"The {live} live entries are captured model output from "
+                    "NVIDIA and Nebius, replayed in DEMO_MODE: real model reads "
+                    "of these pages, not calls made now."
                 ),
+                "provenance": {"authored": authored, "live": live},
                 "shipments": index,
             },
             indent=2,
