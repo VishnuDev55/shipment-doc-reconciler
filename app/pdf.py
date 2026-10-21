@@ -21,6 +21,7 @@ from html import escape as esc
 
 from .export import STATUS_LABEL, VERDICT_HEADLINE
 from .models import Report
+from .sections import SECTIONS, transparency, visible_findings
 
 # xhtml2pdf resolves these; anything fancier is silently dropped by the renderer,
 # which is exactly the failure mode that made converting the UI HTML a dead end.
@@ -144,7 +145,7 @@ def _status(report: Report) -> str:
         + (f"<br/><span class='small'>{esc(' · '.join(f.documents))}</span>"
            if f.documents else "")
         + "</td></tr>"
-        for f in note.findings if f.severity != "info"
+        for f in visible_findings(report)
     ) or "<tr><td colspan='2' class='small'>No critical or warning-level item. " \
          "What is below the line is listed in the sections after this one.</td></tr>"
     return f"""<h2>Status</h2>
@@ -418,10 +419,9 @@ def _transparency(report: Report) -> str:
     same code (`app/transparency.py`), so the three views cannot disagree about
     which model did what or whether it ran now.
     """
-    from .transparency import cost_line, model_steps, powered_by, source_word, totals
+    from .transparency import cost_line, powered_by, source_word
 
-    steps = model_steps(report)
-    tokens, ms = totals(steps)
+    steps, tokens, ms = transparency(report)
     rows = "".join(
         f"<tr><td>{esc(s['step'])}</td>"
         f"<td class='small'>{esc(s['provider'])}</td>"
@@ -446,17 +446,27 @@ def _transparency(report: Report) -> str:
     )
 
 
+_SECTION_RENDERERS = {
+    "status": _status,
+    "risk": _risk,
+    "comparisons": _comparisons,
+    "unverified": _unverified,
+    "internal_checks": _internal_checks,
+    "sanity": _sanity,
+    "line_items": _line_items,
+    "drafts": _drafts,
+    "corrections": _corrections,
+    "model_prose": _model_prose,
+    "transparency": _transparency,
+    "documents": _documents,
+}
+
+
 def report_html(report: Report) -> str:
     """The printable HTML. Exposed because it is the thing tests can read."""
-    body = "".join([
-        _header(report), _status(report), _risk(report), _comparisons(report),
-        _unverified(report),
-        _internal_checks(report), _sanity(report),
-        _line_items(report), _drafts(report), _corrections(report),
-        _model_prose(report),
-        _transparency(report),
-        _documents(report),
-    ])
+    body = _header(report) + "".join(
+        _SECTION_RENDERERS[s.key](report) for s in SECTIONS
+    )
     footer = (
         f"prompt {esc(report.run.prompt_version)} · normalizer "
         f"{esc(report.run.normalizer_version)} · comparator "
