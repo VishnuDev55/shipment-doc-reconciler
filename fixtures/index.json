@@ -2,10 +2,10 @@
   "generated_by": "scripts/build_fixtures.py",
   "prompt_version": "extract-v5",
   "model": "hand-authored-fixture",
-  "note": "Fixture images and the 12 hand-authored cache entries are synthetic and prove nothing about live API behaviour. The 24 live entries are captured model output from NVIDIA and Nebius, replayed in DEMO_MODE: real model reads of these pages, not calls made now.",
+  "note": "Fixture images and the 12 hand-authored cache entries are synthetic and prove nothing about live API behaviour. The 36 live entries are captured model output from NVIDIA and Nebius, replayed in DEMO_MODE: real model reads of these pages, not calls made now.",
   "provenance": {
     "authored": 12,
-    "live": 24
+    "live": 36
   },
   "shipments": {
     "shipment_clean": {

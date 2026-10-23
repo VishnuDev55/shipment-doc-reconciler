@@ -1,0 +1,87 @@
+{
+  "cache_key": "cef26783d279cf211229108a7cfad5ae",
+  "provider": "nebius",
+  "model": "nvidia/Nemotron-3.5-Super-VL",
+  "prompt_version": "extract-v5",
+  "page_sha256": [
+    "32cf72223ef33646c8e7dcce9044137aa1187a0d751a0ae15989b7814d19b5b5"
+  ],
+  "response": {
+    "doc_type": "certificate_of_origin",
+    "doc_type_reason": "The page displays a large heading 'CERTIFICATE OF ORIGIN' at the top, followed by 'Form A \u2014 declared by the exporter, verified by the issuing body'.",
+    "fields": {
+      "quantity": {
+        "present": true,
+        "value": "100 CARTONS",
+        "evidence_text": "Number and kind of packages 100 CARTONS",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "gross_weight": {
+        "present": true,
+        "value": "12,450.00 KGS",
+        "evidence_text": "Gross weight (kg) 12,450.00 KGS",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "net_weight": {
+        "present": true,
+        "value": "11,600.00 KGS",
+        "evidence_text": "Net weight (kg) 11,600.00 KGS",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "container_number": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "hs_code": {
+        "present": true,
+        "value": "8517.62.00",
+        "evidence_text": "3. HS CODE 8517.62.00",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "consignee_name": {
+        "present": true,
+        "value": "Nordwind Industrial Supply GmbH",
+        "evidence_text": "2. CONSIGNEE Nordwind Industrial Supply GmbH",
+        "page_index": 1,
+        "confidence": 1.0
+      },
+      "invoice_value": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "incoterms": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "po_number": {
+        "present": false,
+        "value": null,
+        "evidence_text": "",
+        "page_index": 1,
+        "confidence": 0.0
+      },
+      "country_of_origin": {
+        "present": true,
+        "value": "China",
+        "evidence_text": "Country of origin China",
+        "page_index": 1,
+        "confidence": 1.0
+      }
+    }
+  },
+  "raw_text": "{\n  \"doc_type\": \"certificate_of_origin\",\n  \"doc_type_reason\": \"The page displays a large heading 'CERTIFICATE OF ORIGIN' at the top, followed by 'Form A \u2014 declared by the exporter, verified by the issuing body'.\",\n  \"fields\": {\n    \"quantity\": {\n      \"present\": true,\n      \"value\": \"100 CARTONS\",\n      \"evidence_text\": \"Number and kind of packages 100 CARTONS\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"gross_weight\": {\n      \"present\": true,\n      \"value\": \"12,450.00 KGS\",\n      \"evidence_text\": \"Gross weight (kg) 12,450.00 KGS\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"net_weight\": {\n      \"present\": true,\n      \"value\": \"11,600.00 KGS\",\n      \"evidence_text\": \"Net weight (kg) 11,600.00 KGS\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"container_number\": {\n      \"present\": false,\n      \"value\": null,\n      \"evidence_text\": \"\",\n      \"page_index\": 1,\n      \"confidence\": 0.0\n    },\n    \"hs_code\": {\n      \"present\": true,\n      \"value\": \"8517.62.00\",\n      \"evidence_text\": \"3. HS CODE 8517.62.00\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"consignee_name\": {\n      \"present\": true,\n      \"value\": \"Nordwind Industrial Supply GmbH\",\n      \"evidence_text\": \"2. CONSIGNEE Nordwind Industrial Supply GmbH\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    },\n    \"invoice_value\": {\n      \"present\": false,\n      \"value\": null,\n      \"evidence_text\": \"\",\n      \"page_index\": 1,\n      \"confidence\": 0.0\n    },\n    \"incoterms\": {\n      \"present\": false,\n      \"value\": null,\n      \"evidence_text\": \"\",\n      \"page_index\": 1,\n      \"confidence\": 0.0\n    },\n    \"po_number\": {\n      \"present\": false,\n      \"value\": null,\n      \"evidence_text\": \"\",\n      \"page_index\": 1,\n      \"confidence\": 0.0\n    },\n    \"country_of_origin\": {\n      \"present\": true,\n      \"value\": \"China\",\n      \"evidence_text\": \"Country of origin China\",\n      \"page_index\": 1,\n      \"confidence\": 1.0\n    }\n  }\n}",
+  "_provenance": "live API response"
+}
