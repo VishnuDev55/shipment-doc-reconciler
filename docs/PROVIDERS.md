@@ -258,3 +258,167 @@ copies captures in afterwards. That guard exists because an earlier version of t
 script wrote hand-authored replays into the cache marked "LIVE API response" and
 printed a count of live calls that had not happened. Nine mislabelled files were
 deleted before anyone committed them.
+
+
+## Why two providers rather than one
+
+The brief specifies `nvidia/Nemotron-Nano-V2-12b-VL` on Token Factory. Queried
+live against the Nebius key provided, **that model is not available**:
+
+```
+GET  /v1/models                        -> 200, 24 models, none a Nemotron vision model
+POST /v1/chat/completions
+     model=nvidia/Nemotron-Nano-12B-V2-VL
+                                      -> 404 "The model ... does not exist."
+```
+
+All four `nvidia/*` models on that account report `"modality": "text->text"`, and
+sending an image to one returns `400 "This model does not support image input"`.
+Checked against both reachable hostnames.
+
+Rather than ship a vision pipeline that cannot run, extraction was moved to
+NVIDIA's own hosted API, where a Nemotron vision model *is* reachable — and the
+Nebius requirement is satisfied by a genuine runtime inference call. Both
+shortcomings are documented here rather than papered over.
+
+> **The brief's exact model is still unavailable.** `nvidia/nemotron-nano-12b-v2-vl`
+> exists on build.nvidia.com but returns **HTTP 410 Gone**: *"has reached its end
+> of life on 2026-08-26"*. The NVIDIA docs page for it is stale — it was still
+> being edited two months ago and does not mention the retirement. The omni model
+> used instead is the nearest currently-available NVIDIA vision model.
+
+```
+Nebius Token Factory   https://api.tokenfactory.nebius.com/v1/   -> summary (Nemotron text)
+NVIDIA build.nvidia.com https://integrate.api.nvidia.com/v1/     -> vision (Nemotron omni)
+```
+
+---
+
+
+## Live facts, measured not assumed
+
+Pricing, context windows, rate limits and latency are not in either provider's
+docs in a usable form. Each number below came from calling the host with a key,
+and each carries the date it was read, because both catalogs move.
+
+### Nebius Token Factory (`GET /v1/models?verbose=true`)
+
+Pricing, context length and per-model limits are not in the docs at all — only
+observable with a key. The 24 models returned include four `nvidia/*`, **all
+`text->text`**:
+
+| Model | Modality | Context | Prompt / 1M | Completion / 1M |
+|---|---|---|---|---|
+| `NVIDIA-Nemotron-3-Nano-30B-A3B` | text→text | 262,144 | $0.06 | $0.24 |
+| `Nemotron-3_5-Lightning` | text→text | 1,048,576 | $0.06 | $0.24 |
+| `nemotron-3-super-120b-a12b` | text→text | 262,144 | $0.30 | $0.90 |
+| `Nemotron-3-Ultra-550b-a55b` | text→text | 1,048,576 | $1.00 | $3.00 |
+| `openbmb/MiniCPM-V-4_5` (vision fallback) | text+image→text | 32,000 | $0.658 | $1.11 |
+
+The summary model is the cheapest Nemotron that produced clean prose. Rate limit
+observed live: **300 RPM / 200,000 TPM** for MiniCPM-V.
+
+---
+
+
+### NVIDIA build.nvidia.com
+
+`GET /v1/models` returns 82 models. **No rate-limit, quota or credit headers are
+returned at all** — spend visibility is dashboard-only, so live calls were kept
+minimal. Measured behaviour:
+
+| Observation | Value |
+|---|---|
+| Structured output | `json_schema` accepted (wrapped envelope) |
+| Vision latency | three separate measurements, not one number — see below |
+| Availability | intermittent `503 ResourceExhausted: Worker limit (16/16)` |
+| Reasoning | returned in `reasoning_content` alongside `content` |
+
+**Three latency figures, each labelled with what it measured.** `30–50 s per
+page` was a single-page sample on 2026-10-02; `35.1 s` is one document's model
+latency in the table under **Live cost and latency, measured**; and the
+twelve-document live run behind `docs/EVAL.md` puts omni at **p50 58.8 s /
+p95 67.2 s**. They are not in conflict — the later one is a wall-clock
+distribution over a whole run, the earlier ones are individual calls — but
+quoting any one of them as "the" latency would be wrong, which is why this file
+quotes all three with their dates. Reasoning VLM latency is also the reason the
+demo pre-warms or replays from cache rather than waiting.
+
+Measured on a real 1-page extraction: **1,926 prompt + 404 completion tokens =
+$0.0017 per document**, so a 3-document shipment runs about half a cent. The
+endpoint also reported 1,920 of those prompt tokens as cached.
+
+---
+
+
+## Model discovery: the rules the app runs by
+
+Model names are treated as defaults, not facts. Before a run extracts, the app
+issues `GET /v1/models` on each host (with `?verbose=true` on Nebius, which is
+where the modality comes from) and checks that the configured model is actually
+served. If it is not, the app adopts one that is — preferring the Nemotron
+family, then any other model that takes image input — and says so in the
+transparency panel rather than failing every document silently.
+
+This exists because the assumption already cost the project: the brief specified
+`nvidia/Nemotron-Nano-12B-V2-VL`, which returned **410 Gone** on
+build.nvidia.com and **404** on Token Factory, and that was found by hand, with a
+live key, mid-build. What each host actually publishes — including NVIDIA
+returning no modality at all, which is why `Selection.inferred` exists — is the
+section above, **Model discovery: NVIDIA publishes no modality at all**, and the
+2026-10-16 re-verification under it. Both sides have been checked against a real
+host; `make probe-live` re-checks them.
+
+Rules worth knowing:
+
+| Situation | What happens |
+|---|---|
+| Configured model is listed by the host | Kept. The client is not rebuilt, so no extra probe call. |
+| Configured model is gone | A served model is adopted; `model_selection: "discovered"` and the note land in the report. |
+| No key, host unreachable, odd payload | Nothing changes. `model_selection: "unverified"` with the reason. Discovery is advisory and must never abort a shipment. |
+| `VISION_MODEL_ALLOW` / `SUMMARY_MODEL_ALLOW` set | Those names win over both the default and discovery. |
+| `DEMO_MODE=true` | No discovery call at all. |
+
+Ranking is sorted by preference band then model id, so two runs against the same
+catalog pick the same model. `GET /api/models` reports the current decision and
+`POST /api/models/refresh` re-queries past the TTL.
+
+---
+
+
+## Optional: run vision on Nebius instead
+
+```bash
+VISION_PROVIDER=nebius                                          # MiniCPM-V by default
+NEBIUS_VISION_MODEL=nvidia/Nemotron-3.5-Super-VL                # or the Nemotron VL
+```
+
+Extraction on Nebius is not a fallback you have to take on faith: both models are
+live-verified over the same twelve demo documents, and the replay cache holds a
+captured answer from each, so either path can be demonstrated with no key.
+
+| Nebius vision model | Exact on `compare_key` | Invented | Shipment verdicts | p50 per document |
+|---|---|---|---|---|
+| `openbmb/MiniCPM-V-4_5` | **75 / 75** | **4** | **2 / 3** | ~6 s |
+| `nvidia/Nemotron-3.5-Super-VL` | **74 / 75 (98.7%)** | **0** | **3 / 3** | **10.0 s** (p95 22.1 s) |
+| default: omni on NVIDIA | 75 / 75 | 0 | 3 / 3 | 58.8 s (p95 67.2 s) |
+
+Read the middle two rows together, because they say different things. MiniCPM-V
+is exact on every value it was asked to read and still reaches only 2 of 3
+verdicts: the four fields it asserted that no document prints manufacture
+disagreements the paperwork does not contain, which is the one failure the
+architecture cannot defend against. Super-VL invents nothing and lands the three
+verdicts, but misses one field exact — a `po_number` printed `PO 4410-DE` read
+back as `PO 410-DE` — reproducibly, in all four live passes.
+
+`nvidia/Nemotron-3.5-Super-VL` was tested against a written promotion rule
+(3/3 verdicts, 0 invented, exact ≥ 99%) on 2026-10-23 and cleared two of three
+conditions, so **omni stays the default** and Super-VL stays selectable; no
+"Nebius-only" preset was added. Its dollars are real (`$0.0034` per document on
+the catalog rate) while omni's are an estimate, because NVIDIA publishes no
+per-token price. The older claim in this file's history — that MiniCPM-V was the
+*only* `text+image→text` model on the key — is out of date: the 2026-10-21
+catalog lists eight. See `docs/EVAL.md` §Vision model comparison for the table
+this section is summarising; it is generated from `fixtures/model_comparison.json`.
+
+---

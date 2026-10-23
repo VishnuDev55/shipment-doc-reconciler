@@ -190,6 +190,27 @@ report that it cannot tell. It may not fill a gap because the gap looked unlikel
 
 ---
 
+## 11. OCR digit repair is a last resort
+
+OCR digit repair (`O→0`, `l→1`, `S→5`, `B→8`, `Z→2`) applies only as a last
+resort, only when a token fails to parse **and** exactly one substitution makes
+it parse, and is always flagged. Never applied to a token that already parses.
+
+## 12. Cardinality gate, before any comparator runs
+
+Before any comparator runs, the count of documents carrying a field decides
+whether there is a comparison at all: 0 → `absent` (§10), exactly 1 →
+`single_source`, **never** rendered as a conflict since there is nothing to
+reconcile against, 2 or more → run the comparator. With three or more
+documents, matching values cluster and the minority is marked as the outlier
+— which is why the demo ships three documents, not two: a two-document
+disagreement has no majority to attribute it to.
+
+Every result carries a **templated** reason string with the actual numbers
+interpolated. Deterministic, free, auditable.
+
+---
+
 ## Changing a rule
 
 1. Change the normalizer or the constant.

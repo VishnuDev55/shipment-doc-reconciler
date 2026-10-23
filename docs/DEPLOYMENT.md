@@ -167,3 +167,72 @@ Render, Fly or Railway from this environment; there are no deploy credentials
 here, and nothing has been pushed to the configured remote. Any statement that a
 live URL exists would be false, so none is made. The submitted artifact is the
 source plus a container image that builds and runs.
+
+
+## The container
+
+```bash
+docker build -t shipment-doc-reconciler .
+docker run -p 8000:8000 -v sdr-runs:/app/runs shipment-doc-reconciler   # live; paste keys into Configure
+docker compose up --build                                               # same, with a named runs/ volume
+docker run -p 8000:8000 -e NVIDIA_API_KEY=... -e NEBIUS_API_KEY=... \
+  shipment-doc-reconciler                                  # live, keys from the environment
+docker run -p 8000:8000 -e DEMO_MODE=true shipment-doc-reconciler   # keyless cache demo
+```
+
+The image declares a `HEALTHCHECK` and runs as an unprivileged user. The whole
+surface is HTTP: [`API.md`](API.md) is the endpoint reference, the `API_KEYS`
+contract, and working curl / Python / JavaScript clients for a run.
+
+Mount `runs/` (or set `RUNS_DIR` to a persistent path). The filesystem is the
+database: `report.json`, the page JPEGs, the uploads and the raw model bodies all
+live under it.
+
+The image needs **no `apt-get`**: all 69 transitive dependencies resolve to
+binary manylinux wheels, and every shared-library dependency is either vendored
+inside a wheel or on the `manylinux_2_28` whitelist. This was audited with
+`readelf`/`auditwheel` rather than assumed — see the Dockerfile header.
+
+> **The build is verified in CI, not on this machine.** The development sandbox
+> has no Docker or Podman binary and no daemon, so `docker build` was never run
+> here. GitHub Actions runs it on every push to `master`: build the image, start
+> it, hit `/api/health` and let the `HEALTHCHECK` decide — and it passes (run
+> 39917866288, 2026-10-23). What that does not prove: a registry push, a real
+> deploy, or behaviour under load. The dependency audit above is static analysis
+> of the real wheels, and the app is verified to run under the image's exact
+> `CMD` locally.
+
+## What mode a deployed instance would run
+
+**No instance is deployed yet.** Everything needed to deploy in one step is
+committed:
+
+- `Dockerfile` — audited, no `apt-get`, runs as a non-root user, built and
+  smoke-tested in CI.
+- `render.yaml` — Render Blueprint, free tier, `DEMO_MODE=true`.
+
+**The deliberate mode choice for a public instance is `DEMO_MODE=true`.** The app
+replays a cache of **real captured model output** (12 documents across three
+providers, plus 3 AI summaries) and labels that honestly on screen — it never
+implies a live call happened. Chosen over live mode for two reasons: Render may
+suspend free services that "invoke external APIs" at volume, and a live call is
+about a minute per document (omni p50 58.8 s, p95 67.2 s; the Nebius models are
+10 s and ~6 s). To demo live instead, set `DEMO_MODE=false` and add both keys as
+secret env vars in the dashboard.
+
+`render.yaml` documents the fallback if Render rejects `runtime: docker` on the
+free plan (switch to the native Python runtime — no code change).
+
+### Deploy it
+
+```bash
+# 1. this repo is already public on GitHub
+# 2. Render dashboard -> New -> Blueprint -> select the repo
+#    Render reads render.yaml automatically.
+# 3. open the issued https://<name>.onrender.com URL, click "Conflicts"
+```
+
+Before recording or sharing, **cold-start the URL** (free instances sleep after
+15 min idle and take ~60 s to wake) and confirm `/api/health` returns 200.
+
+---
