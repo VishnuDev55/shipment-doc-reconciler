@@ -223,7 +223,7 @@ async def main(consensus: bool, out_path: Path) -> int:
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(f"wrote {out_path.relative_to(ROOT)}: verdicts "
+    print(f"wrote {out_path.resolve().relative_to(ROOT)}: verdicts "
           f"{summary['verdicts_ok']}/{summary['verdicts_total']}, "
           f"invented {summary['invented']}, planted {summary['planted_caught']}/"
           f"{summary['planted_total']}, p50 {summary['p50_ms']:.0f} ms")
