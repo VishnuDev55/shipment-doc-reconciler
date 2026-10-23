@@ -20,7 +20,12 @@
 
 # Test runner. pytest-asyncio is required because pytest.ini sets
 # `asyncio_mode = auto`; the suite is async end to end.
-pytest==9.1.1
+# 8.4.2 and not 9.x, because pytest-playwright 0.7.1 declares `pytest<9`: asking
+# for both is uninstallable on a fresh clone, which CI proved on 2026-10-23 by
+# dying in dependency resolution before a single test ran. 8.4.2 is also what
+# requirements.lock.txt carries and what the 1005 offline tests and 28 browser
+# tests were measured on.
+pytest==8.4.2
 pytest-asyncio==1.4.0
 
 # httpx is used by the tests (tests/test_client.py, tests/test_discovery.py,
