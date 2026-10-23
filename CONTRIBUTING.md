@@ -10,8 +10,13 @@ break by accident.
 python -m venv .venv
 .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
-pytest tests/ -q              # 770+ tests, zero network calls, ~30 s
+pytest tests/ -q              # zero network calls; the run prints its own count, ~1 min
 ```
+
+`requirements-dev.txt` is the pinned file CI installs, and it is installable on a
+fresh clone — which it was not on 2026-10-23, when it asked for a pytest that
+`pytest-playwright` refuses to coexist with. If you bump a tool, bump the plugin
+constraint with it, or CI goes red before it runs a test.
 
 Run it:
 
@@ -28,8 +33,15 @@ replay, not a live read, and the UI says so — keep it that way.
 make check      # lint + ruff + mypy(baseline) + tests
 make e2e        # browser tests; needs: python -m playwright install chromium
 make probe      # self-check the demo pipeline end to end
-python scripts/evaluate.py --check   # accuracy floors vs ground truth
+python scripts/evaluate.py --check         # accuracy floors vs ground truth
+python scripts/evaluate_planted.py --check # the planted bundle, and its declared miss
 ```
+
+The README's three screenshots are generated, not pasted: `python
+scripts/make_screenshots.py` starts a keyless `DEMO_MODE` server, drives a real
+chromium, and asserts each caption before writing the PNG — so a UI change that
+moves a panel or drops the arbitration text fails the script instead of leaving a
+picture that no longer shows what its caption says.
 
 `mypy` reports a non-zero baseline (8 errors in 3 files) and is **not** a gate. Do
 not silence it by adding ignores; drive the number down and update the baseline note

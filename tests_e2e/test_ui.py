@@ -175,6 +175,40 @@ def test_a_page_chip_opens_the_page_with_the_quoted_line_on_it(report_page):
     assert box.locator(".lb-evidence").inner_text().strip() != ""
 
 
+def test_the_evidence_page_is_shown_whole_not_cropped(report_page):
+    """An element that exists is not an element that fits.
+
+    `.lb-stage` used to size to its content, so `max-height: 100%` on the image
+    resolved against a height that was itself the image's height: a 1,150x1,600
+    fixture page rendered at full size inside a 960px overlay, overflowing it by
+    320 top and bottom, and `overflow: hidden` cut the difference away. The
+    reviewer asking "where did this number come from" got the middle of the page
+    and lost the line they were chasing. The count-only assertion above passed
+    the whole time, which is why this one exists.
+    """
+    report_page.locator(".page-chip").first.click()
+    box = report_page.locator(".lightbox")
+    box.wait_for(state="visible", timeout=10_000)
+    report_page.wait_for_function(
+        """() => { const i = document.querySelector('.lightbox img');
+                   return i && i.complete && i.naturalWidth > 0; }""",
+        timeout=15_000)
+    fit = report_page.evaluate(
+        """() => {
+            const img = document.querySelector('.lightbox .lb-stage img');
+            const r = img.getBoundingClientRect();
+            return {fits: r.height <= innerHeight && r.width <= innerWidth
+                        && r.top >= 0 && r.bottom <= innerHeight + 1,
+                    img: [Math.round(r.height), Math.round(r.top), Math.round(r.bottom)],
+                    viewport: innerHeight};
+        }"""
+    )
+    assert fit["fits"], (
+        f"the evidence image overflows the overlay: {fit['img']} in a "
+        f"{fit['viewport']}px viewport, so the page is cropped on screen"
+    )
+
+
 def test_the_correction_dialog_edits_without_a_native_prompt(report_page, app):
     """window.prompt is unsupported in some embedded browsers and throws without
     a trace. The correction must be an in-page dialog: focusable, cancellable,
