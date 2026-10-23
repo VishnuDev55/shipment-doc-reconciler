@@ -67,8 +67,10 @@ dependencies = [
 [project.optional-dependencies]
 # Mirrors requirements-dev.txt. Keep the two in sync (CI installs the pinned
 # file, which is also the one that works on a fresh clone).
+# pytest is 8.4.2 because pytest-playwright 0.7.1 declares `pytest<9`; the two
+# 9.x pins were uninstallable together and CI failed on dependency resolution.
 dev = [
-    "pytest==9.1.1",
+    "pytest==8.4.2",
     "pytest-asyncio==1.4.0",
     "pyflakes==4.0.1",
     "ruff==0.16.10",
