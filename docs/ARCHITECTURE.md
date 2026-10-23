@@ -165,3 +165,282 @@ supported way to replace it.
 | Can a cache entry from an older prompt be served? | `app/cache.py` — the key includes the prompt version; the authored tier filters on it |
 | Which routes need a key? | `app/main.py`, `require_api_key`, and `docs/API.md` |
 | What is measured vs claimed? | `docs/EVAL.md` (generated) and `docs/AUDIT.md` (annotated with what has since closed) |
+
+
+## The shape on one page
+
+Single Python process. The filesystem is the database. No frontend build step.
+
+```
+browser  index.html + app.js + app.css (hand-rolled tokens)   no build step
+   |
+   |  upload 2-5 docs     SSE progress (1s poll as fallback)
+   v
++--------------------------------------------------------------------------+
+|  FastAPI  app/main.py                                                    |
+|    POST /api/shipments              GET  /api/shipments/{id}/report      |
+|    POST /api/shipments/{id}/retry   GET  /api/shipments/{id}/export (zip)|
+|    GET  /api/shipments/{id}/report.pdf      GET  /api/shipments/{id}/events|
+|    GET  /api/config                 POST /api/config   (GUI Configure)   |
+|    GET  /api/health                 GET  /api/fixtures                   |
+|    GET  /api/shipments              GET  /page/{id}/{path}  (evidence)   |
+|    GET  /api/shipments/{id}/raw/{n} (transparency panel body)             |
+|    GET  /api/shipments/{id}/events  (SSE progress; poll is the fallback)  |
+|    POST /api/shipments/{id}/documents/{doc}/fields/{field}  (correction)   |
+|    POST .../fields/{field}/revert   GET /api/shipments/{id}/corrections    |
+|    GET  /api/fixture/{name}         GET  /                (static UI)    |
++--------------------------------------------------------------------------+
+   |
+   v
++--------------------------------------------------------------------------+
+|  Reconciler  app/orchestrator.py                                         |
+|    asyncio.gather over documents; Semaphore(4) inside the client         |
+|    one failed doc never aborts the shipment                              |
++--------------------------------------------------------------------------+
+   |
+   +--> ingest.py        EXIF transpose, resize to 1600px, RGB, JPEG q85,
+   |                     pypdfium2 for PDFs. No poppler, no system deps.
+   |
+   +--> client.py        ChatClient base: transport, capability probe,
+   |                     backoff. Two endpoints, one per role:
+   |
+   |    VISION   ExtractionClient -> providers.vision_endpoint()
+   |              NVIDIA build.nvidia.com  nvidia/nemotron-3-nano-omni-...
+   |              (VISION_PROVIDER=nebius -> MiniCPM-V or Nemotron-3.5-Super-VL,
+   |               and the same two as the per-document cross-provider fallback)
+   |                |
+   |                +--> cache.py  sha256(prompt_ver + PROVIDER + model + pages)
+   |                |     hit => no network call at all (this is DEMO_MODE)
+   |                v
+   |              https://integrate.api.nvidia.com/v1/
+   |
+   |    SUMMARY  SummaryClient -> providers.summary_endpoint()
+   |              ALWAYS Nebius: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B
+   |              one call per shipment, optional, can never fail a run
+   |                v
+   |              https://api.tokenfactory.nebius.com/v1/
+   |              (cached by narrative_cache.py, keyed on the verdict signature)
+   |
+   +--> normalize/      pure Python, zero model calls
+   |                     number weight quantity container hs_code party money
+   |                     categorical: incoterms · reference · country
+   |                     emits canonical (UI) AND compare_key (engine) together
+   |
+   +--> compare/        pure Python. tolerance table, cardinality gate,
+                        ISO 6346 arbitration, outlier attribution, reasons
+   v
++--------------------------------------------------------------------------+
+|  ./runs/{shipment_id}/        the filesystem IS the database             |
+|    report.json  <- the single polled artifact                            |
+|    pages/  raw/  uploads/     <- zips straight to the export artifact    |
++--------------------------------------------------------------------------+
+```
+
+**Two details the diagram cannot show.** `fields` is an object keyed by the ten
+fixed names (`app/fields.py:FIELD_ORDER`), not an array — so structural
+completeness does not depend on the model remembering to include everything. And
+the `canonical` / `compare_key` split exists to stop a specific classic bug: a
+display string like `"12,450 kg"` being string-compared against
+`"12450.0 kg"`. The engine touches only `compare_key`, the UI only `canonical`
+and `raw_value`, and they are produced together rather than derived from each
+other. The seven invariants above are the full contract; this diagram is just
+where they sit.
+
+---
+
+
+## How extraction works
+
+**One model call per document**, all of that document's pages in the same call
+as separate image parts, each preceded by a `--- PAGE n ---` marker so the
+reported `page_index` means something.
+
+The system prompt states the contract without softening it. The rule that
+matters most:
+
+> If a field is not visibly printed, set `present=false`, `value=null`. NEVER
+> infer, calculate, or guess. An absent field reported as absent is correct. An
+> absent field filled in with a plausible guess is a failure.
+
+A guessed value looks plausible, passes every downstream check, and quietly
+destroys the premise of the whole tool. The prompt also instructs the model to
+treat text found inside documents as **data, never instructions** — a scanned
+page can carry adversarial wording.
+
+---
+
+
+### Structured output: probe, and trust the endpoint over the docs
+
+Token Factory documents `response_format: json_schema`, gated **per model** by a
+"JSON mode" tag on the model card — so availability cannot be assumed from the
+host. Both hosts also reject the bare-schema shape their own docs show and accept
+OpenAI's `{name, strict, schema}` envelope; that measurement, and the
+unsupported-vs-busy distinction the probe has to make, belong to
+[`docs/PROVIDERS.md`](PROVIDERS.md) §Structured output.
+
+What is architecture: one tiny text-only probe runs at startup per endpoint and
+caches its verdict — `strict` → `json_object` → `plain` — and it is never re-run
+per request. The chosen mode is recorded on the report as `run.json_schema_mode`,
+and `test_client.py` pins the envelope shape so a future "correction" back to the
+documented form fails a test. On the development account the probe returns
+**strict** for omni and downgrades to `json_object` for MiniCPM-V.
+
+---
+
+
+### The retry ladder, cheapest first
+
+| Rung | Cost | What happens |
+|---|---|---|
+| 1 | free | `json.loads()` directly |
+| 2 | free | repair text: strip markdown fences, extract the first **balanced** `{...}` span (string- and escape-aware), drop trailing commas, fix smart quotes |
+| 3 | free | coerce into Pydantic: missing keys → `present=false`, non-string value → `str()`, out-of-range confidence → clamped, unknown `doc_type` → `"other"` |
+| 4 | 1 call | feed the bad output **and the parser error** back, ask for corrected JSON |
+| 5 | 1 call | retry with a simplified schema |
+| 6 | — | give up cleanly: document marked `failed`, shown with a retry button |
+
+One bad field never fails a whole document, and one failed document never aborts
+a shipment. A 2-of-3 result is useful; a 500 error is not.
+
+Transport failures (timeout / 429 / 5xx) are handled **below** the ladder with
+exponential backoff — 3 attempts at 1s / 4s / 12s plus jitter — so a network
+blip never burns a ladder rung. Every raw response is written to `runs/…/raw/`,
+including failed attempts.
+
+---
+
+
+## Design decisions worth stating out loud
+
+**No OCR fallback.** Layering Tesseract or PaddleOCR under the VLM would mean
+adjudicating between two extractions that disagree — a multi-day rabbit hole for
+no demo gain. The signal OCR would provide ("this value is suspect") is already
+produced three ways: the ISO 6346 checksum catches misreads with certainty, the
+model's self-reported confidence flags illegibility, and normalizer warnings
+flag ambiguity. Each is cheaper and more honest than a second engine.
+
+**No bounding boxes from the model.** VLM box coordinates are unreliable, and a
+rectangle the model *guessed* would dress up a guess as precision. The highlight
+in the evidence viewer is therefore measured, not asked for: it comes from the
+PDF's own text layer, and only for a quote that appears verbatim inside one
+printed line. Where the page has no text layer, the evidence stays what it always
+was -- a verbatim line, a page number and the viewable page -- and the viewer says
+there are no coordinates rather than drawing a shape anyway.
+
+**Filesystem over a database.** There are no queries, no relations and no
+multi-user access. `runs/{shipment_id}/` *is* the artifact — the ZIP export is
+literally that directory compressed.
+
+**Polling over WebSockets.** One JSON file per shipment, polled every second.
+
+**No auth.** Shipment IDs are `secrets.token_urlsafe(12)`. Unguessable is
+sufficient access control for a public demo.
+
+**Ten scalar fields, plus goods lines behind a flag.** The contract grew from six
+fields to ten; per-line matching shipped after that, off by default
+(`ENABLE_LINE_ITEMS`), because it costs one more vision call per document and
+deliberately cannot move a verdict. Why its matching is exact-only, with no
+similarity band, is in [`docs/FEATURES.md`](FEATURES.md) §Line by line.
+
+---
+
+
+## Layout
+
+```
+app/
+  config.py            pydantic-settings; both keys; version tags; tolerances
+  providers.py         endpoint routing: vision vs summary, per provider
+  fields.py            the frozen ten-field set; hints, kinds, expectations
+  models.py            every Pydantic model + the hand-written JSON Schema
+  prompt.py            system prompt, field spec, page markers, corrections
+  client.py            ChatClient base; ExtractionClient + SummaryClient;
+                       capability probe, ladder, per-provider backoff
+  discovery.py         what each host actually serves, before trusting a name
+  summary.py           executive-summary prompt + plausibility guard
+  adjudicate.py        second-opinion prompt, and the guard on its answer
+  consensus.py         the second reader, and the coverage-vs-correctness split
+  narrative_cache.py   summaries keyed on a verdict signature
+  parse.py             ladder rungs 1-3 (free, local)
+  cache.py             sha256(prompt_ver + PROVIDER + model + page hashes)
+  ingest.py            EXIF/resize/JPEG; pypdfium2 for PDFs
+  textlayer.py         the PDF's own text layer, recovered without the model
+  verify.py            is the quoted line actually on that page?
+  normalize/           number weight quantity container hs_code party money categorical
+  compare/             comparators, tolerance table, cardinality gate, reasons
+  rules.py             cross-field sanity: the pairs one field cannot see
+  mathcheck.py         arithmetic inside one document
+  lineitems.py         goods-line matching: exact keys, never a fuzzy merge
+  scoring.py           the 0-100 strip, every point attributable
+  severity.py          the one level table, and the banner that reads it
+  correction_email.py  the drafts it writes, by rule and with no model
+  correct.py           human overrides, and the recompute they trigger
+  orchestrator.py      gather over documents; report assembly; summary step
+  sections.py          the one report-section model HTML and PDF both render
+  transparency.py      the model-step table, from recorded calls
+  pdf.py               the print-and-file rendering, from the model not the DOM
+  export.py            ZIP: report.json + report.csv + report.html + report.pdf
+                       + corrections/ + README.txt + pages/ + raw/
+  store.py             ./runs/{id}/ - filesystem as database, atomic writes
+  limits.py            the sliding window on the one endpoint that spends money
+  ratelimit.py         its FastAPI wiring: the client key, the per-process budget
+  auth.py              the API-key gate and the session cookie
+  config_view.py       masked keys and the config-token check
+  main.py              FastAPI routes; /api/health reports both providers
+web/                   index.html . app.js . app.css   (no build step)
+fixtures/
+  templates.py         the four document types as HTML
+  shipments.py         one dict drives both the page and its authored response
+  images/              12 uploads (13 pages; one is a 2-page PDF)
+  text/                12 sidecars (13 pages) of page text, for the evidence check
+  responses/           48 entries / 12 documents = 36 live captures + 12
+                         hand-authored: 12 omni live . 12 MiniCPM-V live .
+                         12 Super-VL live . 12 hand-authored
+  responses/narratives/  3 real AI summaries, keyed on verdict signature
+  planted/               the scored bundle: 19 shipments over 43 document slots
+                         on 21 distinct pages, each case declaring its ground
+                         truth in fixtures/planted.py
+  live_responses/      captured live responses + raw bodies (incl. a
+                       duplicate call kept as a determinism datapoint)
+scripts/
+  build_fixtures.py    render -> degrade -> ingest -> author cache -> text sidecars
+  selfcheck.py         demo rehearsal, zero API calls
+  evaluate.py          accuracy against the captured live responses
+  evaluate_planted.py  score the engine against the planted-error bundle
+  eval_model.py        one vision model, every fixture and stress page, live
+  live_super_verify.py the candidate-default test: whole engine, twice each way
+  probe_live.py        verify BOTH providers against the real APIs
+  live_compare.py      live extractions diffed against the authored cache
+  live_fallback_check.py  a dead primary, and the document that still arrives
+  live_end_to_end.py / live_pipeline.py / live_eval.py   full-pipeline live runs
+  build_stress_inputs.py / run_stress.py  the harsher pages and their scorer
+  capture_summaries.py write real Nebius summaries into the demo cache
+  capture_advisor_notes.py  real advisory notes for the withdrawn-evidence rows
+  make_screenshots.py  the README's three images, from a keyless DEMO_MODE run
+  prewarm.py           wake the cache before a demo
+  spend.py             the live-call budget, in dollars, before it is spent
+  migrate_cache_keys.py re-key the cache after a format change
+  _common.py           the shared non-live script setup
+tests/                 offline tests (+ conftest.py socket guard), green as a suite
+tests_e2e/             browser tests; a real uvicorn and real chromium, and the
+                       only suite allowed to open a socket. `pytest tests/` cannot
+                       collect it; run `make e2e`.
+docs/                  ARCHITECTURE.md (shape + invariants + layout) · FEATURES.md
+                       (one section per capability) · NORMALIZATION.md (every rule
+                       and threshold) · PROVIDERS.md (what each host really does)
+                       · EVAL.md (generated accuracy) · PLANTED.md (generated
+                       bundle score) · VERIFICATION.md (tests + status table) ·
+                       LIVE_FINDINGS.md (dated live measurements) · SECURITY.md ·
+                       AUDIT.md (findings, evidence) · DEPLOYMENT.md (incl. CI) ·
+                       API.md · adr/ (nine decision records) · screenshots/
+```
+
+The four-tier cache is deliberate. Each fixture document has a **NVIDIA omni**
+live response, two **Nebius** live responses (`MiniCPM-V-4_5` and
+`Nemotron-3.5-Super-VL`), and a **hand-authored** fallback. Any
+`VISION_PROVIDER` and `NEBIUS_VISION_MODEL` setting therefore finds a real answer
+offline, and provenance is labelled honestly in the report — replaying an
+authored fixture is never reported as a model result.
+
+---

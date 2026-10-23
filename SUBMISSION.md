@@ -156,7 +156,8 @@ file called it the *only* vision model on the key — that was written while
 discovery was reading modality from a field the host does not use, so all 25
 models looked text-only.
 
-Re-verified live on 2026-10-02: 9/9 fixture documents captured on each provider.
+Re-verified live: 12/12 fixture documents captured on each provider (omni and
+MiniCPM-V on 2026-10-16, Super-VL on 2026-10-23).
 The fallback is measurably weaker, and the numbers are in the repo rather than
 in this sentence — `python scripts/live_compare.py --diff-only` replays them
 with no API calls. Against the authored baseline the NVIDIA omni captures differ
@@ -184,11 +185,15 @@ Both provider calls are implemented as **runtime calls in the application code
 path** and were each verified against the live APIs.
 
 The app **runs live by default**. `DEMO_MODE=true` is the deliberate keyless mode
-that the hosted submission instance runs in, and it matters:
+that `render.yaml` and the README quick start configure for anyone who deploys or
+clones it — no instance is hosted by us, so the judge path is `git clone` +
+`make dev`, or the container image that CI builds on every push. Either way, the
+mode and what it costs are stated on screen rather than assumed:
 
 - With no keys, the app replays a bundled cache containing **real captured model
-  output** — 9 documents extracted by the NVIDIA Nemotron omni model, the same 9
-  by Nebius MiniCPM-V, and 3 AI-written summaries from the Nebius Nemotron model.
+  output** — 12 documents extracted by the NVIDIA Nemotron omni model, the same
+  12 by Nebius MiniCPM-V, the same 12 again by Nebius `Nemotron-3.5-Super-VL`, and
+  3 AI-written summaries from the Nebius Nemotron model.
   These are genuine model responses, not hand-written placeholders.
 - The app **labels provenance honestly and will not overclaim.** Each report
   records whether values came from a call made *this run* (`live`), from a
@@ -197,7 +202,7 @@ that the hosted submission instance runs in, and it matters:
   (`hand-authored, not produced by a model`). The UI and the exported HTML both
   say which. A cached hand-authored value is **never** reported as a live result.
 
-So: a judge opening the hosted demo without keys sees real model output
+So: anyone running the app without keys sees real model output
 replayed, and the app says so on screen. Running it without that flag, or with
 `DEMO_MODE=false` and both keys supplied — through the environment or the
 in-browser **Configure** panel — makes every request a genuine live call to both
@@ -394,7 +399,7 @@ docs/              AUDIT.md — what was verified, what is broken, what is defer
 
 `DEMO_MODE` defaults to **false**, so the app calls the live providers; keys come
 from the environment or from the in-browser **Configure** panel, which holds them
-in memory only. `render.yaml` sets `DEMO_MODE=true` for the hosted instance so it
+in memory only. `render.yaml` sets `DEMO_MODE=true` for a deployed instance so it
 runs with no keys. `.env` is gitignored and excluded from every archive; no API
 key is committed anywhere (verified by scanning the packaged files for both key
 values).

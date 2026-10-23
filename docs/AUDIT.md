@@ -93,7 +93,10 @@ command, so the first thing a reviewer types after cloning fails.
 (Fixed in this audit by declaring the dependency; lint itself reports zero findings.)
 
 ### B3 — `make dev` is described as live but is hardcoded to demo mode · P1
-`README.md:207` told the reader `make dev` is "live; paste keys into Configure",
+The README's quick start told the reader `make dev` is "live; paste keys into
+Configure" (line numbers are not quoted here any more: the README was cut to a
+front door on 2026-10-23, and a citation that points at a moved line is worse than
+no citation),
 while `Makefile:27` is `DEMO_MODE=true $(PY) -m uvicorn ...`. The help text at
 `Makefile:8` says DEMO_MODE. The README was wrong; corrected. The label was
 fixed rather than the Makefile, because a live `make dev` with no key is a
@@ -107,7 +110,7 @@ run sticks at `running` and the reason exists only in an unretrieved task
 exception. The user sees a spinner forever.
 
 ### B5 — the offline guarantee had no mechanism · P0, now fixed
-`README.md:519-522` and `:539-542`, `PROGRESS.md:50` and `:317` all described a
+The README's Tests section, `PROGRESS.md:50` and `:317` all described a
 socket guard that raises when anything connects to the provider hosts. No such
 code existed: there was no `conftest.py`, and `tests/__init__.py` was empty. The
 suite was offline only because each test happens to pass `demo_mode=True`
