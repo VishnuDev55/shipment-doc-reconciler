@@ -1329,7 +1329,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 | Extraction determinism | ⚠️ **not guaranteed.** Two calls on one page were byte-identical, but a 6-call re-capture on 2026-10-10 moved NVIDIA's `incoterms` *value* on 2 of 3 invoices and shortened 2 evidence *quotes*. Nebius was byte-stable across the same re-capture. `compare_key` exactness (75/75) and every shipment verdict were unchanged. |
 | Pricing / context / rate limits | ✅ live `GET /v1/models?verbose=true` (Nebius) |
 | `nvidia/nemotron-nano-12b-v2-vl` (brief's model) | ❌ **410 Gone on build.nvidia.com**, 404 on Nebius |
-| `docker build` | ⚠️ **never run** — no Docker daemon in this sandbox |
+| `docker build` | ✅ built, smoke-tested and `HEALTHCHECK`-checked in GitHub Actions (run 39915598051, 2026-10-23) — **never on this machine**, which has no Docker daemon |
 
 ### Live findings that changed the code
 
