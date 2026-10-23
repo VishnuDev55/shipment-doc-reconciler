@@ -162,14 +162,23 @@ object, status `ok`.
   wrong claims.
 - p50 **4.5 s**, p95 **21.2 s**, $0.0034 per document over 32 runs.
 
-**Why it is still not the default.** `strict` json_schema is rejected (json_object
-only, so schema violations depend on the repair ladder), the two misses land on
-the input type this app exists to handle, and no three-shipment verdict check has
-ever been run for it — the verdict column in `docs/EVAL.md` is `--` for that row.
+**Why it is still not the default.** It was tested against a written promotion
+rule, on 2026-10-23, end to end: three demo shipments plus the 19-group planted
+bundle, consensus off and on, each twice (`scripts/live_super_verify.py`, 200 live
+calls). Every pass reached **3 / 3** shipment verdicts with **0** invented fields,
+and every pass scored **74 / 75 (98.7%)** fields exact on the demo documents — the
+same single miss reproduced four times out of four, where omni scores 75 / 75. The
+rule required 3/3 verdicts, 0 invented **and exact ≥ 99%**, so it did not clear its
+own bar and **omni stays the default**. `strict` json_schema is still rejected
+(json_object only, so schema violations depend on the repair ladder), and the two
+misses in the 2026-10-21 run land on the input type this app exists to handle.
 It is selectable via `VISION_PROVIDER=nebius` +
 `NEBIUS_VISION_MODEL=nvidia/Nemotron-3.5-Super-VL`, the numbers above say what to
-expect, and no prompt was tuned to it. The default remains
-`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` on NVIDIA.
+expect, and no prompt was tuned to it. What it actually buys is speed — p50
+**10.0 s** through the engine against omni's measured **58.8 s** — not accuracy,
+which is where it lost, and not money either: **$0.0034** per document against an
+estimated **$0.002** for omni makes it ~1.7× *more* expensive per document, while
+still far below the cost of a human minute.
 
 ## Documents are rasterised, not uploaded
 
