@@ -76,6 +76,17 @@ This round settled four things by measurement rather than by argument:
 - **Spend hygiene:** `scripts/live_compare.py` records tokens for every live call,
   including the ones that failed to parse (previously invisible), and `--help` no
   longer spends a call before printing usage.
+- **CI ran for real, and the first run was red.** Pushed to GitHub on 2026-10-23,
+  all four Python jobs failed dependency resolution while `docker` passed:
+  `requirements-dev.txt` pinned `pytest==9.1.1` while `pytest-playwright==0.7.1`
+  declares `pytest<9`, so the dev extras were uninstallable on a fresh clone — a
+  bug no local run could see, because this machine has 8.4.2 installed (as
+  `requirements.lock.txt` always said). Pinning pytest to 8.4.2 fixed it; the next
+  run was green across lint-and-test on 3.11 and 3.12, the coverage floor, the
+  chromium DEMO_MODE browser suite, and the docker build with its smoke test and
+  `HEALTHCHECK`. The red run is cited in `docs/DEPLOYMENT.md` rather than dropped,
+  and the README badge points at the live workflow so the status cannot be
+  hand-tuned.
 
 ## Unreleased — evidence, severity and release hygiene (2026-10-10 → 2026-10-16)
 

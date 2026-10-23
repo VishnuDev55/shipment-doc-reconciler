@@ -46,9 +46,9 @@ Legend: ✅ done here · ⚠️ needs you · ❌ blocked
 | 6c | "Newly created during the submission period" stated | ✅ | SUBMISSION.md §"Newly created during the submission period" |
 | 7 | Platform feedback, specific not generic | ✅ | SUBMISSION.md §"Feedback on the Nebius and NVIDIA platforms" — 7 items, each with the actual error text |
 | 8 | VIDEO_SCRIPT.md, ≤3 min, covers how both providers were used | ✅ | `VIDEO_SCRIPT.md` — 8 shots, timings from **measured** latency, real captured summary text, honesty checklist |
-| 9 | `docker build` verified | ⚠️ **needs you** | No docker/podman binary or daemon in this sandbox. Dockerfile audited statically (see below) and the app runs under its exact `CMD` locally — but the build itself has never executed |
+| 9 | `docker build` verified | ✅ | No docker binary or daemon in this sandbox, so the build was never run *here* — it ran on GitHub Actions instead: the `docker` job builds the image, smoke-tests it and checks its `HEALTHCHECK` (run 39915598051, 2026-10-23, `success`). Dockerfile audited statically and the app runs under its exact `CMD` locally |
 | 10 | Tests green, zero live calls in CI | ✅ | Offline suite green (count is not pinned in prose); **enforced in-repo** by the socket guard in `tests/conftest.py` (blocks every non-loopback connect and resolution), itself covered by `test_offline_guard.py`. The delivered repo had no mechanism behind this claim |
-| 11 | No API key committed or packaged | ✅ | Scanned all 119 tracked files and every zip entry for both key values and any assigned `*_API_KEY=` line: none |
+| 11 | No API key committed or packaged | ✅ | Re-scanned 2026-10-23 across every tracked file and the **full history of every pushed ref**: both key values tested for membership (not pattern-matched, so no secret was printed) — absent; no 12-character fragment of either appears anywhere; `nvapi-`/`sk-`/`Bearer` hits are all `nvapi-TEST-ONLY-0000-1234` placeholders and the assertions that guard them |
 
 ### Two things I want to be precise about, not optimistic
 
@@ -304,7 +304,7 @@ model.
 
 | | Status |
 |---|---|
-| Normalizers, comparators, parse ladder | ✅ 297 unit tests |
+| Normalizers, comparators, parse ladder | ✅ offline suite (count is not hand-typed here any more — run `pytest tests/`) |
 | Pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction on NVIDIA | ✅ 9/9 documents; 11 calls, all rung 1 |
 | Vision extraction on Nebius (fallback) | ✅ 9/9 documents, attempt 1 |
@@ -314,9 +314,9 @@ model.
 | Cross-page `page_index` | ✅ correct on live output |
 | Extraction determinism | ✅ two independent calls byte-identical |
 | Pricing / context / rate limits | ✅ live `?verbose=true` (Nebius) |
-| Automated suite makes zero live calls | ✅ **enforced** — `tests/conftest.py` refuses every non-loopback socket, 297 pass |
+| Automated suite makes zero live calls | ✅ **enforced** — `tests/conftest.py` refuses every non-loopback socket (the suite count is whatever `pytest tests/` prints, not a number kept by hand here) |
 | **`nvidia/nemotron-nano-12b-v2-vl`** | ❌ **410 Gone (NVIDIA), 404 (Nebius)** |
-| `docker build` | ⚠️ never run — no Docker daemon in this sandbox |
+| `docker build` | ✅ built and smoke-tested in GitHub Actions (run 39915598051, 2026-10-23) — never in this sandbox, which has no daemon |
 | Judge scenario (no keys at all) | ✅ replay fires, arbitration works, provenance labelled honestly |
 
 ---
