@@ -1,15 +1,11 @@
 # Shipment Doc Reconciler
 
-<!-- CI badge. The origin remote is configured (github.com/VishnuDev55/
-     shipment-doc-reconciler) but no push has landed yet, so the workflow has
-     never executed and a live badge would render "no status" -- which reads as
-     green to someone skimming. The static badge below is honest about that.
-     Once a push succeeds, replace the line with the live one (branch matters:
-     the workflow triggers on master, not main):
-
-     [![CI](https://github.com/VishnuDev55/shipment-doc-reconciler/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/VishnuDev55/shipment-doc-reconciler/actions/workflows/ci.yml)
--->
-![CI](https://img.shields.io/badge/CI-not_observed_on_GitHub-lightgrey)
+<!-- CI badge, live: the workflow runs on push to master at
+     github.com/VishnuDev55/shipment-doc-reconciler. It has executed for real --
+     the first run on 2026-10-23 came back red on a dependency pin, which is the
+     kind of thing a static "CI: passing" badge would have hidden. The result
+     observed on GitHub is recorded in docs/DEPLOYMENT.md. -->
+[![CI](https://github.com/VishnuDev55/shipment-doc-reconciler/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/VishnuDev55/shipment-doc-reconciler/actions/workflows/ci.yml)
 ![tests](https://img.shields.io/badge/tests-offline_%2B_browser-brightgreen)
 ![network in tests](https://img.shields.io/badge/test_network_calls-0_by_construction-blue)
 
