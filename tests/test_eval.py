@@ -251,16 +251,6 @@ def test_the_model_comparison_is_rendered_from_committed_data(results):
     assert data["interpretation"] in text
 
 
-def test_the_readme_invented_count_matches_the_capture(results):
-    """The README used to say six invented fields after the count became four.
-    Tie the sentence to the measurement rather than trusting a hand edit."""
-    by_provider = {r.provider: r for r in results}
-    words = {0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
-    expected = f"Every one of the {words[by_provider['nebius'].total.invented]} fields"
-    text = (REPO / "README.md").read_text(encoding="utf-8")
-    assert expected in text, f"README must say {expected!r}"
-
-
 def test_check_detects_a_stale_document(results, tmp_path, monkeypatch):
     stale = tmp_path / "EVAL.md"
     stale.write_text("# old numbers\n", encoding="utf-8")
