@@ -121,15 +121,15 @@ False alarms (a clean/review shipment reported as conflicts): **0**
 
 ## Vision model comparison
 
-Measured live on 2026-10-21. Omni and MiniCPM-V rows come from the replayed captures above plus the live run; Super-VL via scripts/eval_model.py, 16 documents x 2 runs. These rows are data, not prose in the generator.
+Measured live on 2026-10-23. Omni and MiniCPM-V rows come from the replayed captures above plus the live run. Super-VL's accuracy/latency columns are scripts/eval_model.py (16 documents x 2 runs, 2026-10-21); its Verdicts column is scripts/live_super_verify.py (3 demo shipments + the 19-group planted bundle, consensus off and on, each twice, 2026-10-23). These rows are data, not prose in the generator.
 
 | Model | Host | Structured output | Parsed | Exact | Invented | Verdicts | p50 / p95 | USD / doc |
 |---|---|---|---:|---:|---:|---:|---:|---:|
 | nemotron-3-nano-omni-30b-a3b-reasoning (default) | NVIDIA | json_object | 12 / 12 | 100% | 0 | 3 / 3 | 58.8 s / 67.2 s | ~$0.002 (est.) |
 | MiniCPM-V-4_5 (consensus only) | Nebius | json_object | 12 / 12 | 100% | 4 | 2 / 3 | ~6 s / ~6 s | ~$0.006 |
-| Nemotron-3.5-Super-VL (selectable) | Nebius | json_object (strict rejected) | 16 / 16 | 99.0% (204/206) | 0 | -- | 4.5 s / 21.2 s | $0.0034 |
+| Nemotron-3.5-Super-VL (selectable, not the default) | Nebius | json_object (strict rejected) | 16 / 16 | 98.7% (74/75) demo; 99.0% (204/206) 16-doc | 0 | 3 / 3 | 10.0 s / 22.1 s | $0.0034 |
 
-Re-measured 2026-10-21 after a fix on our side: 16/16 documents parse, 204/206 fields exact (99.0%), 0 invented, 112/112 absent-correct, p50 4.5 s, p95 21.2 s, $0.0034 per document. The earlier 9-of-16 failure rate was our own 1600-token completion ceiling rather than the model's JSON: Super-VL reasons in content before it writes the object, so the object never arrived; app/client.py now grants one headroom retry when a response ends exactly on the ceiling. It stays out of the default for three reasons: strict json_schema is still rejected (json_object only), both missed fields were on the phone-photo stress document, and the three-shipment verdict check has never been run for it. Omni dollars are an estimate because NVIDIA publishes no per-token rate; Nebius dollars use the catalog prices in `scripts/spend.py`.
+Super-VL was promoted against a written rule and did not clear it. Across all four live passes it reached **3 / 3** shipment verdicts with **0** invented fields -- both bar criteria met -- but scored **74 / 75 (98.7%)** fields exact on the demo documents, reproducibly the same single miss every time, where omni is 75 / 75. The rule required exact >= 99%, so omni stays the default vision model and Super-VL remains selectable. Verbatim drifted between passes (71 to 73 of 75) while compare_key exact did not move at all: the model transcribes loosely and the deterministic layer absorbs it, which is the whole design thesis stated as a number. Its own earlier ceiling bug was ours, not the model's: 1600 completion tokens left a reasoning model no room to write the object, so app/client.py now grants one headroom retry when a response ends exactly on the ceiling; that took the parse rate from 7 of 16 to 16 of 16. Omni dollars are an estimate because NVIDIA publishes no per-token rate; Nebius dollars use the catalog prices in `scripts/spend.py`.
 
 ## Reading the gap between `exact` and `verbatim`
 

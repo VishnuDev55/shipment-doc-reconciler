@@ -56,25 +56,57 @@ not obvious from a glance at the code.
 
 | Requirement | How it is met |
 |---|---|
-| **"Runs on Nebius Token Factory"** | The **executive summary** feature makes a runtime call to Nebius Token Factory's inference API (`https://api.tokenfactory.nebius.com/v1/chat/completions`) using **`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`**, a Nemotron model hosted by Nebius. One call per shipment, verified live. |
-| **"Uses at least one NVIDIA open-source model"** | **Document extraction** — the core function — uses **`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`** via NVIDIA's own `build.nvidia.com` API. The summary model above is *also* an NVIDIA open model, just hosted by Nebius. |
+| **"Runs on Nebius Token Factory"** | Four runtime roles against `https://api.tokenfactory.nebius.com/v1/chat/completions`: the **executive summary** on **`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`** (one call per shipment), the optional **consensus second reader** and **advisor** on **`openbmb/MiniCPM-V-4_5`**, the **vision fallback**, and — with `VISION_PROVIDER=nebius` — **extraction itself**, measured on both `openbmb/MiniCPM-V-4_5` and `nvidia/Nemotron-3.5-Super-VL`. All four verified live; `docs/PROVIDERS.md` has the per-call evidence. |
+| **"Uses at least one NVIDIA open-source model"** | **Document extraction** — the core function — uses **`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`** via NVIDIA's own `build.nvidia.com` API. Every Nebius model named above is also an NVIDIA open model or an explicitly image-capable one; `Nemotron-3.5-Super-VL` is NVIDIA's, hosted by Nebius. |
 
-**Measured live on 2026-10-19** (full pipeline — extraction + MiniCPM-V consensus
-+ goods lines + summary — in the "Live run" section of `docs/EVAL.md`): NVIDIA
-omni read 70/70 fields exact at p50 59 s / p95 67 s per document; MiniCPM-V
-consensus agreed 95.5% and its five divergences were all its own invention; cost
-≈$0.01 per shipment. The NVIDIA host was capacity-degraded that day (intermittent
-HTTP 503s and request hangs), so a document occasionally failed — and the verdict
-honestly weakened rather than guessing.
+**Measured, not remembered.** Three live days are in `docs/EVAL.md`, each dated:
 
-**Be explicit about the division of labour:** the *primary* functionality
-(vision extraction of all ten fields) runs on **build.nvidia.com**. The Nebius
-Token Factory role is the **reasoning/summary** call plus the *option* of vision
-fallback. If you want extraction itself on Nebius, set `VISION_PROVIDER=nebius`
-— that path is live-verified too, on `openbmb/MiniCPM-V-4_5`, which Token
-Factory declares `text+image→text` alongside five other models. It is measurably
-weaker than the default: 7 field differences against the authored baseline where
-NVIDIA shows 1, all of them visible in the report. See `SUBMISSION.md`.
+- **2026-10-19, full pipeline** (extraction + MiniCPM-V consensus + goods lines +
+  summary, real uploads): NVIDIA omni read **70/70** fields exact at p50 **59 s** /
+  p95 **67 s** per document; MiniCPM-V consensus agreed **95.5%** and all five of
+  its divergences were its own invention; ≈**$0.01** per shipment. The NVIDIA host
+  was capacity-degraded that day (intermittent HTTP 503s and request hangs), so a
+  document occasionally failed — and the verdict honestly weakened rather than
+  guessing.
+- **2026-10-21, `nvidia/Nemotron-3.5-Super-VL` as a candidate default**
+  (`scripts/eval_model.py`, 16 documents × 2 runs): **16/16** parses,
+  **204/206 (99.0%)** fields exact, **0** invented, p50 **4.5 s** / p95 **21.2 s**
+  at **$0.0034** per document — about **13× faster** than omni's measured p50, and
+  *more* expensive, since the omni estimate is ~$0.002 per document. The trade is
+  speed for money, not the other way round.
+- **2026-10-23, that model through the whole engine**: three demo shipments plus
+  the 19-group planted bundle, consensus off and on, each twice — **3/3** verdicts
+  every pass, **0** invented fields every pass, **74/75 (98.7%)** exact on the demo
+  documents with the same single miss reproduced four times out of four. In the
+  real pipeline its p50 is **10.0 s** / p95 **22.1 s**, slower than the isolated
+  eval because each call now carries the engine's full prompt.
+
+**The promotion rule and why it did not fire.** Super-VL was tested against a rule
+written before the run: default vision model if it reaches 3/3 verdicts, 0 invented
+fields and exact ≥ 99% on the demo documents. It cleared the first two and missed
+the third — 98.7% against omni's 100% on the same 75 observations. So **omni stays
+the default** and Super-VL is selectable (`NEBIUS_VISION_MODEL=nvidia/Nemotron-3.5-Super-VL`);
+no "Nebius-only" preset was added, because the measured evidence does not support
+one. See `fixtures/model_comparison.json` — the numbers there are data, not prose.
+
+**Be explicit about the division of labour:** the *primary* functionality (vision
+extraction of all ten fields) runs on **build.nvidia.com**. The Nebius Token Factory
+role is the **reasoning/summary** call, the consensus and advisor readers, the vision
+*fallback*, and a selectable vision *primary*. If you want extraction itself on
+Nebius, set `VISION_PROVIDER=nebius` — that path is live-verified on both models. On
+`openbmb/MiniCPM-V-4_5`, which Token Factory declares `text+image→text`, it is
+measurably weaker than the default: **75/75** exact on the comparison key but
+**4 invented** field values and **2/3** verdicts where NVIDIA shows 0 invented and
+3/3, all of them visible in the report. See `SUBMISSION.md`.
+
+Two caveats on the harsher input cases, because they are the ones people quote:
+the German and French stress pages are **synthetic documents this repo generates**
+(`scripts/build_stress_inputs.py`), not translations of real paperwork — that is
+what makes their exact strings scorable. And the **10/10** German and French
+readings and the phone-photo before/after are measured on **Nebius MiniCPM-V
+only**: NVIDIA omni hung past the 150 s deadline on the German page and on both
+photo variants, so **no omni number exists for those three cases**. "Not measured"
+is the honest wording, and it is not evidence of weakness either way.
 
 ### Why two providers rather than one
 
@@ -413,7 +445,8 @@ down: each listener is a bounded queue that drops its oldest frame, and the
 generator unsubscribes in a `finally`.
 
 The progress line counts documents settled and seconds elapsed, because a
-reasoning vision model takes 30–90 s per document and a bare "Extracting…" reads
+reasoning vision model takes about a minute per document — measured live, omni
+p50 58.8 s / p95 67.2 s across twelve documents — and a bare "Extracting…" reads
 as a hang. Under it, a per-document timeline renders the stage frames — the
 document, its current stage, the provider and model working on it, and elapsed
 seconds. The timeline is advisory: it yields to the settled documents table the
@@ -878,9 +911,10 @@ A real single-document call on 2026-10-02, through the shipped pipeline, on
 | Fields | 100 CARTONS → `100 cartons`; 12,450.00 KGS → `12450.000 kg`; 8517.62.00 → `85.17.62 (+2 national digits)`; USD 8,420.00 → `8,420.00 USD` |
 
 Every value above is what the app recorded about its own call, which is the point
-of section **Transparency**. The 30–90 s figure elsewhere in this README is now a
-measured fact from this run rather than a remembered one, and the ~190 s wall for
-the first document is why discovery and the probe are cached per process.
+of section **Transparency**. That 35.1 s is a single early document; the twelve
+document live run behind `docs/EVAL.md` puts omni at p50 58.8 s / p95 67.2 s, and
+the ~190 s wall above for the first document is why discovery and the probe are
+cached per process.
 
 ### Model discovery
 
@@ -1379,12 +1413,25 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
   normalizer also learned `KARTONS`/`COLIS`/`PALETTEN` so a German invoice and
   an English packing list compare on the same unit instead of "unknown". NVIDIA
   omni hung past 150 s on the German case, so no omni number is claimed.
+  **Both pages are synthetic** — `scripts/build_stress_inputs.py` draws them, which
+  is why an exact score is possible at all; neither is a translated real document.
 - **Preprocessing a bad phone photo measurably helps.** The same rotated,
   sheared, darkened, scribbled-on photo, same model (MiniCPM-V), once with
   `PREPROCESS_ORIENTATION=false` and once with it on: **6/10 fields and one
   invented value before; 8/10 and zero invented after**. The two remaining
   misses are a misread HS digit and the total hidden under the stamp. NVIDIA
-  omni hung on both variants.
+  omni hung on both variants, so again **there is no omni number for this case**.
+  The "photo" is a synthetic page run through the degradation filters in
+  `scripts/build_stress_inputs.py`, not somebody's phone camera.
+- **A candidate default was tested and rejected against its own rule.**
+  `nvidia/Nemotron-3.5-Super-VL` on Nebius was measured end to end on 2026-10-23
+  (`scripts/live_super_verify.py`, four passes: consensus off and on, each twice):
+  **3/3** shipment verdicts and **0** invented fields in every pass, but
+  **74/75 (98.7%)** fields exact on the demo documents versus omni's **75/75** —
+  and the same single miss reproduced in all four passes. The written promotion bar
+  required exact ≥ 99%, so **omni stays the default** and Super-VL stays
+  selectable. Its verbatim drifted (71 to 73 of 75) while `compare_key` exact did
+  not move: the model transcribes loosely and the deterministic layer absorbs it.
 - **A failed document is re-read on the other host.** Live check on 2026-10-21
   (`scripts/live_fallback_check.py`): with the primary NVIDIA endpoint pointed
   at a dead port, the document still arrived — `ok`, stamped

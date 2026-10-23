@@ -76,27 +76,76 @@ when it is not.
 DEMO_MODE=false NVIDIA_API_KEY=*** python -m uvicorn app.main:app --port 8000
 ```
 
-Upload a real document. Expect 30–90 seconds per document — it is a reasoning
-vision model, and the progress line says so. `run.json_schema_mode` will show what
-the capability probe decided about that endpoint, which is decided by asking, not
-by assumption.
+Upload a real document. On the default configuration expect about a minute per
+document — measured live on 2026-10-23 across the twelve demo documents, NVIDIA
+omni (the default vision model) is p50 **58.8 s** / p95 **67.2 s** per document.
+The two Nebius vision models are much faster: `nvidia/Nemotron-3.5-Super-VL`
+measured p50 **10.0 s** / p95 **22.1 s**, and `openbmb/MiniCPM-V-4_5` about
+**6 s**. `run.json_schema_mode` will show what the capability probe decided about
+that endpoint, which is decided by asking, not by assumption.
 
 Then `make probe-live` to verify both hosts, and `python scripts/evaluate.py` to
 regenerate `docs/EVAL.md`.
 
+### Which provider does what, said out loud
+
+Extraction — the core function, all ten fields — runs on **build.nvidia.com** by
+default. Nebius Token Factory does the executive summary
+(`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`), the optional consensus reader, the
+optional advisor, and is the vision fallback. Extraction can also be moved to
+Nebius with `VISION_PROVIDER=nebius`; that path is live-verified on MiniCPM-V and
+on `nvidia/Nemotron-3.5-Super-VL`.
+
+### Replaying captured Super-VL output in demo mode
+
+The replay cache now carries live-captured `Nemotron-3.5-Super-VL` reads of the
+three demo shipments (captured 2026-10-23, stamped `live API response`). Point
+demo mode at them and the same keyless demo runs on Nebius vision instead:
+
+```bash
+DEMO_MODE=true VISION_PROVIDER=nebius \
+NEBIUS_VISION_MODEL=nvidia/Nemotron-3.5-Super-VL \
+python -m uvicorn app.main:app --port 8000
+```
+
+Still zero API calls — the transparency panel keeps saying `live_calls: 0`,
+because these are recorded reads, not calls made now.
+
 ## Questions you will be asked, and the honest answers
 
-**"How accurate is it?"** On our twelve synthetic documents, both providers were
-exact on the comparison key for 75 of 75 field observations. That is a statement
-about the normalizers absorbing transcription variance, not about the models being
-right. `docs/EVAL.md` has the table and its limits.
+**"How accurate is it?"** Measured live, against ground truth we wrote: on the
+twelve bundled synthetic documents NVIDIA omni is exact on the comparison key for
+**75 / 75** field observations (**74 / 75** verbatim) with **0** invented values,
+and reached the right verdict on **3 / 3** shipments. Nebius MiniCPM-V is also
+**75 / 75** exact but invented **4** values, and reached **2 / 3** verdicts.
+Nebius `Nemotron-3.5-Super-VL` scored **74 / 75 (98.7%)** exact with **0**
+invented and **3 / 3** verdicts, at p50 **10 s** where omni is **59 s**. Those
+documents are synthetic, and the same author wrote the pages and the answers — so
+the gap they measure is between models, not between the tool and reality.
+`docs/EVAL.md` has the tables and states their limits.
 
-**"What if the model makes something up?"** It happens, and we measured it: one
-provider reported six field values that no document prints, and those flipped a
-clean shipment into conflicts. That is the failure the architecture cannot defend
-against — a missed field is shown as absent, but an invented one manufactures a
-disagreement. Tightening the prompt did not change it. This is the single most
-important known limitation and it is in the README, not buried.
+**"What if the model makes something up?"** It happens, and we measured it: the
+Nebius vision captures reported **4** field values no document prints (a PO number
+that is really the invoice reference, a country of origin lifted from "Ningbo,
+China" on a bill of lading), and that escalated the *messy* shipment from the
+expected `review` to `conflicts` — 2 of 3 verdicts instead of 3 of 3. The same
+provider is still 75/75 exact on every value it was asked to read. That is the
+failure the architecture cannot defend against — a missed field is shown as absent,
+but an invented one manufactures a disagreement. Tightening the prompt did not
+change it. This is the single most important known limitation and it is in the
+README, not buried.
+
+**"Does it work on German, French, or a bad phone photo?"** Measured, on the
+harsh-input cases `scripts/run_stress.py` generates: the Nebius MiniCPM-V reader
+took the German invoice **10 / 10** fields and the French invoice **10 / 10**,
+zero invented on both (2026-10-21), and on the rotated, sheared, darkened photo the
+same model went from **6 / 10 with one invented value to 8 / 10 with none** once
+orientation preprocessing was on. Say plainly what that does *not* buy: **every one
+of those pages is synthetic** — we generated the French `FACTURE COMMERCIALE` and
+the German case ourselves, and know their exact printed strings, which is what
+makes them scorable. And **no omni number exists for either case**: the default
+NVIDIA model hung past the 150 s deadline on the German page and on both photo
+variants, so the honest statement is "not measured", not "worse" or "better".
 
 **"Why not just ask the model which documents disagree?"** Because then the answer
 is not reproducible, cannot be argued with, and a misread digit becomes a confident
