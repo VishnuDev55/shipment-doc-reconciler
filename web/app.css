@@ -762,8 +762,12 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
 /* The wrapper is only a coordinate system: it shrinks to the image, so the
    percentage-positioned rectangle inside it lands on the page rather than on the
    empty space around it. */
-.lb-stage { position: relative; display: flex; min-height: 0; overflow: hidden;
-  border-radius: var(--radius); }
+/* max-height is load-bearing, not decoration: the stage sizes to its content, so
+   without a cap the image's own `max-height: 100%` resolves against a height that
+   is the image's height, and a 1,600px page renders full size in a 900px overlay
+   and gets cut off by overflow. tests_e2e pins the whole page fitting. */
+.lb-stage { position: relative; display: flex; min-height: 0; max-height: 100%;
+  overflow: hidden; border-radius: var(--radius); }
 .lb-box {
   position: absolute; border: 2px solid var(--accent);
   border-radius: 3px; background: color-mix(in oklab, var(--accent) 16%, transparent);
