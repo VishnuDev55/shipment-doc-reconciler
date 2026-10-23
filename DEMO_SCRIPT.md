@@ -161,9 +161,10 @@ score from its own deterministic verdicts. It does not validate a tariff code
 against a schedule, does not convert currency, and does not classify goods.
 
 **"Is it production-ready?"** The hard part is. What is not verified: CI has never
-run (no remote is configured), no hosted deployment has been made from this
-machine, and the goods-line feature has never been run against a live model. Those
-three are stated in `docs/DEPLOYMENT.md` and `README.md` rather than glossed.
+run on GitHub (the remote is configured but empty — nothing has been pushed from
+this machine), no hosted deployment has been made from this machine, and the
+goods-line feature has never been run against a live model. Those three are stated
+in `docs/DEPLOYMENT.md` and `README.md` rather than glossed.
 
 **"What breaks first under real load?"** Filesystem runs with no cross-run queries,
 and a single process holding reports in memory. `MAX_REPORTS_IN_MEMORY` bounds the

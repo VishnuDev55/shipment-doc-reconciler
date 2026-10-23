@@ -142,15 +142,15 @@ non-loopback socket and `tests/test_offline_guard.py` fails if that wall stops
 standing. So a CI run spending a provider key is not a risk to manage, it is a
 thing the tests refuse to do.
 
-**Status: written, not observed.** This repository has no remote — it was not
-even a git repository until the 2026-10-02 audit, and nothing has been pushed.
-The workflow has never executed. The same steps were run locally instead, and are
-recorded in `docs/AUDIT.md`.
+**Status: written, not observed.** An `origin` remote is configured
+(`github.com/VishnuDev55/shipment-doc-reconciler`, currently empty), but no push
+has landed on it from this machine, so the workflow has never executed. The same
+steps were run locally instead, and are recorded in `docs/AUDIT.md`.
 
 ## Public URL status
 
 **There is no hosted instance running.** No deploy has been executed against
-Render, Fly or Railway from this environment; there are no credentials here and
-no remote repository. Any statement that a live URL exists would be false, so
-none is made. The submitted artifact is the source plus a container image that
-builds and runs.
+Render, Fly or Railway from this environment; there are no deploy credentials
+here, and nothing has been pushed to the configured remote. Any statement that a
+live URL exists would be false, so none is made. The submitted artifact is the
+source plus a container image that builds and runs.

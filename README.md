@@ -1,14 +1,15 @@
 # Shipment Doc Reconciler
 
-<!-- CI badge placeholder. This repository has no remote yet, so a live badge
-     would have nothing to point at and would render "no status" -- which reads
-     as green to someone skimming. The static badge below is honest about that.
-     Once pushed to GitHub, replace the line with the live one (branch matters:
+<!-- CI badge. The origin remote is configured (github.com/VishnuDev55/
+     shipment-doc-reconciler) but no push has landed yet, so the workflow has
+     never executed and a live badge would render "no status" -- which reads as
+     green to someone skimming. The static badge below is honest about that.
+     Once a push succeeds, replace the line with the live one (branch matters:
      the workflow triggers on master, not main):
 
-     [![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+     [![CI](https://github.com/VishnuDev55/shipment-doc-reconciler/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/VishnuDev55/shipment-doc-reconciler/actions/workflows/ci.yml)
 -->
-![CI](https://img.shields.io/badge/CI-not_badged_yet_(no_remote)-lightgrey)
+![CI](https://img.shields.io/badge/CI-not_observed_on_GitHub-lightgrey)
 ![tests](https://img.shields.io/badge/tests-offline_%2B_browser-brightgreen)
 ![network in tests](https://img.shields.io/badge/test_network_calls-0_by_construction-blue)
 
