@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from openai import APIStatusError
 
+from app import budget
 from app.cache import cache_key
 from app.client import BACKOFF_SCHEDULE, ExtractionClient
 from app.config import Settings
@@ -625,3 +626,109 @@ async def test_concurrency_is_capped_by_the_semaphore(tmp_path):
     ps = pages()
     await asyncio.gather(*(c.extract_document(document_id=f"d{i}", pages=ps) for i in range(6)))
     assert peak <= 2, f"semaphore breached: peak concurrency {peak}"
+
+
+# ---------------------------------------------------------------------------
+# the spend ledger the daily cap is computed from
+# ---------------------------------------------------------------------------
+
+
+def ledger(settings: Settings, role: str | None = None) -> list[dict]:
+    """Entries in the ledger the cap reads, optionally only one role's.
+
+    The capability probe spends tokens too, and it runs before the first
+    document, so "one call, one entry" is only true per role. Filtering by the
+    note is what lets each test name the one thing it is about.
+    """
+    entries = budget._load(budget.log_path(settings.runs_dir))
+    if role is None:
+        return entries
+    return [e for e in entries if role in str(e.get("note", ""))]
+
+
+@pytest.mark.asyncio
+async def test_a_live_extraction_records_one_ledger_entry(tmp_path):
+    """Break caught: the app spends money and the deployment's cap never moves,
+    so USD_DAILY_CAP is decoration and a public URL has no ceiling."""
+    settings = make_settings(tmp_path)
+    c = ExtractionClient(settings)
+    install(c, [(good_response(), 42)])
+
+    outcome = await c.extract_document(document_id="d1", pages=pages())
+    assert outcome.source == "live_api"
+
+    entries = ledger(settings, "extraction")
+    assert len(entries) == 1, entries
+    entry = entries[0]
+    assert entry["provider"] == "nebius"
+    assert entry["model"] == c.endpoint.model
+    # The fake reports 100 prompt tokens plus the 42 completion tokens asked for.
+    assert entry["prompt_tokens"] == 100
+    assert entry["completion_tokens"] == 42
+    assert entry["total_tokens"] == 142
+    assert "extraction" in entry["note"]
+
+
+@pytest.mark.asyncio
+async def test_a_cache_hit_records_nothing(tmp_path):
+    """Break caught: replays are billed as calls, so a demo run eats the day's
+    budget and a real upload is refused for money nobody spent."""
+    settings = make_settings(tmp_path)
+    c = ExtractionClient(settings)
+    install(c, [(good_response(), 42)])
+    ps = pages()
+
+    await c.extract_document(document_id="d1", pages=ps)
+    second = await c.extract_document(document_id="d2", pages=ps)
+
+    assert second.source == "cached_live", "the second read should have hit the cache"
+    assert len(ledger(settings, "extraction")) == 1
+
+
+@pytest.mark.asyncio
+async def test_tokens_are_recorded_even_when_the_answer_never_parses(tmp_path):
+    """Break caught: only parsed successes are billed, which understates the day
+    by exactly the garbage a saturated model produces -- and garbage is when the
+    cap matters most."""
+    settings = make_settings(tmp_path)
+    c = ExtractionClient(settings)
+    # Never valid JSON: every rung spends tokens and returns nothing usable.
+    install(c, [("not json at all", 7)])
+
+    outcome = await c.extract_document(document_id="d1", pages=pages())
+    assert outcome.status == "failed"
+
+    entries = ledger(settings, "extraction")
+    assert entries, "a call that answered is a call that cost something"
+    assert all(e["completion_tokens"] == 7 for e in entries)
+
+
+@pytest.mark.asyncio
+async def test_demo_mode_records_no_spend(tmp_path):
+    """Break caught: DEMO_MODE writes to the ledger, so a local run or the
+    keyless demo quietly consumes a cap it never pays for."""
+    settings = make_settings(tmp_path, demo_mode=True,
+                             cache_dir=REPO / "fixtures" / "responses")
+    c = ExtractionClient(settings)
+    install(c, [(good_response(), 42)])
+
+    outcome = await c.extract_document(document_id="d1", pages=pages())
+
+    assert outcome.used_cache is True
+    assert ledger(settings) == [], "a replay must not consume the day's cap"
+
+
+@pytest.mark.asyncio
+async def test_the_capability_probe_is_labelled_as_spend(tmp_path):
+    """Break caught: the probe is recorded as if it were a document read, or not
+    recorded at all. It costs real tokens -- three calls on a cold client -- and
+    an operator looking at the ledger has to be able to tell that overhead from
+    the work."""
+    settings = make_settings(tmp_path)
+    c = ExtractionClient(settings)
+    install(c, [(good_response(), 42)])
+    await c.extract_document(document_id="d1", pages=pages())
+
+    probes = ledger(settings, "probe")
+    assert probes, "the probe spent tokens and nothing was recorded"
+    assert all(e["prompt_tokens"] or e["completion_tokens"] for e in probes)

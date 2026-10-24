@@ -38,6 +38,7 @@ from typing import Any, Literal
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 
+from . import budget
 from .cache import ResponseCache, cache_key
 from .config import LINEITEMS_PROMPT_VERSION, Settings, get_settings
 from .fields import FieldKey
@@ -211,6 +212,10 @@ class ChatClient:
         # lazily-created lock looked initialised and handed out a fresh one on
         # every call. The concurrency test caught it.
         self._probe_gate = asyncio.Lock()
+        # What a recorded live call is labelled in the spend ledger. Subclasses
+        # narrow it ("extraction", "summary"); individual call sites pass their
+        # own for the probe, line items and the advisor.
+        self.spend_note = "call"
 
     @property
     def degraded(self) -> bool:
@@ -227,6 +232,12 @@ class ChatClient:
     def _record_success(self) -> None:
         self._consecutive_failures = 0
         self._degraded_since = None
+
+    def _record_spend(self, usage: dict[str, int], note: str | None = None) -> None:
+        """Append one live call to the day's ledger. Never raises."""
+        budget.record_call(self.settings, self.endpoint.provider,
+                           self.endpoint.model, usage,
+                           note=note or self.spend_note)
 
     def _record_failure(self) -> None:
         self._consecutive_failures += 1
@@ -284,6 +295,7 @@ class ChatClient:
         max_tokens: int = 1600,
         temperature: float = 0.0,
         max_attempts: int | None = None,
+        spend_note: str | None = None,
     ) -> tuple[str, str, dict[str, int]]:
         """Raw (text, field_used, usage). Exponential backoff, no ladder logic.
 
@@ -338,6 +350,10 @@ class ChatClient:
                         f"finish_reason={getattr(choice, 'finish_reason', None)})"
                     )
                 self._record_success()
+                # Tokens are spent when the provider answers, whether or not the
+                # JSON parses. Recording here is what stops the daily cap from
+                # undercounting exactly the failures that cost the most.
+                self._record_spend(usage_dict, spend_note)
                 return text, used, usage_dict
             except (APITimeoutError, APIConnectionError) as exc:
                 attempts.append(f"{type(exc).__name__}: {exc}")
@@ -395,6 +411,7 @@ class ChatClient:
                         response_format=self.response_format(),
                         max_tokens=200,
                         max_attempts=2,
+                        spend_note="capability probe",
                     )
                 except (APIStatusError, AllTransportAttemptsFailed) as exc:
                     note = status_note(exc)
@@ -461,6 +478,7 @@ class ExtractionClient(ChatClient):
     def __init__(self, settings: Settings | None = None, *, raw_dir: Path | None = None):
         self.settings = settings or get_settings()
         super().__init__(vision_endpoint(self.settings), self.settings, raw_dir=raw_dir)
+        self.spend_note = "extraction"
         self.cache = ResponseCache(self.settings.cache_dir)
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrency)
 
@@ -763,7 +781,8 @@ class ExtractionClient(ChatClient):
             i += 1
             try:
                 raw, field_used, usage = await self.transport_call(
-                    m, response_format=response_format, max_tokens=2000
+                    m, response_format=response_format, max_tokens=2000,
+                    spend_note="line items",
                 )
             except (APIStatusError, AllTransportAttemptsFailed, RuntimeError) as exc:
                 note = status_note(exc)
@@ -839,6 +858,7 @@ class SummaryClient(ChatClient):
     def __init__(self, settings: Settings | None = None, *, raw_dir: Path | None = None):
         self.settings = settings or get_settings()
         super().__init__(summary_endpoint(self.settings), self.settings, raw_dir=raw_dir)
+        self.spend_note = "summary"
 
     async def summarize(self, prompt: str) -> tuple[str, dict[str, int]]:
         """Returns (text, usage). Raises on failure; the caller must catch.
