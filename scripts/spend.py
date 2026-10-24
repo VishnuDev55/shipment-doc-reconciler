@@ -1,12 +1,9 @@
 """Spend log for live API calls.
 
 Tokens are exact — taken from the `usage` object each provider response carries.
-Dollars use per-token prices: Nebius publishes them in its verbose catalog
-(GET /models?verbose=true), so its rows are authoritative (2026-10-19);
-build.nvidia.com publishes none, so its row is a conservative third-party
-estimate, labelled as such. Image tokens bill as part of prompt_tokens; if a
-response reports zero image cost, the full-token figure is the conservative
-upper bound.
+Dollars come from **`app/budget.py`**, the same table the running app enforces its
+daily cap with: two price tables is how a script and a deployment start reporting
+different dollars for the same call.
 
 Keys are never read, written or echoed here. The log lives in
 runs/spend_log.json, which is gitignored like the rest of runs/.
@@ -26,27 +23,17 @@ import sys
 import time
 from pathlib import Path
 
+if __package__ in (None, ""):  # runnable as `python scripts/spend.py`
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.budget import cost_of  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 LOG = ROOT / "runs" / "spend_log.json"
 
-# (input, output) USD per million tokens. Nebius rows are authoritative from
-# its verbose catalog (/models?verbose=true, 2026-10-19); the NVIDIA row is an
-# estimate (build.nvidia.com publishes no rate). Image tokens bill as part of
-# prompt_tokens; if a response reports zero image cost, the full-token figure is
-# the conservative upper bound.
-PRICE_USD_PER_MTOK: dict[str, dict[str, tuple[float, float]]] = {
-    "nvidia": {
-        # ESTIMATE — build.nvidia.com publishes no rate.
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": (0.10, 0.20),
-    },
-    "nebius": {
-        "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B": (0.06, 0.24),
-        "openbmb/MiniCPM-V-4_5": (0.658, 1.11),
-        "nvidia/Nemotron-3.5-Super-VL": (0.30, 0.90),
-    },
-}
-FALLBACK = (0.10, 0.10)
-
+# The budget for one live *round*: the total an operator authorises before
+# stopping, and the per-provider share of it. Distinct from USD_DAILY_CAP, which
+# is a deployment's ceiling enforced by the app at request time.
 BUDGET_USD = 20.0
 BUDGET_PER_PROVIDER_USD = 15.0
 
@@ -101,24 +88,20 @@ def _blended_rate() -> float | None:
         return None
 
 
-def cost_of(provider: str, model: str, prompt: int, completion: int,
-            blended: float | None) -> float:
-    if blended is not None:
-        return (prompt + completion) * blended / 1e6
-    in_rate, out_rate = PRICE_USD_PER_MTOK.get(provider, {}).get(model, FALLBACK)
-    return (prompt * in_rate + completion * out_rate) / 1e6
-
-
 def summary() -> dict:
     data = _load()
     blended = _blended_rate()
     total = 0.0
+    today = 0.0
+    day = time.strftime("%Y-%m-%d", time.gmtime())
     per_provider: dict[str, float] = {}
     per_model: dict[str, float] = {}
     for c in data["calls"]:
         est = cost_of(c["provider"], c["model"],
                       c["prompt_tokens"], c["completion_tokens"], blended)
         total += est
+        if str(c.get("at", ""))[:10] == day:
+            today += est
         per_provider[c["provider"]] = per_provider.get(c["provider"], 0.0) + est
         key = f"{c['provider']} / {c['model']}"
         per_model[key] = per_model.get(key, 0.0) + est
@@ -126,6 +109,9 @@ def summary() -> dict:
         "calls": len(data["calls"]),
         "total_tokens": sum(c["total_tokens"] for c in data["calls"]),
         "total_usd_est": total,
+        # The same UTC-day figure app/budget.py compares against USD_DAILY_CAP,
+        # so an operator reading this sees what the running app would enforce.
+        "today_usd_est": today,
         "per_provider_usd_est": per_provider,
         "per_model_usd_est": per_model,
         "rate": "blended USD_PER_MTOK" if blended is not None else "price table",
@@ -158,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"calls          : {s['calls']}")
     print(f"total tokens   : {s['total_tokens']}")
     print(f"total USD (est): ${s['total_usd_est']:.4f}  [{s['rate']}]")
+    print(f"today UTC      : ${s['today_usd_est']:.4f} (what USD_DAILY_CAP is compared against)")
     for provider, usd in sorted(s["per_provider_usd_est"].items()):
         print(f"  {provider:8} ${usd:.4f}")
     over = s["total_usd_est"] >= BUDGET_USD

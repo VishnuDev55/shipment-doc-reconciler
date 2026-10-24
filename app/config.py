@@ -143,6 +143,17 @@ class Settings(BaseSettings):
     # you want behind a reverse proxy that rate-limits properly.
     run_limit_per_minute: int = Field(default=30, alias="RUN_LIMIT_PER_MINUTE")
 
+    # Hard ceiling on what this instance may spend in a UTC day, enforced from
+    # the ledger in app/budget.py. It exists because a public URL with a live key
+    # in its environment is a wallet anybody on the internet can open: the
+    # per-minute limiter above bounds how often one client can ask, and this
+    # bounds what the day can cost however many clients ask. $2.00 is about a
+    # thousand omni documents at the measured per-document cost, which is enough
+    # for a judged demo and small enough to survive being abused. 0 disables it.
+    # On a free Render plan the ledger lives on an ephemeral volume, so a
+    # redeploy resets the day -- stated on the page, not hidden here.
+    usd_daily_cap: float = Field(default=2.00, alias="USD_DAILY_CAP")
+
     # Comma-separated origins allowed to call the API from a browser. Empty --
     # the default -- sends no CORS headers at all, so the app stays same-origin
     # only. This is not a security boundary for the API key; it decides whether
@@ -154,6 +165,14 @@ class Settings(BaseSettings):
     # all 50,000.
     max_reports_in_memory: int = Field(default=128, alias="MAX_REPORTS_IN_MEMORY")
     max_pages_per_document: int = Field(default=6, alias="MAX_PAGES_PER_DOCUMENT")
+    # Whether to refuse an upload that has more pages than the limit, instead
+    # of reading the first N and continuing. Off by default: a local run has
+    # always truncated, and changing that silently would refuse documents a
+    # laptop accepted yesterday. A public instance turns it on, because a
+    # partial read costs a vision call and can produce a confident verdict
+    # about pages nobody looked at. Truncation is disclosed in the report
+    # either way.
+    reject_oversize_pages: bool = Field(default=False, alias="REJECT_OVERSIZE_PAGES")
     max_upload_bytes: int = Field(default=25 * 1024 * 1024, alias="MAX_UPLOAD_BYTES")
     image_long_edge: int = Field(default=1600, alias="IMAGE_LONG_EDGE")
     jpeg_quality: int = Field(default=85, alias="JPEG_QUALITY")
