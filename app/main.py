@@ -696,7 +696,17 @@ async def load_fixture(name: str) -> JSONResponse:
     # whatever DEMO_MODE says. A separate reconciler whose settings force demo
     # mode keeps the live clients of the real instance untouched, and the report
     # records both facts (demo_mode for how it was read, sample for why).
-    rec = Reconciler(reconciler().settings.model_copy(update={"demo_mode": True}))
+    # The document cap is a visitor-upload policy (the endpoint enforces it on
+    # POST /api/shipments); a bundled sample is served, not uploaded, so the
+    # sample reconciler lifts that cap to its own document count. Shipping four
+    # documents and then 500ing because an operator lowered MAX_DOCUMENTS to
+    # three would make the built-in demo hostage to the upload limit.
+    base = reconciler().settings
+    rec = Reconciler(base.model_copy(update={
+        "demo_mode": True,
+        "max_documents": max(base.max_documents, len(uploads)),
+    }))
+
     shipment_id, _ = await rec.create_shipment(uploads, page_texts=texts)
     await rec.wait(shipment_id, timeout=600)
     report = rec.get(shipment_id)
