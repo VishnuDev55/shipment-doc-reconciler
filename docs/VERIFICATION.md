@@ -54,6 +54,7 @@ new test in the wrong shape could have spent real credits in CI.
 | `test_correction_email.py` | Correction drafts: written by rule, and never by a model |
 | `test_corrections.py` | Human corrections: verdicts move instantly, the model's answer survives |
 | `test_discovery.py` | Model discovery, tested against catalogs rather than live hosts |
+| `test_budget.py` | the daily spend ledger: rates, the UTC-day window, the cap boundary, and a ledger that cannot be written |
 | `test_docs_freshness.py` | the docs' own claims: cache counts derived from `fixtures/`, the field count from `app/fields.py`, screenshots present and referenced, every relative link resolving |
 | `test_eval.py` | The evaluation harness, tested |
 | `test_evidence_pipeline.py` | An invented field must not be allowed to invent a disagreement |
@@ -73,6 +74,7 @@ new test in the wrong shape could have spent real credits in CI.
 | `test_preprocess.py` | Optional ingest preprocessing: auto-orient, deskew, contrast |
 | `test_progress.py` | Progress fan-out: the store hook, the queues, and the SSE route |
 | `test_prompt.py` | every contracted field is asked for, on every rung of the ladder |
+| `test_public_instance.py` | what a deployed URL refuses and still serves: the daily cap and its 429, samples that never call out, upload caps, dropped pages disclosed, health in live mode |
 | `test_providers.py` | two-provider routing, cache isolation, reasoning fields, summary safety |
 | `test_rules.py` | Cross-field sanity rules |
 | `test_scoring.py` | The 0-100 score, and the rule behind every point in it |

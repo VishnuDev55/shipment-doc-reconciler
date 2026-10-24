@@ -202,23 +202,45 @@ inside a wheel or on the `manylinux_2_28` whitelist. This was audited with
 > of the real wheels, and the app is verified to run under the image's exact
 > `CMD` locally.
 
-## What mode a deployed instance would run
+## What mode a deployed instance runs
 
 **No instance is deployed yet.** Everything needed to deploy in one step is
 committed:
 
 - `Dockerfile` — audited, no `apt-get`, runs as a non-root user, built and
   smoke-tested in CI.
-- `render.yaml` — Render Blueprint, free tier, `DEMO_MODE=true`.
+- `render.yaml` — Render Blueprint, free tier, **live mode with a spend cap**.
 
-**The deliberate mode choice for a public instance is `DEMO_MODE=true`.** The app
-replays a cache of **real captured model output** (12 documents across three
-providers, plus 3 AI summaries) and labels that honestly on screen — it never
-implies a live call happened. Chosen over live mode for two reasons: Render may
-suspend free services that "invoke external APIs" at volume, and a live call is
-about a minute per document (omni p50 58.8 s, p95 67.2 s; the Nebius models are
-10 s and ~6 s). To demo live instead, set `DEMO_MODE=false` and add both keys as
-secret env vars in the dashboard.
+**The committed choice is live mode (`DEMO_MODE=false`)**, because a visitor's
+own upload is the point of the tool. Live is only safe with a ceiling, so the
+blueprint sets five guard rails, all enforced by the app rather than by Render:
+
+| Variable | Value | What it does |
+|---|---|---|
+| `USD_DAILY_CAP` | `2.00` | Hard ceiling per UTC day, computed from the ledger at `RUNS_DIR/spend_log.json`. At the cap, `POST /api/shipments` returns **429** naming the cap and the reset time; every other route keeps working. ≈1,000 documents at the measured per-document cost. `0` disables it. |
+| `MAX_DOCUMENTS` | `3` | A fourth file is refused with a 400 that names the limit and the count that arrived. |
+| `MAX_PAGES_PER_DOCUMENT` | `4` | Longer documents are refused rather than truncated — see `REJECT_OVERSIZE_PAGES`. |
+| `REJECT_OVERSIZE_PAGES` | `true` | Refuse instead of silently reading the first N pages. Off locally by default, because truncation is what a laptop has always done; with it off the report discloses how many pages were skipped. |
+| `RUN_TTL_HOURS` | `24` | Uploaded runs older than a day are deleted at startup. |
+
+**The sample shipments are exempt by construction.** `/api/fixture/{name}` runs on
+a reconciler whose settings force demo mode, whatever the deployment says, so the
+three bundled examples replay captured model output and make **zero** API calls —
+including after the cap is spent. Every report carries `run.sample: true`, and the
+UI, the HTML export and the PDF all say "sample: cached model output, replayed
+from cache".
+
+**Health stays open and cheap.** `GET /api/health` contacts neither provider and
+writes nothing, so it answers 200 in live mode with no key configured — which is
+exactly the state a freshly created Render service is in before the secrets are
+pasted in. `run_ttl_hours` is reported there so the page can state the retention
+it actually applies rather than a hand-typed promise.
+
+**The free tier has no persistent disk, and that has a real consequence:** runs
+*and the spend ledger* live under `/tmp`, so a redeploy or restart resets the day
+and can therefore reset the cap. The app says this on the page ("deleted after
+24 h … lost when this instance redeploys") rather than only here. A paid disk
+pointed at `RUNS_DIR` makes both survive restarts.
 
 `render.yaml` documents the fallback if Render rejects `runtime: docker` on the
 free plan (switch to the native Python runtime — no code change).

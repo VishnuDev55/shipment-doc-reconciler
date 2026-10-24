@@ -159,6 +159,10 @@ binary.
 - **Goods lines have never been read by a live model.** The plumbing is tested and
   provably cannot move a verdict; in demo mode the section reports `skipped` rather
   than showing an empty table.
+- **The public deployment is capped, and the cap is per container.** `render.yaml`
+  sets a $2/day ceiling from the spend ledger, 3 documents and 4 pages per
+  upload, and a 24-hour run retention. On a free instance the ledger lives on
+  an ephemeral volume, so a redeploy resets the day; the page says so.
 - **No hosted instance is deployed.** The container builds and CI proves it; a public
   URL does not exist yet, and nothing in this repo claims one.
 - **mypy is a baseline, not a gate**: 8 errors in 3 files, named in
