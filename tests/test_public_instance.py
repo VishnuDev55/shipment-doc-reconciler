@@ -298,3 +298,70 @@ def test_health_reports_how_long_uploaded_runs_live(make_client):
 
     client_zero, _ = make_client()
     assert client_zero.get("/api/health").json()["run_ttl_hours"] == 0
+
+
+def test_bundled_samples_are_not_subject_to_the_upload_document_cap(make_client):
+    """Break caught: MAX_DOCUMENTS=3 (the public upload cap) makes every sample
+    500, because each ships four documents and the sample route feeds them
+    through the same create_shipment that enforces the visitor cap. A sample is
+    served, not uploaded, so an operator lowering the upload limit must not break
+    the built-in demo."""
+    client, _settings = make_client(max_documents=3)
+
+    for name in ("clean", "conflict", "messy"):
+        res = client.get(f"/api/fixture/shipment_{name}")
+        assert res.status_code == 201, f"{name}: {res.text}"
+        body = res.json()
+        assert body["state"] == "done", f"{name} did not finish: {body}"
+        assert body["sample"] is True
+        report = client.get(f"/api/shipments/{body['shipment_id']}/report").json()
+        assert report["run"]["live_calls"] == 0, f"{name} spent money"
+
+
+def test_a_sample_run_is_written_under_runs_dir_even_when_it_does_not_exist(tmp_path):
+    """Break caught: the store assumes RUNS_DIR exists, so a freshly created
+    Render volume (/tmp/shipment-runs) 500s the first sample until someone
+    mkdirs it by hand."""
+    from app.main import configure
+    from app.orchestrator import Reconciler
+
+    target = tmp_path / "not_yet_a_dir" / "shipment-runs"  # deliberately uncreated
+    settings = live_settings(tmp_path, runs_dir=target)
+    configure(Reconciler(settings))
+    client = TestClient(app)
+    try:
+        res = client.get("/api/fixture/shipment_clean")
+        assert res.status_code == 201, res.text
+        sid = res.json()["shipment_id"]
+        assert (target / sid).is_dir(), "the run directory was not created on demand"
+    finally:
+        client.close()
+
+
+
+# ---------------------------------------------------------------------------
+# the container must carry what the samples read
+# ---------------------------------------------------------------------------
+
+
+def test_the_docker_image_carries_the_fixture_paths_the_samples_read():
+    """Break caught: a path in app/main.py moves out of `fixtures/` (or the
+    Dockerfile stops copying `fixtures`), and the sample endpoint 500s only
+    inside the image where the local tree has the file.
+
+    This is a static check by necessity -- the test suite has no Docker daemon --
+    but it checks the same relationship at the boundary: every directory the
+    fixture route reads must live under a top-level directory the Dockerfile
+    copies.
+    """
+    from app import main as main_module
+
+    dockerfile = (REPO / "Dockerfile").read_text(encoding="utf-8")
+    copied = [line.split()[1] for line in dockerfile.splitlines()
+              if line.startswith("COPY ") and not line.startswith("COPY requirements")]
+    assert "fixtures" in copied, "the Dockerfile must copy the fixtures the samples read"
+
+    for path in (main_module.FIXTURE_INDEX, main_module.FIXTURE_IMAGES,
+                 main_module.FIXTURE_TEXT):
+        rel = path.relative_to(REPO).parts[0]
+        assert rel in copied, f"{path} is read at runtime but its tree is not COPY'd"
