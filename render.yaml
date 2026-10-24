@@ -1,31 +1,45 @@
-# Render blueprint — free tier, Docker.
+# Render blueprint — free tier, Docker, LIVE uploads with a hard daily cap.
 #
 # Requires a Render account. Push the repo to GitHub first, then in the Render
 # dashboard choose "New > Blueprint" and point it at the repo; Render reads this
 # file. Alternatively: `render.yaml` is honored by `render deploy` too.
 #
-# IMPORTANT: the free tier filesystem is EPHEMERAL and services SLEEP after 15
-# minutes of inactivity. This app uses ./runs as its database, so uploaded
-# documents and their reports disappear on redeploy or restart. That is
-# acceptable for a hackathon demo because:
-#   * the three bundled fixtures replay from the committed cache and need no
-#     writes to work at all (verified: DEMO_MODE never writes to the cache dir),
-#   * any live upload is a throwaway session, not durable state.
-# If you need uploads to survive restarts, either attach a persistent disk
-# (paid) and point RUNS_DIR at it, or run with DEMO_MODE=true and demo the
-# fixtures only.
+# WHAT THIS INSTANCE IS
+#   Live mode. A visitor's own upload is read by the vision model and costs real
+#   money, so this file sets a money ceiling, an upload cap and a retention
+#   window. The three bundled sample shipments do NOT depend on any of that: they
+#   replay captured model output from the committed cache on every deployment
+#   mode, make zero API calls, and keep working when the cap is spent.
 #
-# RUNS_DIR points at /tmp because the image runs as an unprivileged user and
-# /app is the only path it owns at build time. /tmp is world-writable, so this
-# works without a volume. Verified locally that nested RUNS_DIR paths are
-# created on demand; NOT verified on a real Render instance.
+# THREE SETTINGS DO THE SAFETY WORK
+#   USD_DAILY_CAP=2.00        hard ceiling per UTC day, enforced from the ledger
+#                             at RUNS_DIR/spend_log.json. At the cap, uploads get
+#                             a 429 that names the number; samples keep working.
+#                             Roughly a thousand documents at the measured
+#                             per-document cost.
+#   MAX_DOCUMENTS=3           a shipment of four or more files is refused (400)
+#   MAX_PAGES_PER_DOCUMENT=4  a longer document is refused (400) rather than
+#                             read in part, because a partial read costs a vision
+#                             call and can produce a confident verdict about pages
+#                             nobody looked at. Set REJECT_OVERSIZE_PAGES=false to
+#                             truncate instead -- the report then discloses how
+#                             many pages were not read.
+#   RUN_TTL_HOURS=24          uploaded runs are deleted at startup once a day old.
 #
-# TWO THINGS FROM RENDER'S OWN DOCS THAT MATTER HERE:
-#  1. DEMO_MODE=true is the recommended public setting. Render warns it "may
-#     suspend a Free web service that initiates an uncommonly high volume of
-#     traffic over the public internet", listing "invoking external APIs" as an
-#     example. A live demo calls NVIDIA + Nebius on every upload, so a busy
-#     public URL risks suspension. Demo mode makes no outbound calls at all.
+# THE FREE TIER HAS NO PERSISTENT DISK
+#   RUNS_DIR points at /tmp, so uploaded documents, their reports AND the spend
+#   ledger are lost on redeploy or restart. That means the daily cap resets with
+#   the instance. It is stated on the page ("deleted after 24 h ... lost when this
+#   instance redeploys") rather than only here. If you need more than that, attach
+#   a disk (paid) and point RUNS_DIR at it; the cap then accumulates across
+#   restarts, and the retention notice reads the same RUN_TTL_HOURS.
+#
+# TWO THINGS FROM RENDER'S OWN DOCS THAT STILL MATTER
+#  1. Render warns it "may suspend a Free web service that initiates an uncommonly
+#     high volume of traffic over the public internet", listing "invoking external
+#     APIs" as an example. A live demo calls NVIDIA + Nebius on every upload. The
+#     cap bounds the money, not the request volume; if you expect a busy URL, lower
+#     MAX_DOCUMENTS or keep DEMO_MODE=true.
 #  2. Free services spin down after 15 min idle and take ~60s to wake, showing
 #     Render's loading page. Cold-start the URL shortly before judging.
 #
@@ -43,27 +57,39 @@ services:
     plan: free
     region: oregon # any free region; change to whichever is closest to you
     dockerfilePath: ./Dockerfile
+    # Open on purpose: a load balancer polls it every few seconds, and the route
+    # makes no provider call, so it answers 200 whether or not a key is set.
     healthCheckPath: /api/health
     envVars:
       - key: DEMO_MODE
-        value: "true" # no keys required; replays real captured model output
+        value: "false" # live uploads; the three samples replay from cache regardless
+      - key: USD_DAILY_CAP
+        value: "2.00"
+      - key: MAX_DOCUMENTS
+        value: "3"
+      - key: MAX_PAGES_PER_DOCUMENT
+        value: "4"
+      - key: REJECT_OVERSIZE_PAGES
+        value: "true"
+      - key: RUN_TTL_HOURS
+        value: "24"
       - key: RUNS_DIR
         value: /tmp/shipment-runs # ephemeral on free tier, by design
       - key: CACHE_DIR
-        value: /app/fixtures/responses
+        value: /app/fixtures/responses # baked into the image; samples read this
       - key: ENABLE_SUMMARY
         value: "true"
       # The UI's Configure panel writes to the shared process, so on a public
       # URL one visitor's key would serve everyone else's runs. Off here; keys
-      # come from the dashboard secrets below instead. Leave it unset (true) for
-      # a local docker run, where the panel is the convenient way in.
+      # come from the dashboard secrets below instead.
       - key: GUI_CONFIG_ENABLED
         value: "false"
-      # --- For a LIVE demo, set these in the Render dashboard (secret values)
-      # --- and flip DEMO_MODE to "false". Do NOT commit real keys here.
-      # - key: NVIDIA_API_KEY
-      #   sync: false
-      # - key: NEBIUS_API_KEY
-      #   sync: false
-      # - key: VISION_PROVIDER
-      #   value: nvidia
+      - key: VISION_PROVIDER
+        value: nvidia
+      # --- SET THESE IN THE RENDER DASHBOARD (secret values). Do NOT commit keys.
+      # --- Without them the samples still work; uploads fail with a clear
+      # --- "no vision key" error instead of spending anything.
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: NEBIUS_API_KEY
+        sync: false
