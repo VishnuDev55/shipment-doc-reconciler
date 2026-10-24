@@ -196,20 +196,35 @@ jobs:
         run: docker build -t shipment-doc-reconciler .
 
       - name: Start it and check the endpoints
-        # DEMO_MODE so the container needs no key. Asserts the health payload,
-        # a fixture run end to end, and that Configure never emits key material.
+        # The render.yaml env, live mode: this is the deployment that once 500ed
+        # every sample because MAX_DOCUMENTS=3 rejected the four bundled
+        # documents. Dummy keys prove the samples still make zero provider calls
+        # (they replay from cache by construction), and that a live instance
+        # answers /api/health before any key is real. Asserts the health payload,
+        # all three fixtures end to end, and that Configure never emits key
+        # material.
         run: |
           set -euo pipefail
           docker run -d --name smoke -p 8000:8000 \
-            -e DEMO_MODE=true shipment-doc-reconciler
+            -e DEMO_MODE=false \
+            -e USD_DAILY_CAP=2.00 \
+            -e MAX_DOCUMENTS=3 \
+            -e MAX_PAGES_PER_DOCUMENT=4 \
+            -e REJECT_OVERSIZE_PAGES=true \
+            -e RUN_TTL_HOURS=24 \
+            -e RUNS_DIR=/tmp/shipment-runs \
+            -e NVIDIA_API_KEY=nvapi-smoke-not-real \
+            -e NEBIUS_API_KEY=smoke-not-real \
+            shipment-doc-reconciler
           for i in $(seq 1 30); do
             curl -sf localhost:8000/api/health >/dev/null && break
             sleep 2
             [ "$i" = 30 ] && { docker logs smoke; exit 1; }
           done
           curl -sf localhost:8000/api/health | grep -q '"status":"ok"'
-          curl -sf localhost:8000/api/fixture/shipment_conflict \
-            | grep -q '"shipment_id"'
+          for name in shipment_clean shipment_conflict shipment_messy; do
+            curl -sf "localhost:8000/api/fixture/$name" | grep -q '"state":"done"'
+          done
           curl -sf localhost:8000/api/config | grep -q '"editable"'
           # The image declares a HEALTHCHECK; give it one interval to report.
           sleep 35
