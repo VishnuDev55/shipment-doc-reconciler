@@ -50,7 +50,7 @@ from .config import Settings, get_settings
 from .correct import apply_correction, revert_corrections
 from .discovery import Catalog, Selection, fetch, resolve
 from .fields import FIELD_LABEL, FIELD_ORDER, FieldKey
-from .ingest import PageImage, ingest
+from .ingest import PageImage, ingest, page_count
 from .lineitems import LineItem, match_line_items
 from .mathcheck import internal_checks
 from .models import (
@@ -102,6 +102,7 @@ class PreparedDocument:
         page_paths: list[str],
         declared_doc_type: str | None,
         page_texts: list[PageText] | None = None,
+        dropped_pages: int = 0,
     ):
         self.doc_id = doc_id
         self.label = label
@@ -111,7 +112,10 @@ class PreparedDocument:
         self.declared_doc_type = declared_doc_type
         # What the pages say according to something other than the vision model.
         # Empty for a photo or a scan, and that absence is a finding in itself.
-        self.page_texts = page_texts or []
+        self.page_texts = page_texts
+        # Pages the cap refused to read. Carried to the report so a verdict
+        # cannot be read as if every page had been looked at.
+        self.dropped_pages: int = dropped_pages
 
 
 # ---------------------------------------------------------------------------
@@ -720,6 +724,18 @@ class Reconciler:
                 await run_in_threadpool(
                     save_sidecar, self._text_file(shipment_id, doc_id), texts
                 )
+            dropped = 0
+            limit = self.settings.max_pages_per_document
+            if limit > 0 and len(pages) >= limit:
+                # Only pay for a page count when the cap was reached: that is the
+                # one case where pages can have been left unread, and a second
+                # parse of every ordinary document would be pure cost.
+                try:
+                    declared_total = await run_in_threadpool(
+                        page_count, filename, data)
+                except ValueError:
+                    declared_total = len(pages)
+                dropped = max(0, declared_total - len(pages))
             prepared.append(
                 PreparedDocument(
                     doc_id=doc_id,
@@ -729,6 +745,7 @@ class Reconciler:
                     page_paths=page_paths,
                     declared_doc_type=declared,
                     page_texts=texts,
+                    dropped_pages=dropped,
                 )
             )
 
@@ -751,6 +768,11 @@ class Reconciler:
                     )
                     for pg, path in zip(p.pages, p.page_paths)
                 ],
+                notes=(
+                    [f"{p.dropped_pages} page(s) beyond the "
+                     f"{self.settings.max_pages_per_document}-page limit were not read"]
+                    if p.dropped_pages else []
+                ),
             )
             for p in prepared
         ]
@@ -877,7 +899,11 @@ class Reconciler:
                                  document_label=doc.label, stage="verifying",
                                  provider=doc.provider, model=doc.model)
                 doc.verification = verify_document(
-                    doc.extraction, p.page_texts,
+                    # `or ()` is not decoration: the field is Optional in the
+                    # constructor, and verify_field would iterate a None. A list
+                    # is what every caller passes; this keeps the contract honest
+                    # for the next one.
+                    doc.extraction, p.page_texts or (),
                     threshold=self.settings.evidence_min_ratio,
                 )
             if (

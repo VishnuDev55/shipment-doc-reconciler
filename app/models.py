@@ -792,6 +792,10 @@ class RunInfo(BaseModel):
     summary_model: str = ""
     summary_provider: str = ""
     demo_mode: bool = False
+    # True when the run was started from the bundled sample shipments rather
+    # than an upload. A sample is always replayed from the capture cache, on
+    # any deployment mode, and every view says so.
+    sample: bool = False
     json_schema_mode: str = "unknown"
     # Where the extractions in this report actually came from. Derived from the
     # documents, not from the DEMO_MODE setting: a live run that hits the cache

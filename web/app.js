@@ -178,6 +178,23 @@ function renderModeChip(h) {
   // status flag a returning user skims, while this is a claim about provenance.
   const banner = $('#demo-banner');
   banner.hidden = !h.demo_mode;
+  // Retention is a property of the deployment, not of the mode: an instance that
+  // deletes runs after N hours has to say so before somebody builds a workflow on
+  // storage that will not be there tomorrow.
+  const retention = $('#retention-note');
+  if (retention) {
+    const hours = Number(h.run_ttl_hours || 0);
+    if (hours > 0) {
+      retention.textContent =
+        `Uploaded documents and their reports are deleted after ${hours} h, and `
+        + 'every run is lost when this instance redeploys — it has no persistent '
+        + 'disk. The three sample shipments are unaffected; they cost nothing and '
+        + 'can be run again.';
+      retention.hidden = false;
+    } else {
+      retention.hidden = true;
+    }
+  }
   if (h.demo_mode) {
     // Read-only: demo mode is an environment decision now, not a UI toggle.
     chip.className = 'flag flag-warn';
@@ -805,7 +822,13 @@ function renderReport(report) {
   const src = report.run.result_source;
   const n = report.run.live_calls || 0;
   let provenance;
-  if (src === 'live' && n > 0) {
+  if (report.run.sample) {
+    // A sample is a replay on any deployment, so this outranks the live/cached
+    // branches: saying "live" beside a bundled example would be the overclaim
+    // this label exists to prevent.
+    provenance = 'sample: cached model output — replayed from cache, '
+      + 'no API call made for this run';
+  } else if (src === 'live' && n > 0) {
     provenance = `live — ${n} document(s) read by ${report.run.model} on this run`;
   } else if (src === 'live') {
     provenance = 'model-backed, replayed from cache — no API call made for this run';

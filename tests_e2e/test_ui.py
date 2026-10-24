@@ -175,6 +175,38 @@ def test_a_page_chip_opens_the_page_with_the_quoted_line_on_it(report_page):
     assert box.locator(".lb-evidence").inner_text().strip() != ""
 
 
+def test_a_local_instance_shows_no_retention_notice(page, app):
+    """Break caught: the ephemeral-runs warning appears on a laptop where runs are
+    kept for ever, teaching people to ignore a notice that matters in the cloud."""
+    page.goto(app.base_url + "/")
+    page.wait_for_selector("#dropzone", timeout=20_000)
+    assert page.locator("#retention-note").is_hidden()
+
+
+def test_a_deployed_instance_says_uploads_are_deleted_and_lost_on_redeploy(new_page, start_server):
+    """Break caught: the 24-hour retention and the no-persistent-disk fact are
+    only in the docs, so a visitor builds a workflow on storage that vanishes."""
+    hosted = start_server(RUN_TTL_HOURS=24)
+    page = new_page()
+    page.goto(hosted.base_url + "/")
+    note = page.locator("#retention-note")
+    note.wait_for(state="visible", timeout=20_000)
+    text = note.inner_text().lower()
+    assert "24" in text and "delete" in text, text
+    assert "redeploy" in text, text
+    assert "sample" in text, (
+        "the notice must not scare a visitor off the samples, which never write: " + text
+    )
+
+
+def test_a_sample_shipment_says_it_is_cached_model_output(report_page):
+    """Break caught: the three bundled examples look like a visitor's own live
+    run. The line under the verdict is where the report states its provenance,
+    so it is where a replay has to say so."""
+    sub = report_page.locator("#verdict-sub").inner_text()
+    assert "sample: cached model output" in sub, sub
+
+
 def test_the_evidence_page_is_shown_whole_not_cropped(report_page):
     """An element that exists is not an element that fits.
 

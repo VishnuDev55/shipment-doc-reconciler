@@ -30,7 +30,10 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
+from . import budget
+from . import ingest
 from .auth import SESSION_TTL_SECONDS, _issue_session, _sessions, require_api_key
 from .config import PROJECT_ROOT, get_settings
 from .config_view import _require_config_token, config_view, sanitize_config_updates
@@ -236,6 +239,10 @@ def health() -> dict:
         # show anything. Health itself stays open so a load balancer can poll it
         # without holding a secret.
         "api_protected": bool(settings.api_key_list),
+        # Hours after which uploaded runs are deleted at startup. Zero means they
+        # are kept, which is what a laptop wants; the page reads this to say so
+        # rather than carrying a second, hand-typed claim about retention.
+        "run_ttl_hours": settings.run_ttl_hours,
         # Kept for backwards compatibility with anything reading the old shape.
         "model": vision.model,
         "api_key_present": settings.has_nebius_key,
@@ -394,6 +401,24 @@ async def create_shipment(
     doc_types: str = Form(""),
 ) -> JSONResponse:
     """Upload 1-5 documents for one shipment. Returns the shipment id to poll."""
+    settings = active_settings()
+    # The money check comes first: it is the one refusal that no retry or wait of
+    # seconds can clear, and it applies to every caller at once rather than to one
+    # client's minute. Demo mode is exempt because a replay spends nothing --
+    # blocking it would break a laptop whose ledger happens to hold an old day.
+    if not settings.demo_mode and budget.cap_reached(settings):
+        spent = budget.spent_today(settings)
+        retry_after = budget.seconds_until_utc_midnight()
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Daily spend cap reached: ${spent:.2f} of "
+                f"${settings.usd_daily_cap:.2f} spent today (UTC). Uploads resume "
+                "after 00:00 UTC. The bundled sample shipments still work from "
+                "cache, and they cost nothing."
+            ),
+            headers={"Retry-After": str(retry_after)},
+        )
     limiter = _limiter_for()
     allowed, retry_in = limiter.check(_client_key(request))
     if not allowed:
@@ -411,17 +436,37 @@ async def create_shipment(
         except json.JSONDecodeError:
             raise HTTPException(400, "doc_types must be a JSON array of strings")
 
-    settings = active_settings()
     if len(files) > settings.max_documents:
         raise HTTPException(
-            400, f"at most {settings.max_documents} documents per shipment"
+            400,
+            f"this instance accepts at most {settings.max_documents} documents per "
+            f"shipment; you sent {len(files)}. Split the shipment, or put several "
+            "pages in one file.",
         )
 
     uploads: list[tuple[str, str | None, bytes]] = []
     for i, upload in enumerate(files):
         data = await _read_capped(upload, settings.max_upload_bytes)
         declared_type = declared[i] if i < len(declared) else None
-        uploads.append((upload.filename or f"document{i + 1}", declared_type, data))
+        name = upload.filename or f"document{i + 1}"
+        if settings.reject_oversize_pages and settings.max_pages_per_document > 0:
+            # Counted here, before the pipeline spends a vision call on a file it
+            # is only going to read part of. A single-document failure inside the
+            # run would be a 201 with a failed row; an upload this instance will
+            # not accept deserves a 400 that says which file and why.
+            try:
+                pages = await run_in_threadpool(
+                    ingest.page_count, name, data)
+            except ValueError:
+                pages = 0  # unreadable here; the pipeline reports that properly
+            if pages > settings.max_pages_per_document:
+                raise HTTPException(
+                    400,
+                    f"{name} has {pages} pages; this instance reads at most "
+                    f"{settings.max_pages_per_document} per document. Split the "
+                    "file, or upload the pages that matter.",
+                )
+        uploads.append((name, declared_type, data))
 
     try:
         shipment_id, report = await reconciler().create_shipment(uploads)
@@ -647,16 +692,24 @@ async def load_fixture(name: str) -> JSONResponse:
             if loaded:
                 texts[path.name] = loaded
 
-    rec = reconciler()
+    # A sample is a promise, not a mode: clicking one must never spend money,
+    # whatever DEMO_MODE says. A separate reconciler whose settings force demo
+    # mode keeps the live clients of the real instance untouched, and the report
+    # records both facts (demo_mode for how it was read, sample for why).
+    rec = Reconciler(reconciler().settings.model_copy(update={"demo_mode": True}))
     shipment_id, _ = await rec.create_shipment(uploads, page_texts=texts)
     await rec.wait(shipment_id, timeout=600)
     report = rec.get(shipment_id)
+    if report is not None and not report.run.sample:
+        report.run.sample = True
+        rec.store.write(report)
     return JSONResponse(
         {
             "shipment_id": shipment_id,
             "state": report.state if report else "failed",
             "documents": len(report.documents) if report else 0,
             "demo_mode": report.run.demo_mode if report else None,
+            "sample": report.run.sample if report else None,
         },
         status_code=201,
     )

@@ -135,7 +135,12 @@ def powered_by(report: Report) -> str:
         suffix = "no live call on this run — values are hand-authored, not model output."
     else:
         suffix = "no live call on this run — responses were replayed from cache."
-    return f"Powered by Nebius Token Factory + NVIDIA Nemotron · {suffix}"
+    line = f"Powered by Nebius Token Factory + NVIDIA Nemotron · {suffix}"
+    if report.run.sample:
+        # The bundled examples are replays by construction, and a reader of the
+        # exported PDF has no other way to know the numbers came from a demo.
+        line = "sample: cached model output, replayed from cache · " + line
+    return line
 
 
 def cost_line(report: Report, tokens: int, ms: int) -> str:

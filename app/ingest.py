@@ -275,6 +275,37 @@ def rasterize_pdf(
     return pages
 
 
+def page_count(filename: str, raw: bytes) -> int:
+    """How many pages the file declares, without rendering any of them.
+
+    `rasterize_*` caps at `max_pages` and returns the pages it produced, which is
+    all a run needs -- but a caller that wants to say "four of five pages were
+    read" has to ask what the file actually contained. This opens the document
+    and counts: pypdfium2 parses the cross-reference table, Pillow reads a header
+    frame count, and neither decodes a pixel.
+    """
+    if not raw:
+        raise ValueError("empty file")
+    claimed = _reject_unless_kind_matches(filename, raw)
+    if claimed == "pdf":
+        try:
+            doc = pdfium.PdfDocument(raw)
+        except Exception as exc:
+            raise ValueError(f"unreadable PDF: {exc}") from exc
+        try:
+            return len(doc)
+        finally:
+            doc.close()
+    try:
+        handle = Image.open(io.BytesIO(raw))
+    except _BOMB as exc:
+        raise ValueError(f"image too large to decode safely: {exc}") from exc
+    try:
+        return int(getattr(handle, "n_frames", 1))
+    finally:
+        handle.close()
+
+
 def ingest(
     filename: str,
     raw: bytes,
