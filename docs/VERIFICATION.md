@@ -68,6 +68,8 @@ new test in the wrong shape could have spent real credits in CI.
 | `test_normalizers.py` | number/weight/quantity/container/HS/party/money tables |
 | `test_offline_guard.py` | the socket guard itself: remote refused, loopback allowed |
 | `test_parse.py` | retry-ladder rungs 1–3, "one bad field ≠ dead document" |
+| `test_pdf_layout.py` | the rendered PDF's geometry: no overprinting, tables inside the margin and equal in width, the full model id readable, not-run checks grouped without dropping a document |
+| `test_report_html_golden.py` | the PDF and the ZIP's report.html are two layouts of one section model: same inventory, same documents listed as not run |
 | `test_pdf.py` | the PDF's text layer, its provenance wording, and markup injected from a document |
 | `test_pipeline.py` | all three fixtures end to end through DEMO_MODE |
 | `test_planted_bundle.py` | The planted-error bundle: its shape, its score, and its one declared miss |

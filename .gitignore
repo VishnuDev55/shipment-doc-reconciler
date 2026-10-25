@@ -49,3 +49,6 @@ playwright-report/
 graphify-out/
 .freebuff/
 HANDOFF.md
+
+# Rasterised PDF pages written only when a layout test fails (CI uploads them).
+tests/artifacts/

@@ -537,7 +537,10 @@ main > *, .panel, .doc, .doc-body { min-width: 0; }
 
 /* --------------------------------------------------------- table ---- */
 
-.table-wrap { overflow-x: auto; margin-inline: -.25rem; }
+.table-wrap { overflow-x: auto; margin-inline: -.25rem; min-width: 0; max-width: 100%; }
+/* min-width:0 is load-bearing: as a grid/flex child the wrapper's auto
+   minimum is its content (a 42rem table), which pushed the whole page
+   wider than a 390px phone instead of scrolling inside the wrapper. */
 table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .cmp th, .cmp td {
   padding: .55rem .6rem; text-align: left; vertical-align: top;
@@ -707,12 +710,10 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
   display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
   margin-top: .85rem; padding-top: .7rem; border-top: 1px solid var(--line);
 }
-.badge-powered {
-  font-size: .68rem; font-weight: 600; letter-spacing: .04em;
-  padding: .28rem .55rem; white-space: nowrap;
-  color: var(--accent); background: var(--accent-soft);
-  border: 1px solid var(--accent-line); border-radius: 999px;
-}
+.badge-powered { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+/* The 'Powered by ...' badge is a sentence, not a chip: nowrap made it
+   653px wide and the page scrolled sideways on a phone. */
+
 .tp-foot .hint { flex: 1 1 12rem; min-width: 0; }
 
 /* --------------------------------------------------------- docs ---- */
@@ -728,6 +729,9 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .doc-tail { font-size: .72rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .doc > .alert { margin-top: .6rem; }
 
+.evi-grid { overflow-x: auto; min-width: 0; }
+/* The evidence grid's five columns sum to 27rem, wider than a 390px phone.
+   The grid scrolls inside its card; the card (and the page) may not widen. */
 .evi {
   display: grid; grid-template-columns: 7.5rem minmax(6rem, 1fr) minmax(8rem, 2fr) 2.5rem 3rem;
   gap: .6rem; font-size: .76rem; padding: .35rem 0;

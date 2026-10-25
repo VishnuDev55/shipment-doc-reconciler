@@ -21,7 +21,8 @@ from html import escape as esc
 
 from .export import STATUS_LABEL, VERDICT_HEADLINE
 from .models import Report
-from .sections import SECTIONS, transparency, visible_findings
+from .sections import (SECTIONS, check_counts, not_run_groups,
+                       transparency, visible_findings)
 
 # xhtml2pdf resolves these; anything fancier is silently dropped by the renderer,
 # which is exactly the failure mode that made converting the UI HTML a dead end.
@@ -47,6 +48,14 @@ td.num { text-align: right; }
 .st-consistent { color: #176b2f; }
 .st-single_source { color: #555; }
 .mono { font-family: Courier; font-size: 7.6pt; }
+/* xhtml2pdf ignores table-layout and word-wrap; -pdf-word-wrap: CJK is the
+   one it honours, and it breaks long tokens at character boundaries rather
+   than letting them draw over the next column. It inserts an invisible
+   U+FFFE at each break, so the text stays complete. */
+.wrap { -pdf-word-wrap: CJK; }
+/* Dense tables: many columns, long tokens. Smaller type buys the width the
+   numeric columns need without forcing the identifiers to wrap. */
+.dense td, .dense th { font-size: 7pt; padding: 1.1mm 1.3mm; }
 .why { color: #333; }
 .val { font-family: Courier; font-size: 7.4pt; }
 .small { font-size: 7.6pt; color: #444; }
@@ -66,6 +75,10 @@ td.num { text-align: right; }
 .dsub { font-weight: bold; font-size: 8.6pt; margin-top: 1mm; }
 .draft pre { font-family: Helvetica; font-size: 8pt; white-space: pre-wrap;
              margin: 1.5mm 0 0 0; }
+/* pre-wrap is ignored here, so a letter line containing a long quoted reason ran
+   off the page. CJK wrap is the only wrapping this renderer implements; on a
+   draft it breaks a long token rather than losing it at the sheet edge. */
+.draft pre { -pdf-word-wrap: CJK; }
 ul { margin: 1mm 0 0 4mm; padding: 0; }
 li { margin-bottom: 0.8mm; }
 .quote { border-left: 2pt solid #999; padding: 1mm 0 1mm 2.5mm; margin: 1.5mm 0;
@@ -141,7 +154,8 @@ def _status(report: Report) -> str:
         return ""
     rows = "".join(
         f"<tr><td class='sev sev-{esc(f.severity)}'>{esc(f.severity)}</td>"
-        f"<td><b>{esc(f.label)}</b><br/><span class='small'>{esc(f.detail)}</span>"
+        f"<td class='wrap'><b>{esc(f.label)}</b><br/>"
+        f"<span class='small'>{esc(f.detail)}</span>"
         + (f"<br/><span class='small'>{esc(' · '.join(f.documents))}</span>"
            if f.documents else "")
         + "</td></tr>"
@@ -205,12 +219,12 @@ def _comparisons(report: Report) -> str:
             "<span class='small'>no document stated a value</span>"
         )
         rows.append(
-            f"<tr><td><b>{esc(comp.label)}</b><br/>"
+            f"<tr><td class='wrap'><b>{esc(comp.label)}</b><br/>"
             f"<span class='small mono'>{esc(comp.field)} · {esc(comp.kind)}</span></td>"
             f"<td class='st st-{esc(comp.status)}'>"
             f"{esc(STATUS_LABEL.get(comp.status, comp.status))}</td>"
-            f"<td class='why'>{esc(comp.reason)}</td>"
-            f"<td>{value_cell}</td></tr>"
+            f"<td class='why wrap'>{esc(comp.reason)}</td>"
+            f"<td class='wrap'>{value_cell}</td></tr>"
         )
     return f"""<h2>Field comparisons</h2>
 <table><thead><tr><th style="width:17%">Field</th><th style="width:11%">Verdict
@@ -248,21 +262,39 @@ def _internal_checks(report: Report) -> str:
     if not checks:
         return ""
     failed = [c for c in checks if c.status == "fail"]
-    skipped = [c for c in checks if c.status == "not_run"]
     passed = [c for c in checks if c.status == "pass"]
-    rows = "".join(
-        f"<tr><td>{esc(c.document_label)}</td><td>{esc(c.code.replace('_', ' '))}</td>"
-        f"<td>{esc(c.status)}</td><td class='small'>{esc(c.detail)}</td></tr>"
-        for c in (failed + skipped + passed)
+    # Passes and fails stay one row each: each is a distinct claim about a
+    # distinct document. not_run is the opposite -- the same rule, the same
+    # reason, once per document that has no goods lines -- so it is grouped, and
+    # the grouping is defined in app/sections.py so the HTML export lists the
+    # same documents this table does.
+    not_run_rows = "".join(
+        f"<tr><td class='wrap'>{esc(', '.join(documents))}</td>"
+        f"<td class='wrap'>{esc(code.replace('_', ' '))}</td>"
+        f"<td>not run</td>"
+        f"<td class='small wrap'>{esc(reason)}"
+        f"{f' <i>({len(documents)} documents)</i>' if len(documents) > 1 else ''}</td></tr>"
+        for code, reason, documents in not_run_groups(report)
     )
+    rows = "".join(
+        f"<tr><td class='wrap'>{esc(c.document_label)}</td>"
+        f"<td class='wrap'>{esc(c.code.replace('_', ' '))}</td>"
+        f"<td>{esc(c.status)}</td><td class='small wrap'>{esc(c.detail)}</td></tr>"
+        for c in (failed + passed)
+    ) + not_run_rows
+    # Counts come from the shared helper, so "not run" counts checks rather than
+    # the grouped rows this table now prints.
+    passed_n, failed_n, skipped_n = check_counts(report)
     return f"""<h2>Arithmetic inside each document</h2>
 <p class="small">Each document checked against itself: lines that multiply out,
 lines that add up to the stated total, per-row weights that sum, net under gross.
-{len(passed)} passed, {len(failed)} failed, {len(skipped)} not run. A check that
+{passed_n} passed, {failed_n} failed, {skipped_n} not run. A check that
 did not run is not a check that passed; three of these need the goods lines, read
 only when line-item extraction is enabled.</p>
-<table><thead><tr><th>Document</th><th>Check</th><th>Status</th>
-<th>Detail</th></tr><tbody>{rows}</tbody></table>"""
+<table class="dense"><thead><tr><th style="width:24%">Document</th>
+<th style="width:16%">Check</th><th style="width:9%">Status</th>
+<th style="width:51%">Detail</th></tr></thead>
+<tbody>{rows}</tbody></table>"""
 
 
 def _unverified(report: Report) -> str:
@@ -276,10 +308,10 @@ def _unverified(report: Report) -> str:
     if not items:
         return ""
     rows = "".join(
-        f"<tr><td>{esc(u.label)}</td><td>{esc(u.document_label)}</td>"
-        f"<td class='val'>{esc(u.value or '')}</td>"
-        f"<td class='small'>{esc(u.evidence_text)}</td>"
-        f"<td class='small'>{esc(u.reason)}</td>"
+        f"<tr><td class='wrap'>{esc(u.label)}</td><td class='wrap'>{esc(u.document_label)}</td>"
+        f"<td class='val wrap'>{esc(u.value or '')}</td>"
+        f"<td class='small wrap'>{esc(u.evidence_text)}</td>"
+        f"<td class='small wrap'>{esc(u.reason)}</td>"
         f"<td class='small'>"
         + (f"<i>AI-generated, advisory:</i> {esc(u.advisor_note)}"
            f" ({esc(u.advisor_model)})"
@@ -327,7 +359,7 @@ def _corrections(report: Report) -> str:
     if not active and not reverted:
         return ""
     rows = "".join(
-        f"<tr><td>{esc(c.field)}</td><td>{esc(c.document_id)}</td>"
+        f"<tr><td class='wrap'>{esc(c.field)}</td><td class='wrap'>{esc(c.document_id)}</td>"
         f"<td class='val'>{esc(c.original_value or '— absent —')}</td>"
         f"<td class='val'>{esc(c.corrected_value)}</td>"
         f"<td>{esc(c.actor)}</td><td class='small'>{esc(c.at)}</td></tr>"
@@ -360,7 +392,7 @@ def _line_items(report: Report) -> str:
         f"<td class='val'>{esc(m.label)}</td>"
         + "".join(f"<td class='val'>{esc(m.quantities.get(d) or '—')}</td>" for d in docs)
         + f"<td>{esc(m.status.replace('_', ' '))}</td>"
-        f"<td class='small'>{esc(m.detail)}</td>"
+        f"<td class='small wrap'>{esc(m.detail)}</td>"
         "</tr>"
         for m in li.matches
     )
@@ -394,11 +426,11 @@ def _model_prose(report: Report) -> str:
 
 def _documents(report: Report) -> str:
     rows = "".join(
-        f"<tr><td>{esc(d.label)}</td>"
-        f"<td class='small'>{esc(d.detected_doc_type or d.declared_doc_type or '—')}</td>"
+        f"<tr><td class='wrap'>{esc(d.label)}</td>"
+        f"<td class='small wrap'>{esc(d.detected_doc_type or d.declared_doc_type or '—')}</td>"
         f"<td>{esc(d.status)}</td>"
-        f"<td class='small'>{esc(d.provider or '—')}<br/>{esc(d.model or '—')}</td>"
-        f"<td class='small'>{DOC_SOURCE_TEXT.get(d.source, esc(d.source))}</td>"
+        f"<td class='small wrap'>{esc(d.provider or '—')}<br/>{esc(d.model or '—')}</td>"
+        f"<td class='small wrap'>{DOC_SOURCE_TEXT.get(d.source, esc(d.source))}</td>"
         f"<td class='num'>{d.usage.total if d.usage else 0}</td>"
         f"<td class='num'>{d.timings_ms}</td>"
         f"<td class='num'>{d.attempts}</td></tr>"
@@ -409,10 +441,11 @@ def _documents(report: Report) -> str:
         for d in report.documents for n in d.notes
     )
     return f"""<h2>Documents read</h2>
-<table><thead><tr><th style="width:22%">File</th><th style="width:12%">Type</th>
-<th style="width:8%">Status</th><th style="width:18%">Model</th>
-<th style="width:14%">Source</th><th style="width:6%">Tok</th>
-<th style="width:6%">ms</th><th style="width:5%">Try</th></tr></thead>
+<table class="dense"><thead><tr><th style="width:19%">File</th>
+<th style="width:16%">Type</th><th style="width:9%">Status</th>
+<th style="width:20%">Model</th><th style="width:16%">Source</th>
+<th style="width:6%">Tok</th><th style="width:6%">ms</th>
+<th style="width:8%">Try</th></tr></thead>
 <tbody>{rows}</tbody></table>{notes}"""
 
 
@@ -427,10 +460,10 @@ def _transparency(report: Report) -> str:
 
     steps, tokens, ms = transparency(report)
     rows = "".join(
-        f"<tr><td>{esc(s['step'])}</td>"
-        f"<td class='small'>{esc(s['provider'])}</td>"
-        f"<td class='small'>{esc(s['model'])}</td>"
-        f"<td class='small'>{esc(source_word(s['source']))}</td>"
+        f"<tr><td class='wrap'>{esc(s['step'])}</td>"
+        f"<td class='small wrap'>{esc(s['provider'])}</td>"
+        f"<td class='small wrap'>{esc(s['model'])}</td>"
+        f"<td class='small wrap'>{esc(source_word(s['source']))}</td>"
         f"<td class='num'>{s['tries']}</td>"
         f"<td class='num'>{s['usage'].total if s['usage'] else 0}</td>"
         f"<td class='num'>{s['latency_ms']}</td></tr>"
@@ -440,10 +473,10 @@ def _transparency(report: Report) -> str:
         rows = '<tr><td colspan="7" class="small">No model step ran.</td></tr>'
     return (
         "<h2>Model steps</h2>"
-        "<table><thead><tr><th style='width:24%'>Step</th>"
-        "<th style='width:12%'>Provider</th><th style='width:26%'>Model</th>"
-        "<th style='width:18%'>Answer came from</th><th style='width:5%'>Try</th>"
-        "<th style='width:7%'>Tok</th><th style='width:8%'>ms</th></tr></thead>"
+        "<table class='dense'><thead><tr><th style='width:21%'>Step</th>"
+        "<th style='width:10%'>Provider</th><th style='width:28%'>Model</th>"
+        "<th style='width:19%'>Answer came from</th><th style='width:5%'>Try</th>"
+        "<th style='width:7%'>Tok</th><th style='width:10%'>ms</th></tr></thead>"
         f"<tbody>{rows}</tbody></table>"
         f"<p class='small'>{esc(powered_by(report))}</p>"
         f"<p class='small'>{esc(cost_line(report, tokens, ms))}</p>"

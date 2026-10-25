@@ -58,3 +58,26 @@ def transparency(report: Report) -> tuple[list, int, int]:
     steps = model_steps(report)
     tokens, ms = totals(steps)
     return steps, tokens, ms
+
+
+def not_run_groups(report: Report) -> list[tuple[str, str, list[str]]]:
+    """(rule, shared reason, documents) for every check that did not run.
+
+    Grouped by (code, reason) rather than by code alone: if a second cause ever
+    appears, it gets its own row instead of being hidden under the first one's
+    explanation. Both renderers read this, so the PDF's grouped rows and the
+    HTML's list cannot disagree about which documents were never checked.
+    """
+    groups: dict[tuple[str, str], list[str]] = {}
+    for check in report.internal_checks:
+        if check.status == "not_run":
+            groups.setdefault((check.code, check.detail), []).append(check.document_label)
+    return [(code, reason, documents) for (code, reason), documents in groups.items()]
+
+
+def check_counts(report: Report) -> tuple[int, int, int]:
+    """(passed, failed, not_run) as *checks*, not as table rows."""
+    passed = sum(1 for c in report.internal_checks if c.status == "pass")
+    failed = sum(1 for c in report.internal_checks if c.status == "fail")
+    skipped = sum(1 for c in report.internal_checks if c.status == "not_run")
+    return passed, failed, skipped

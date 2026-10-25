@@ -110,6 +110,14 @@ jobs:
       - name: Test (zero network calls by construction)
         run: python -m pytest tests/ -q
 
+      - name: Upload rendered pages if the suite failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-layout-artifacts-${{ matrix.python-version }}
+          path: tests/artifacts
+          if-no-files-found: ignore
+
   coverage:
     # The floor is only here because it was measured first: 90% of app/ (see
     # pyproject.toml [tool.coverage]). fail_under = 88 sits BELOW that on

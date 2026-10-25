@@ -50,6 +50,9 @@ mypy==2.4.0
 
 # Coverage. Measured: 90% of app/ (fail_under = 88 in pyproject.toml).
 coverage==7.16.2
+# PDF geometry assertions in tests/test_pdf_layout.py: word bounding boxes
+# out of the rendered file, not out of the HTML that produced it.
+pdfplumber==0.11.4
 
 # Git hooks (.pre-commit-config.yaml). Never installed into the image.
 pre-commit==4.6.2

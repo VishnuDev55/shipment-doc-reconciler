@@ -18,7 +18,8 @@ from pathlib import Path
 from .config import COMPARATOR_VERSION, NORMALIZER_VERSION, PROMPT_VERSION
 from .fields import FIELD_LABEL, FIELD_ORDER
 from .models import Report
-from .sections import transparency, visible_findings
+from .sections import (check_counts, not_run_groups, transparency,
+                       visible_findings)
 from .transparency import cost_line, powered_by, source_word
 
 STATUS_LABEL = {
@@ -230,6 +231,22 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
         f'{risk.high_at}.</em></div>'
         if risk.reasons else ""
     )
+    # The same grouped not-run disclosure the PDF prints, from the same helper in
+    # app/sections.py: a check that did not run must be visible in both artifacts,
+    # and neither may list a different set of documents than the other.
+    if report.internal_checks:
+        passed_n, failed_n, skipped_n = check_counts(report)
+        groups = "".join(
+            f'<li><code>{esc(code.replace("_", " "))}</code> — not run on '
+            f'{esc(", ".join(docs))}: {esc(reason)}</li>'
+            for code, reason, docs in not_run_groups(report))
+        checks_html = (
+            '<h2>Arithmetic inside each document</h2>'
+            f'<p class="sub">{passed_n} passed, {failed_n} failed, {skipped_n} not '
+            'run. A check that did not run is not a check that passed.</p>'
+            + (f'<ul class="checks">{groups}</ul>' if groups else ''))
+    else:
+        checks_html = ""
     sanity_html = "".join(
         f'<div class="sanity {esc(f.level)}"><b>{esc(f.level)}</b>'
         f'<span>{esc(f.explanation)}</span></div>'
@@ -333,7 +350,11 @@ h1 {{ font-size:20px; margin:0 0 4px; }} h2 {{ font-size:16px; margin:28px 0 8px
 .banner.mixed {{ background:#eef4fb; border-color:#b8d4ee; color:#1a4d7a; }}
 .banner.replay {{ background:#eef4fb; border-color:#b8d4ee; color:#1a4d7a; }}
 table.cmp {{ width:100%; border-collapse:collapse; background:#fff; }}
-table.cmp th, table.cmp td {{ border:1px solid var(--line); padding:8px 10px; vertical-align:top; text-align:left; }}
+table.cmp th, table.cmp td {{ border:1px solid var(--line); padding:8px 10px; vertical-align:top; text-align:left; overflow-wrap:anywhere; }}
+/* The same long ids the PDF has to wrap: a model name is one unbreakable
+   token to CSS unless told otherwise, and the PDF's fix must not leave the
+   HTML export with the overflow it was fixed for. */
+table.prov td, table.ev td {{ overflow-wrap:anywhere; }}
 table.cmp thead th {{ background:#f0f0f0; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }}
 table.cmp tbody th {{ background:#fcfcfc; min-width:130px; }}
 .fname {{ font-weight:600; }} .fkey {{ font-size:10px; color:var(--muted); font-family:ui-monospace,monospace; }}
@@ -435,6 +456,7 @@ table.prov td {{ padding:4px 10px 4px 0; vertical-align:top; }}
  {s.documents_ok}/{s.documents_ok + s.documents_failed} documents extracted</div>
 {risk_html}
 {emails_block}
+{checks_html}
 {sanity_html}
 {narrative_html}
 {briefing_html}

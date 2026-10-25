@@ -1649,7 +1649,7 @@ function renderDocuments(report) {
     }
 
     if (doc.extraction) {
-      const grid = el('div');
+      const grid = el('div', 'evi-grid');
       const hdr = el('div', 'evi head');
       ['Field', 'Verbatim value', 'Evidence line quoted from the page', 'Page', 'Conf.']
         .forEach((t, i) => hdr.appendChild(el('span', i >= 3 ? 'n' : null, t)));

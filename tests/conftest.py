@@ -153,3 +153,16 @@ def no_network() -> object:
     monkeypatch.setattr(socket, "gethostbyname", _guarded_gethostbyname)
     yield True
     monkeypatch.undo()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Record each phase's outcome on the item.
+
+    tests/test_pdf_layout.py rasters the failing PDF's pages into
+    tests/artifacts/ (gitignored, uploaded by CI on failure) so a layout
+    regression can be looked at instead of re-imagined from an assertion.
+    """
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, "rep_" + report.when, report)
