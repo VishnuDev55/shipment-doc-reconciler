@@ -718,3 +718,29 @@ def test_the_lightbox_closes_on_click_outside_and_returns_focus(report_page):
     assert report_page.locator(".lightbox").count() == 0
     focused = report_page.evaluate("() => document.activeElement?.className || ''")
     assert "page-chip" in focused, f"focus did not return to the chip: {focused!r}"
+
+
+def test_wide_tables_do_not_widen_the_page_on_a_phone(new_page, app):
+    """Break caught: a 42rem transparency table or a 992px comparison table makes
+    the whole page scroll sideways at 390px, so the header and the upload form sit
+    off-screen. The tables may scroll inside their wrapper; the page may not."""
+    page = new_page(viewport={"width": 390, "height": 844})
+    page.goto(app.base_url + "/?demo=shipment_messy")
+    page.wait_for_selector("#results:not([hidden])", timeout=60_000)
+    page.wait_for_selector("#cmp tbody tr", timeout=60_000)
+
+    metrics = page.evaluate(
+        """() => ({
+            page: document.documentElement.scrollWidth,
+            viewport: innerWidth,
+            wrappers: [...document.querySelectorAll('.table-wrap')].map((w) => ({
+                scroll: w.scrollWidth, client: w.clientWidth,
+                overflow: getComputedStyle(w).overflowX }))
+        })""")
+    assert metrics["page"] <= metrics["viewport"] + 1, (
+        f"the page is {metrics['page']}px wide in a {metrics['viewport']}px "
+        "viewport; a wide table escaped its scrolling wrapper")
+    for wrapper in metrics["wrappers"]:
+        if wrapper["scroll"] > wrapper["client"]:
+            assert wrapper["overflow"] in ("auto", "scroll"), (
+                "a table wider than its wrapper must scroll inside it")
