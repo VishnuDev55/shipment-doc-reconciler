@@ -752,22 +752,34 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .pages figcaption { font-size: .66rem; color: var(--ink-3); margin-top: .25rem; font-variant-numeric: tabular-nums; }
 
 .lightbox {
+  --lb-pad: 2rem;
   position: fixed; inset: 0; z-index: var(--z-lightbox); display: grid; place-items: center;
-  gap: .5rem; grid-template-rows: 1fr auto; padding: 2rem; cursor: zoom-out;
+  gap: .5rem; grid-template-rows: 1fr auto; padding: var(--lb-pad); cursor: zoom-out;
   background: color-mix(in oklab, var(--bg) 70%, #000 30%);
   animation: fade var(--motion) var(--ease) both;
 }
-.lightbox img { max-width: 100%; max-height: 100%; border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.lightbox img {
+  width: auto; height: auto;      /* never force one side: forcing it while
+                                    constraining the other is the stretch bug */
+  /* 100% cannot resolve here: the stage's height is content-sized, so a
+     percentage max-height computes to none and the page renders at natural size
+     (the very bug the previous attempt at `max-height: 100%` on the stage
+     traded for a vertical stretch). The overlay is fixed to the viewport, so the
+     only definite box to constrain against IS the viewport. */
+  max-width: calc(100vw - 2 * var(--lb-pad));
+  max-height: calc(100vh - 2 * var(--lb-pad) - 7rem);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+}
 .lightbox figcaption { font-size: .76rem; color: var(--ink-2); text-align: center; }
-/* The wrapper is only a coordinate system: it shrinks to the image, so the
-   percentage-positioned rectangle inside it lands on the page rather than on the
-   empty space around it. */
-/* max-height is load-bearing, not decoration: the stage sizes to its content, so
-   without a cap the image's own `max-height: 100%` resolves against a height that
-   is the image's height, and a 1,600px page renders full size in a 900px overlay
-   and gets cut off by overflow. tests_e2e pins the whole page fitting. */
-.lb-stage { position: relative; display: flex; min-height: 0; max-height: 100%;
-  overflow: hidden; border-radius: var(--radius); }
+/* The stage shrink-wraps the rendered image, which is what keeps the
+   percentage-positioned highlight rectangle on the text: the box is a fraction of
+   the stage, and the stage must be exactly the image it marks. */
+.lb-stage {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  min-width: 0; min-height: 0;
+  overflow: hidden; border-radius: var(--radius);
+}
 .lb-box {
   position: absolute; border: 2px solid var(--accent);
   border-radius: 3px; background: color-mix(in oklab, var(--accent) 16%, transparent);

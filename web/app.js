@@ -1703,6 +1703,14 @@ async function retryDocument(documentId) {
 }
 
 function lightbox(src, caption, evidence, box) {
+  // Keyboard users: Esc/click closes the overlay, and focus has to land back on
+  // the chip that opened it rather than on <body>, or the next Tab is lost.
+  const opener = document.activeElement instanceof HTMLElement
+    ? document.activeElement : null;
+  const close = () => {
+    fig.remove();
+    if (opener && typeof opener.focus === 'function') opener.focus();
+  };
   const fig = el('figure', 'lightbox');
   const stage = el('div', 'lb-stage');
   const img = el('img');
@@ -1734,11 +1742,11 @@ function lightbox(src, caption, evidence, box) {
       + 'The rectangle needs the PDF’s own text layer; this document’s quote came '
       + 'from a source that has none.'));
   }
-  fig.addEventListener('click', () => fig.remove());
+  fig.addEventListener('click', () => close());
   document.body.appendChild(fig);
   const closeOnEscape = (event) => {
     if (event.key === 'Escape') {
-      fig.remove();
+      close();
       document.removeEventListener('keydown', closeOnEscape);
     }
   };

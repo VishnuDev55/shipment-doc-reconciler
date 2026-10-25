@@ -15,6 +15,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 
 FIELD_COUNT = 10  # app/fields.py: the table has to show every contracted field
@@ -638,3 +640,81 @@ def test_no_drafts_panel_appears_when_there_is_nothing_to_write(new_page, app):
         " return b && /Ready to ship/i.test(b.textContent); }", timeout=60_000)
     assert page.locator("#emails-card").is_hidden()
     page.close()
+
+
+# ---------------------------------------------------------------------------
+# the evidence image must keep its natural proportions
+# ---------------------------------------------------------------------------
+
+VIEWPORTS = [(1920, 1080), (1366, 768), (1024, 768), (390, 844)]
+
+
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+def test_the_evidence_image_keeps_its_natural_aspect_ratio(new_page, app, width, height):
+    """Break caught: the lightbox stretches a portrait page to the overlay's
+    height, so the text reads wider than it prints. Rendered ratio must match the
+    image's natural ratio -- the fix is intrinsic sizing, and this test would
+    catch it reverting to `align-items: stretch` at any of these viewports."""
+    page = new_page(viewport={"width": width, "height": height})
+    page.goto(app.base_url + "/?demo=shipment_conflict")
+    page.wait_for_selector("#results:not([hidden])", timeout=60_000)
+    page.wait_for_function(
+        "() => ['Conflicts found — reconcile before the goods move']"
+        ".includes(document.querySelector('#verdict-headline').textContent.trim())",
+        timeout=60_000)
+
+    chips = page.locator(".page-chip")
+    opened = None
+    for i in range(chips.count()):
+        chips.nth(i).click()
+        lb = page.locator(".lightbox")
+        lb.wait_for(state="visible", timeout=10_000)
+        if lb.locator(".lb-box").count():
+            opened = lb
+            break
+        page.keyboard.press("Escape")
+    assert opened is not None, "no chip landed a box to measure"
+
+    page.wait_for_function(
+        "() => { const i = document.querySelector('.lightbox img');"
+        " return i && i.complete && i.naturalWidth > 0; }", timeout=15_000)
+    m = page.evaluate(
+        """() => {
+            const img = document.querySelector('.lightbox img');
+            const box = document.querySelector('.lb-box');
+            const ir = img.getBoundingClientRect();
+            const br = box.getBoundingClientRect();
+            const inside = br.left >= ir.left - 1 && br.right <= ir.right + 1
+                        && br.top >= ir.top - 1 && br.bottom <= ir.bottom + 1;
+            return {
+                natural: img.naturalWidth / img.naturalHeight,
+                rendered: ir.width / ir.height,
+                inside: inside,
+            };
+        }""")
+    assert m["natural"] > 0
+    # 1% tolerance: sub-pixel rounding across four viewports, never the 70%+ the
+    # stretch produced.
+    assert abs(m["rendered"] / m["natural"] - 1) < 0.01, (
+        f"{width}x{height}: rendered ratio {m['rendered']:.4f} vs natural "
+        f"{m['natural']:.4f}"
+    )
+    assert m["inside"], "the highlight rectangle drifted off the image it marks"
+
+    # Close and check the box is gone and the trigger has focus back.
+    page.keyboard.press("Escape")
+    assert page.locator(".lightbox").count() == 0, "Esc did not close the lightbox"
+
+
+def test_the_lightbox_closes_on_click_outside_and_returns_focus(report_page):
+    """Break caught: the overlay traps focus or keeps the page scrolled behind a
+    dead backdrop. Clicking the dimmed area (the figure itself) must close it and
+    hand focus back to the chip that opened it."""
+    chips = report_page.locator(".page-chip")
+    chips.first.click()
+    box = report_page.locator(".lightbox")
+    box.wait_for(state="visible", timeout=10_000)
+    box.click(position={"x": 5, "y": 5})  # the dimmed edge, not the image
+    assert report_page.locator(".lightbox").count() == 0
+    focused = report_page.evaluate("() => document.activeElement?.className || ''")
+    assert "page-chip" in focused, f"focus did not return to the chip: {focused!r}"
