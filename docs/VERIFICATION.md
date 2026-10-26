@@ -115,6 +115,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 | Correction drafts name no value no document printed | ✅ asserted over every draft, and the ZIP manifest bug that hid README.txt's header is pinned |
 | The engine against known ground truth | ✅ 10/10 planted errors caught, 0/9 false alarms on clean and tricky paperwork, 1 miss declared in advance — `docs/PLANTED.md`, 0 API calls |
 | The evidence highlight lands on the right words | ✅ screenshot-verified in chromium (the rectangle and the image share one box), and proved to fail: dropping the verbatim-line restriction breaks the fuzzy test, and stopping the chip from passing its box breaks the browser suite |
+| A run says what it is doing, and stops saying it after a failure | ✅ in chromium: the button answers a click in under 100 ms (measured from the click's own timestamp), every file reaches a terminal state, a 429 ends the bar and focuses Retry, a four-second silence shows the waking note, and reduced motion removes the two loops — `tests_e2e/test_progress.py` |
 | `runs/{id}/report.json` is the same bytes on Windows and in the container | ✅ was not — pydantic writes unescaped non-ASCII, and `write_text()` used the locale codec, so an em dash landed as `0x97`. Encoding is now pinned to utf-8 on write and read |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |
 | Vision extraction, NVIDIA build.nvidia.com | ✅ 12/12 fixture documents captured live (omni, 2026-10-16 re-capture); every one parsed on ladder rung 1 |

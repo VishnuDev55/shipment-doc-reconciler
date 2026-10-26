@@ -179,9 +179,9 @@ def new_page(browser_session, app):
     """A factory: `new_page()` for the default desktop viewport, or a size."""
     opened = []
 
-    def _make(viewport: dict | None = None):
+    def _make(viewport: dict | None = None, **options):
         context = browser_session.new_context(
-            viewport=viewport or {"width": 1280, "height": 900}
+            viewport=viewport or {"width": 1280, "height": 900}, **options
         )
         page = context.new_page()
         page.errors = []  # type: ignore[attr-defined]

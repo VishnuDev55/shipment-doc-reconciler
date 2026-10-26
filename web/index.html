@@ -38,6 +38,10 @@
 
     <section class="rail-block">
       <h2>Connection</h2>
+      <p id="server-state" class="server-state">
+        <span id="srv-dot" class="srv-dot checking" aria-hidden="true"></span>
+        <span id="server-state-text">Checking the server…</span>
+      </p>
       <dl id="conn-list" class="conn"></dl>
     </section>
 
@@ -66,6 +70,10 @@
       sample shipments are unaffected; they cost nothing and can be run again.
     </div>
 
+    <div id="cold-start" class="note note-warn" hidden>
+      The server is waking up (free plan). This can take up to a minute the first time.
+    </div>
+
     <section class="panel" aria-labelledby="intake-title">
       <header class="panel-head">
         <h2 id="intake-title">Documents</h2>
@@ -89,13 +97,29 @@
       <ul id="upload-list" class="uploads" hidden></ul>
 
       <div class="row-actions">
-        <button type="button" id="analyze" class="btn btn-primary" disabled>Analyse shipment</button>
+        <button type="button" id="analyze" class="btn btn-primary" disabled>
+          <span id="analyze-spinner" class="btn-spinner" aria-hidden="true"></span>
+          <span id="analyze-label">Analyse shipment</span>
+        </button>
         <button type="button" id="reset" class="btn btn-quiet" hidden>Clear</button>
         <span class="spacer"></span>
         <span id="intake-count" class="hint"></span>
       </div>
 
-      <p id="error" class="alert" role="alert" hidden></p>
+      <!-- Below the button on purpose: the bar appears when the upload starts,
+           and anything above the button would move it out from under the click
+           that started it. -->
+      <div id="upload-progress" class="up-progress" hidden>
+        <div id="upload-bar" class="up-bar" role="progressbar"
+             aria-label="Uploading documents" aria-valuemin="0" aria-valuemax="100"
+             aria-valuenow="0"><span></span></div>
+        <p id="upload-line" class="up-line" role="status" aria-live="polite"></p>
+      </div>
+
+      <p id="error" class="alert" role="alert" hidden>
+        <span id="error-text"></span>
+        <button type="button" id="error-retry" class="btn btn-quiet" hidden>Retry</button>
+      </p>
     </section>
 
     <section id="empty" class="panel empty" aria-labelledby="empty-title">
@@ -144,6 +168,7 @@
         </div>
 
         <p id="progress" class="progress" role="status" aria-live="polite"></p>
+        <p id="stage-line" class="stage-line" role="status" aria-live="polite"></p>
         <div id="timeline" class="timeline" hidden aria-live="polite"></div>
       </div>
 

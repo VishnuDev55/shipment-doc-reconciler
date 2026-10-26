@@ -139,6 +139,41 @@ seconds. The timeline is advisory: it yields to the settled documents table the
 moment the report is done, and a run whose stream dies still finishes correctly
 via the poll path, with the timeline simply left empty.
 
+**Feedback from the click, not from the first event.** The button disables, names
+itself "Uploading…" and shows a spinner in the click's own frame; the browser
+suite measures that from the click event's own `timeStamp` (2.6 ms on a
+development box, and the test allows 100 ms). Every chosen file carries its own
+state -- queued, uploading, uploaded, then whatever stage the stream reports for
+it (reading, verifying, comparing, done, failed) -- beside a combined bar fed by
+XHR upload bytes. One multipart request reports bytes for the whole body, not per
+part, so cumulative file sizes are what turn the measurement into "this file is
+the one being sent now" instead of a figure the browser never gave. A single
+plain line names the work ("Reading packing_list.png with
+nemotron-3-nano-omni-30b-a3b-reasoning on NVIDIA… 23 s"), and only the document
+being read pulses.
+
+**Two loops, and both can be switched off.** The pulsing dot and the upload
+shimmer are the only animations that repeat; everything else is a 150-250 ms
+ease-out transition. `prefers-reduced-motion: reduce` turns the loops off rather
+than letting them run once, which would be a flicker. The bar is a real
+`role="progressbar"` with `aria-valuenow`, and the two status lines are
+`role="status" aria-live="polite"`, so a screen reader hears what changed rather
+than every frame.
+
+**A failure stops the animation.** A timeout, a dropped network or the daily
+cap's 429 ends the bar, marks the files failed, restores the button, and shows
+the server's own message -- the cap's `detail` is the one that names the number
+and the reset time -- with a **Retry** that takes focus. Nothing is left
+spinning: when a run settles the upload bar hides, the stage line clears, and a
+file row the stage stream never reached is settled from the report itself.
+
+**A waking server says so.** `/api/health` is pinged on load. After four seconds
+without an answer the page says "The server is waking up (free plan). This can
+take up to a minute the first time." and the connection dot turns amber; when the
+answer arrives the note disappears and the dot reads "Server ready". A free
+Render instance spins down after 15 idle minutes, so this is the common first
+impression rather than an edge case.
+
 ---
 
 

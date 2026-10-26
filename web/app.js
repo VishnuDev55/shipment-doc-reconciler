@@ -69,6 +69,13 @@ const THEMES = [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']];
 const state = {
   files: [],
   declared: [],
+  // One state per chosen file, parallel to `files`: queued -> uploading ->
+  // uploaded -> reading/verifying/comparing -> done or failed. The upload
+  // states come from byte progress, the rest from SSE stage events.
+  fileStates: [],
+  busy: false,
+  readingSince: {},
+  healthResolved: false,
   shipmentId: null,
   pollTimer: null,
   stream: null,
@@ -158,14 +165,50 @@ function buildSegmented(host, options, active, onPick) {
 // connection state (left rail + header flag)
 // ---------------------------------------------------------------------
 
+// The free Render plan spins down after 15 idle minutes and can take a minute to
+// answer its first request. Four seconds of silence is the point where "working"
+// stops being believable and the reader deserves the reason.
+const COLD_START_MS = 4000;
+
+function setServerState(kind, words) {
+  const dot = $('#srv-dot');
+  const label = $('#server-state-text');
+  if (!dot || !label) return;
+  dot.className = 'srv-dot ' + kind;
+  const text = {
+    checking: 'Checking the server…',
+    ready: 'Server ready',
+    waking: 'Server is waking up…',
+    down: 'Server unreachable',
+  };
+  label.textContent = words || text[kind] || '';
+}
+
+function showColdStart(on) {
+  const note = $('#cold-start');
+  if (note) note.hidden = !on;
+  if (on) setServerState('waking');
+}
+
 async function loadHealth() {
+  const timer = setTimeout(() => {
+    if (!state.healthResolved) showColdStart(true);
+  }, COLD_START_MS);
   try {
     const h = await getJSON('/api/health');
+    state.healthResolved = true;
+    clearTimeout(timer);
+    showColdStart(false);
+    setServerState('ready');
     state.health = h;
     renderModeChip(h);
     renderConnection(h);
     renderKeyWarning(h);
   } catch (err) {
+    state.healthResolved = true;
+    clearTimeout(timer);
+    showColdStart(false);
+    setServerState('down');
     const chip = $('#mode-chip');
     chip.hidden = false;
     chip.className = 'flag flag-bad';
@@ -370,9 +413,34 @@ function addFiles(files) {
   const accepted = files.filter((f) => /\.(pdf|jpe?g|png|webp|tiff?)$/i.test(f.name));
   const rejected = files.length - accepted.length;
   if (rejected > 0) showError(`${rejected} file(s) skipped — only PDF and images are accepted.`);
-  state.files.push(...accepted.slice(0, room));
-  accepted.slice(0, room).forEach(() => state.declared.push(''));
+  const taken = accepted.slice(0, room);
+  state.files.push(...taken);
+  state.declared.push(...taken.map(() => ''));
+  state.fileStates.push(...taken.map(() => 'queued'));
   renderUploads();
+}
+
+const UPLOAD_STATE = {
+  queued: 'Queued',
+  uploading: 'Uploading',
+  uploaded: 'Uploaded',
+  reading: 'Reading',
+  verifying: 'Verifying',
+  comparing: 'Comparing',
+  done: 'Done',
+  failed: 'Failed',
+};
+
+function paintFileStates() {
+  document.querySelectorAll('#upload-list .upload').forEach((row, i) => {
+    const chip = row.querySelector('.upload-state');
+    if (!chip) return;
+    const value = state.fileStates[i] || 'queued';
+    if (chip.dataset.state === value) return;
+    chip.dataset.state = value;
+    chip.className = 'upload-state state-' + value;
+    chip.textContent = UPLOAD_STATE[value] || value;
+  });
 }
 
 function renderUploads() {
@@ -395,6 +463,9 @@ function renderUploads() {
   state.files.forEach((file, i) => {
     const li = el('li', 'upload');
     li.appendChild(el('span', 'name', file.name));
+    const chip = el('span', 'upload-state state-queued', UPLOAD_STATE.queued);
+    chip.dataset.state = 'queued';
+    li.appendChild(chip);
 
     const sel = el('select');
     sel.setAttribute('aria-label', 'Document type for ' + file.name);
@@ -415,21 +486,33 @@ function renderUploads() {
     rm.addEventListener('click', () => {
       state.files.splice(i, 1);
       state.declared.splice(i, 1);
+      state.fileStates.splice(i, 1);
       renderUploads();
     });
     li.appendChild(rm);
     list.appendChild(li);
   });
 
-  $('#analyze').disabled = false;
+  $('#analyze').disabled = state.busy;
+  paintFileStates();
 }
 
 function wireButtons() {
   $('#analyze').addEventListener('click', uploadAndAnalyse);
+  $('#error-retry').addEventListener('click', () => {
+    showError(null);
+    uploadAndAnalyse();
+  });
   $('#reset').addEventListener('click', () => {
     stopWatching();
-    state.files = []; state.declared = []; state.shipmentId = null; state.report = null;
+    state.files = []; state.declared = []; state.fileStates = [];
+    state.shipmentId = null; state.report = null;
+    state.stages = {}; state.readingSince = {};
+    setBusy(false);
+    hideUploadProgress();
     renderUploads();
+    renderStageLine();
+    renderTimeline();
     loadHistory();
     history.replaceState(null, '', location.pathname);
     $('#results').hidden = true;
@@ -464,27 +547,142 @@ function wireButtons() {
 // run
 // ---------------------------------------------------------------------
 
+class UploadError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status || 0;
+  }
+}
+
+/**
+ * POST the files and report byte progress.
+ *
+ * `fetch` has no upload progress, so this one call goes through XHR. The
+ * response is still JSON and still carries the server's `detail` (the 429 that
+ * names the daily cap is the one a reader most needs verbatim).
+ */
+function uploadWithProgress(form, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/shipments');
+    xhr.responseType = 'json';
+    xhr.timeout = 120000;
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable) onProgress(event.loaded, event.total);
+    });
+    xhr.addEventListener('load', () => {
+      const body = xhr.response || {};
+      if (xhr.status >= 200 && xhr.status < 300 && body.shipment_id) {
+        resolve(body);
+        return;
+      }
+      reject(new UploadError(body.detail || ('HTTP ' + xhr.status), xhr.status));
+    });
+    xhr.addEventListener('error', () => reject(new UploadError(
+      'the network dropped during the upload', 0)));
+    xhr.addEventListener('timeout', () => reject(new UploadError(
+      'the upload timed out after two minutes', 0)));
+    xhr.send(form);
+  });
+}
+
+function setBusy(on) {
+  state.busy = on;
+  const btn = $('#analyze');
+  btn.disabled = on;
+  btn.classList.toggle('busy', on);
+  btn.setAttribute('aria-busy', String(on));
+  $('#analyze-label').textContent = on ? 'Uploading…' : 'Analyse shipment';
+  $('#upload-list').classList.toggle('busy', on);
+}
+
+/**
+ * The combined bar, plus which file the bytes have reached.
+ *
+ * One multipart request means the browser reports bytes for the whole body, not
+ * per part. Cumulative file sizes are what turn that into "this file is the one
+ * being sent now" without inventing a progress figure the browser never gave.
+ */
+function showUploadBytes(loaded, total) {
+  const box = $('#upload-progress');
+  box.hidden = false;
+  box.classList.add('uploading');
+  const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+  const bar = $('#upload-bar');
+  bar.setAttribute('aria-valuenow', String(pct));
+  bar.firstElementChild.style.width = pct + '%';
+
+  let sent = 0;
+  let uploading = -1;
+  let uploaded = 0;
+  state.files.forEach((file, i) => {
+    sent += file.size || 0;
+    if (loaded >= sent) uploaded = i + 1;
+    else if (uploading === -1) uploading = i;
+  });
+  if (loaded >= (total || 0) && total > 0) {
+    uploaded = state.files.length;
+    uploading = -1;
+  }
+  state.fileStates = state.files.map((_f, i) => (
+    i < uploaded ? 'uploaded' : (i === uploading ? 'uploading' : 'queued')
+  ));
+  paintFileStates();
+  $('#upload-line').textContent = `${uploaded} of ${state.files.length} files uploaded` +
+    (pct < 100 ? ` · ${pct}%` : '');
+}
+
+function finishUploadProgress() {
+  const box = $('#upload-progress');
+  const bar = $('#upload-bar');
+  box.classList.remove('uploading');
+  bar.setAttribute('aria-valuenow', '100');
+  bar.firstElementChild.style.width = '100%';
+  $('#upload-line').textContent =
+    `${state.files.length} of ${state.files.length} files uploaded`;
+}
+
+function hideUploadProgress() {
+  const box = $('#upload-progress');
+  box.hidden = true;
+  box.classList.remove('uploading');
+  $('#upload-bar').setAttribute('aria-valuenow', '0');
+  $('#upload-bar').firstElementChild.style.width = '0%';
+  $('#upload-line').textContent = '';
+}
+
 async function uploadAndAnalyse() {
+  if (state.busy || !state.files.length) return;
   showError(null);
+  const files = state.files.slice();
   const form = new FormData();
-  state.files.forEach((f) => form.append('files', f, f.name));
+  files.forEach((f) => form.append('files', f, f.name));
   form.append('doc_types', JSON.stringify(state.declared));
 
-  const btn = $('#analyze');
-  btn.classList.add('busy');
-  btn.setAttribute('aria-disabled', 'true');
-  setProgress('Uploading ' + state.files.length + ' document(s)…');
+  // Everything below runs before the first await, so the button answers a click
+  // in the same frame: a request that takes a minute must not look like a click
+  // that did nothing.
+  setBusy(true);
+  state.fileStates = files.map(() => 'queued');
+  renderUploads();
+  showUploadBytes(0, 0);
+  setProgress('Uploading ' + files.length + ' document(s)…');
+
   try {
-    const res = await fetch('/api/shipments', { method: 'POST', body: form });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || ('HTTP ' + res.status));
-    const data = await res.json();
+    const data = await uploadWithProgress(form, showUploadBytes);
+    finishUploadProgress();
     beginRun(data.shipment_id);
   } catch (err) {
-    showError('Upload failed: ' + err.message);
+    const message = err instanceof UploadError
+      ? err.message : (err && err.message) || String(err);
+    state.fileStates = files.map(() => 'failed');
+    paintFileStates();
+    hideUploadProgress();
     setProgress('');
+    stopWatching();
+    showError('Upload failed: ' + message, { retry: true });
   } finally {
-    btn.classList.remove('busy');
-    btn.removeAttribute('aria-disabled');
+    setBusy(false);
   }
 }
 
@@ -528,6 +726,7 @@ function beginRun(shipmentId) {
   state.shipmentId = shipmentId;
   state.report = null;
   state.filter = null;
+  state.readingSince = {};
   showResults();
   renderRunning();
   watchRun(shipmentId);
@@ -557,17 +756,95 @@ function applyReport(report) {
   renderReport(report);
   if (report.state !== 'running') {
     stopWatching();
+    // Nothing may be left spinning once the run has settled: no upload bar, no
+    // stage line, and no file row still claiming to be reading. A row the stage
+    // stream never reached is settled from the report, which is the truth.
+    hideUploadProgress();
+    settleFileStates(report);
     setProgress('');
-    // The run is over: the per-document stage timeline yields to the settled
-    // documents table, which is the source of truth for what actually happened.
     state.stages = {};
+    state.readingSince = {};
+    renderStageLine();
     renderTimeline();
     loadHistory();
   }
 }
 
+const PROVIDER_LABEL = { nvidia: 'NVIDIA', nebius: 'Nebius' };
+
+function shortModel(model) {
+  // The vendor prefix is already implied by "on NVIDIA"; the rest is the name a
+  // reader can match against the transparency table. No truncation: a cut model
+  // id with an ellipsis plus the line's own ellipsis reads as two omissions.
+  const text = String(model || '');
+  return text.includes('/') ? text.split('/').slice(1).join('/') : text;
+}
+
+function normName(value) {
+  return String(value || '').toLowerCase().replace(/\.[a-z0-9]+$/, '');
+}
+
+function fileIndexForLabel(label) {
+  const key = normName(label);
+  if (!key) return -1;
+  return state.files.findIndex((f) => f.name.toLowerCase() === String(label).toLowerCase()
+    || normName(f.name) === key);
+}
+
+/** The one plain sentence that says what is happening right now. */
+function stageLineText() {
+  const events = Object.values(state.stages);
+  if (!events.length) return '';
+  events.sort((a, b) => (a.elapsed_ms || 0) - (b.elapsed_ms || 0));
+  const last = events[events.length - 1];
+  const active = events.filter((e) => e.stage !== 'done' && e.stage !== 'failed').pop() || last;
+  const verb = {
+    queued: 'Queued', reading: 'Reading', verifying: 'Verifying evidence',
+    comparing: 'Comparing', done: 'Read', failed: 'Could not read',
+  }[active.stage] || active.stage;
+  let line = `${verb} ${active.document_label}`;
+  if (active.model) {
+    line += ` with ${shortModel(active.model)} on `
+      + (PROVIDER_LABEL[active.provider] || active.provider || 'the vision model');
+  }
+  let seconds = Math.round((active.elapsed_ms || 0) / 1000);
+  if (active.stage === 'reading' && state.readingSince[active.document_id]) {
+    seconds = Math.round((Date.now() - state.readingSince[active.document_id]) / 1000);
+  }
+  return `${line}… ${seconds} s`;
+}
+
+function renderStageLine() {
+  const host = $('#stage-line');
+  if (host) host.textContent = stageLineText();
+}
+
+/** After the run, no file row may still claim to be in flight. */
+function settleFileStates(report) {
+  let changed = false;
+  state.files.forEach((file, i) => {
+    const current = state.fileStates[i];
+    if (current === 'done' || current === 'failed') return;
+    const key = normName(file.name);
+    const doc = (report.documents || []).find((d) => (
+      normName(d.filename || '') === key || normName(d.label || '') === key));
+    if (!doc) return;
+    state.fileStates[i] = (doc.status === 'ok' || doc.status === 'cached') ? 'done' : 'failed';
+    changed = true;
+  });
+  if (changed) paintFileStates();
+}
+
 function applyStage(ev) {
   state.stages[ev.document_id] = ev;
+  if (ev.stage === 'reading') state.readingSince[ev.document_id] = Date.now();
+  if (ev.stage === 'done' || ev.stage === 'failed') delete state.readingSince[ev.document_id];
+  const index = fileIndexForLabel(ev.document_label);
+  if (index >= 0 && UPLOAD_STATE[ev.stage]) {
+    state.fileStates[index] = ev.stage;
+    paintFileStates();
+  }
+  renderStageLine();
   renderTimeline();
 }
 
@@ -599,6 +876,11 @@ function renderTimeline() {
   host.innerHTML = '';
   for (const s of entries) {
     const row = el('div', 'timeline-row');
+    // A pulsing dot for the document being read, a check that fades in when it
+    // is done: the only two looping animations this panel is allowed.
+    const icon = el('span', 'tl-icon tl-icon-' + s.stage, s.stage === 'done' ? '✓' : '');
+    icon.setAttribute('aria-hidden', 'true');
+    row.appendChild(icon);
     row.appendChild(el('b', 'tl-doc', s.document_label || s.document_id));
     row.appendChild(el('span', 'tl-stage tl-' + s.stage, STAGE_LABEL[s.stage] || s.stage));
     if (s.model) row.appendChild(el('span', 'tl-model', s.provider + ' · ' + s.model));
@@ -676,6 +958,8 @@ function tickElapsed() {
   if (box.textContent.startsWith('Still working')) return;  // leave errors visible
   const report = state.report;
   const secs = Math.round((Date.now() - state.startedAt) / 1000);
+  // The stage line carries the per-document seconds, so it has to tick too.
+  renderStageLine();
   if (!report) {
     box.textContent = `Extracting — ${secs} s elapsed`;
     return;
@@ -2249,10 +2533,16 @@ async function getJSON(url) {
   return res.json();
 }
 
-function showError(msg) {
+function showError(msg, opts = {}) {
   const box = $('#error');
   box.hidden = !msg;
-  box.textContent = msg || '';
+  $('#error-text').textContent = msg || '';
+  const retry = $('#error-retry');
+  const offer = Boolean(msg && opts.retry && state.files.length);
+  retry.hidden = !offer;
+  // Put the keyboard where the next action is. A message that says "retry" and
+  // leaves focus on the body is a message a keyboard user has to hunt for.
+  if (offer) retry.focus({ preventScroll: true });
 }
 
 function setProgress(msg) {

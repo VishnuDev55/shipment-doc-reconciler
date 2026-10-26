@@ -253,6 +253,28 @@ code { font-family: var(--mono); font-size: .9em; }
 
 .busy { pointer-events: none; opacity: .7; }
 
+/* The spinner is functional, not decoration: it is the button saying "taken".
+   Reduced motion freezes it into a static ring rather than hiding the state. */
+.btn-spinner {
+  display: none; width: .8em; height: .8em; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: spin .8s linear infinite;
+}
+.btn.busy .btn-spinner { display: inline-block; margin-right: .4rem; }
+
+.server-state {
+  display: flex; align-items: center; gap: .45rem; margin: 0 0 .1rem;
+  font-size: .74rem; color: var(--ink-2);
+}
+.srv-dot {
+  width: .5rem; height: .5rem; border-radius: 50%; flex: none;
+  background: var(--ink-3);
+}
+.srv-dot.checking { animation: pulse 1.6s var(--ease) infinite; }
+.srv-dot.ready { background: var(--ok); }
+.srv-dot.waking { background: var(--warn); animation: pulse 1.6s var(--ease) infinite; }
+.srv-dot.down { background: var(--bad); }
+
 /* -------------------------------------------------------- layout ---- */
 
 .layout {
@@ -348,7 +370,7 @@ main > *, .panel, .doc, .doc-body { min-width: 0; }
 
 .uploads { display: grid; gap: .35rem; margin-top: .85rem; }
 .upload {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto;
   align-items: center; gap: .55rem;
   padding: .45rem .6rem; font-size: .82rem;
   background: var(--surface-sunk); border-radius: var(--radius-sm);
@@ -371,6 +393,29 @@ main > *, .panel, .doc, .doc-body { min-width: 0; }
   font: inherit; font-size: 1rem; line-height: 1; padding: .1rem .3rem; border-radius: 4px;
 }
 .rm:hover { color: var(--bad); background: var(--bad-soft); }
+
+/* One file's state. The in-flight ones carry the only looping dot; everything
+   that has finished is static, so a settled list is silent. */
+.upload-state {
+  font-size: .62rem; text-transform: uppercase; letter-spacing: .04em;
+  padding: .08rem .45rem; border-radius: 999px; white-space: nowrap;
+  color: var(--ink-3); border: 1px solid var(--line-strong);
+}
+.upload-state.state-uploading,
+.upload-state.state-reading,
+.upload-state.state-verifying,
+.upload-state.state-comparing { color: var(--accent); border-color: currentColor; }
+.upload-state.state-done { color: var(--ok); border-color: currentColor; }
+.upload-state.state-failed { color: var(--bad); border-color: currentColor; }
+.upload-state.state-uploading::before,
+.upload-state.state-reading::before,
+.upload-state.state-verifying::before,
+.upload-state.state-comparing::before {
+  content: ""; display: inline-block; width: .42em; height: .42em;
+  margin-right: .35em; border-radius: 50%; background: currentColor;
+  animation: pulse 1.4s var(--ease) infinite;
+}
+.upload-state.state-done { animation: fade 200ms var(--ease) both; }
 
 /* -------------------------------------------------------- alerts ---- */
 
@@ -511,6 +556,33 @@ main > *, .panel, .doc, .doc-body { min-width: 0; }
 
 .progress { font-size: .78rem; color: var(--ink-3); margin-top: .7rem; min-height: 1.2em; }
 
+/* The upload bar is bytes, so its width is a measurement. The shimmer runs only
+   while bytes are moving -- an idle bar that pulses reads as work that is not
+   happening. */
+.up-progress { margin-top: .7rem; display: grid; gap: .3rem; }
+.up-bar {
+  height: .45rem; border-radius: 999px; overflow: hidden;
+  background: var(--surface-sunk);
+}
+.up-bar > span {
+  display: block; height: 100%; width: 0; border-radius: inherit;
+  background: var(--accent); transition: width 200ms var(--ease);
+}
+.up-progress.uploading .up-bar {
+  background-image: linear-gradient(90deg, transparent,
+    color-mix(in oklab, var(--accent) 45%, transparent), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+.up-line {
+  margin: 0; font-size: .74rem; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One plain sentence: which document, read by what, for how long. */
+.stage-line { margin: .2rem 0 0; font-size: .82rem; color: var(--ink-2); }
+.stage-line:empty { display: none; }
+
 /* Per-document progress timeline, fed by SSE stage events while a run is in
  * flight. Advisory: the settled documents table is the truth once it exists. */
 .timeline {
@@ -520,6 +592,17 @@ main > *, .panel, .doc, .doc-body { min-width: 0; }
   display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
   padding: .3rem .55rem; background: var(--surface-sunk); border-radius: var(--radius-sm);
 }
+.tl-icon {
+  align-self: center; width: 1em; display: inline-grid; place-items: center;
+  color: var(--ink-3); font-size: .8em;
+}
+.tl-icon.tl-icon-queued, .tl-icon.tl-icon-reading,
+.tl-icon.tl-icon-verifying, .tl-icon.tl-icon-comparing {
+  width: .55em; height: .55em; border-radius: 50%; background: var(--warn);
+  animation: pulse 1.4s var(--ease) infinite;
+}
+.tl-icon.tl-icon-done { color: var(--ok); animation: fade 200ms var(--ease) both; }
+.tl-icon.tl-icon-failed { color: var(--bad); }
 .tl-doc { color: var(--ink); }
 .tl-stage {
   font-weight: 600; text-transform: uppercase; font-size: .66rem;
@@ -1042,6 +1125,8 @@ fieldset.field legend {
 @keyframes slide { from { transform: translateX(1rem); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+@keyframes pulse { 0%, 100% { opacity: .35; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -1049,6 +1134,10 @@ fieldset.field legend {
     transition-duration: .01ms !important; scroll-behavior: auto !important;
   }
   .progress:not(:empty)::after { animation: none; content: ""; }
+  /* The two loops this app owns, switched off rather than run once: a pulse or
+     a shimmer that fires a single frame is a flicker, not feedback. */
+  .srv-dot, .upload-state::before, .tl-icon,
+  .up-progress.uploading .up-bar, .btn-spinner { animation: none !important; }
 }
 
 /* -------------------------------------------------- small screens ---- */
