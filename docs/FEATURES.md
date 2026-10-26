@@ -205,7 +205,16 @@ weights change.
 Every value in the comparison table carries a **page N →** chip. It opens that
 document's page image with the exact line the model quoted as evidence beneath it,
 so a verdict can be checked against the source without hunting through uploads.
-Escape or a click closes it.
+Escape, the **×** button, or a click on the dimmed area closes it, and focus goes
+back to the chip or thumbnail that opened it.
+
+**Reading it closely.** The page opens fitted whole; a toolbar zooms in and out,
+and so do the mouse wheel, a trackpad pinch, a two-finger pinch on a touch screen
+and **+** / **−** / **0** on the keyboard. Once zoomed, dragging pans. The image
+and its rectangle are a single transformed box, so the highlight stays on the line
+it was drawn on at every zoom and every pan. Clicking the image deliberately does
+not close the overlay -- the whole overlay used to be one close button, so the
+natural way to look closer at a page dismissed it -- and the dark area still does.
 
 **The line is drawn on the page, when the page can be asked where it is.** The
 coordinates do not come from the model — the extraction contract still carries

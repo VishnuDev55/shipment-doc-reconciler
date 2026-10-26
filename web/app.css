@@ -762,34 +762,67 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .pages figcaption { font-size: .66rem; color: var(--ink-3); margin-top: .25rem; font-variant-numeric: tabular-nums; }
 
 .lightbox {
-  --lb-pad: 2rem;
-  position: fixed; inset: 0; z-index: var(--z-lightbox); display: grid; place-items: center;
-  gap: .5rem; grid-template-rows: 1fr auto; padding: var(--lb-pad); cursor: zoom-out;
+  --lb-pad: 1.5rem;
+  position: fixed; inset: 0; z-index: var(--z-lightbox);
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: .5rem;
+  padding: var(--lb-pad); color: var(--ink);
   background: color-mix(in oklab, var(--bg) 70%, #000 30%);
+  overscroll-behavior: contain;
   animation: fade var(--motion) var(--ease) both;
 }
+
+/* The toolbar is the only place that offers instructions as buttons. Clicking
+   the page used to be the close gesture, which made the picture you wanted to
+   read bigger by dismissing it. */
+.lb-bar {
+  display: flex; align-items: center; justify-content: center;
+  gap: .4rem; flex-wrap: wrap;
+}
+.lb-btn {
+  min-width: 2.2rem; min-height: 2.2rem; padding: .2rem .6rem;
+  font: inherit; font-size: 1rem; line-height: 1; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.lb-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.lb-btn:disabled { opacity: .45; cursor: default; }
+.lb-close { margin-left: .6rem; font-size: 1.15rem; }
+.lb-zoom {
+  min-width: 3.2rem; text-align: center; font-size: .8rem;
+  color: var(--ink-2); font-variant-numeric: tabular-nums;
+}
+
+/* The stage fills its row and clips what it holds, so a zoomed page cannot
+   spill over the toolbar or the quoted line. touch-action: none is what lets a
+   two-finger pinch be ours instead of the browser's page zoom. */
+.lb-stage {
+  position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0;
+  display: grid; place-items: center;
+  overflow: hidden; border-radius: var(--radius);
+  cursor: zoom-in; touch-action: none;
+}
+.lb-stage.zoomed { cursor: grab; }
+.lb-stage.dragging { cursor: grabbing; }
+
+/* Exactly the image box: the rectangle is a percentage of this element, and the
+   transform below is on this element, so both move together. */
+.lb-canvas {
+  position: relative; display: inline-block; line-height: 0;
+  transform-origin: center center; will-change: transform;
+}
+
 .lightbox img {
-  width: auto; height: auto;      /* never force one side: forcing it while
-                                    constraining the other is the stretch bug */
-  /* 100% cannot resolve here: the stage's height is content-sized, so a
-     percentage max-height computes to none and the page renders at natural size
-     (the very bug the previous attempt at `max-height: 100%` on the stage
-     traded for a vertical stretch). The overlay is fixed to the viewport, so the
-     only definite box to constrain against IS the viewport. */
-  max-width: calc(100vw - 2 * var(--lb-pad));
-  max-height: calc(100vh - 2 * var(--lb-pad) - 7rem);
+  display: block; width: auto; height: auto;   /* never force one side: forcing
+                                    it while constraining the other is the
+                                    stretch bug */
+  /* Width is set in pixels by fitImage() from ONE factor for both sides, so the
+     rendered ratio is the file's own at every viewport and every zoom. The caps
+     here only stop a flash of natural-size image before that runs. */
+  max-width: 100%; max-height: 100%;
   border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  user-select: none; -webkit-user-drag: none;
 }
 .lightbox figcaption { font-size: .76rem; color: var(--ink-2); text-align: center; }
-/* The stage shrink-wraps the rendered image, which is what keeps the
-   percentage-positioned highlight rectangle on the text: the box is a fraction of
-   the stage, and the stage must be exactly the image it marks. */
-.lb-stage {
-  position: relative;
-  display: flex; align-items: center; justify-content: center;
-  min-width: 0; min-height: 0;
-  overflow: hidden; border-radius: var(--radius);
-}
 .lb-box {
   position: absolute; border: 2px solid var(--accent);
   border-radius: 3px; background: color-mix(in oklab, var(--accent) 16%, transparent);
@@ -797,7 +830,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: .82rem; }
   pointer-events: none;
 }
 .lb-nocoords {
-  margin: 0; max-width: 62ch; font-size: .78rem; color: var(--ink-2);
+  margin: 0 auto; max-width: 62ch; font-size: .78rem; color: var(--ink-2);
   text-align: center; background: var(--surface); border: 1px solid var(--line-strong);
   border-radius: var(--radius); padding: .5rem .75rem;
 }

@@ -161,9 +161,11 @@ def shot_lightbox(page) -> str:
     lightbox would happily photograph the honest 'no coordinates' state and let
     the caption claim a rectangle.
 
-    The clip is the stage plus the quoted line, not the `figure` element: the
-    lightbox is a fixed full-viewport overlay, so an element screenshot of it is
-    a screenshot of the whole dimmed page, which shows nothing.
+    The clip is the page image itself, not the `figure` element: the lightbox is
+    a fixed full-viewport overlay, so an element screenshot of it is a screenshot
+    of the whole dimmed page, which shows nothing. The stage now fills the space
+    it is given, so shooting that would frame the page in a large dark box; the
+    canvas is exactly the image the rectangle is measured against.
     """
     chips = page.locator(".page-chip")
     total = chips.count()
@@ -174,15 +176,11 @@ def shot_lightbox(page) -> str:
         box.wait_for(state="visible", timeout=10_000)
         if box.locator(".lb-box").count() and box.locator(".lb-evidence").count():
             page.wait_for_function(SETTLED_OVERLAY, timeout=10_000)
-            # The stage is the only part worth photographing: it shrinks to the
-            # page image, and the measured rectangle is positioned inside it. The
-            # figure itself is a fixed full-viewport overlay, so shooting that (or
-            # clipping to it) photographs the whole dimmed app instead.
-            stage = box.locator(".lb-stage")
-            assert stage.locator("img").count() == 1, "the stage holds no page image"
-            assert stage.locator(".lb-box").count() == 1, "no rectangle inside the stage"
+            canvas = box.locator(".lb-canvas")
+            assert canvas.locator("img").count() == 1, "the canvas holds no page image"
+            assert canvas.locator(".lb-box").count() == 1, "no rectangle inside the canvas"
             name = "evidence-lightbox.png"
-            stage.screenshot(path=str(OUT / name))
+            canvas.screenshot(path=str(OUT / name))
             page.keyboard.press("Escape")
             return name
         page.keyboard.press("Escape")

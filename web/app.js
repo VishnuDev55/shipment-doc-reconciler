@@ -1594,6 +1594,7 @@ function pageChip(v, comp) {
       `${doc.label} — page ${page.index}`,
       evidence,
       box,
+      chip,
     );
   });
   return chip;
@@ -1686,7 +1687,19 @@ function renderDocuments(report) {
         img.src = `/page/${report.shipment_id}/${p.image_path}`;
         img.alt = `${doc.label}, page ${p.index}`;
         img.loading = 'lazy';
-        img.addEventListener('click', () => lightbox(img.src, `${doc.label} — page ${p.index}`));
+        // A thumbnail is the other way into the evidence, so it has to open from
+        // the keyboard too and take focus back when the overlay closes.
+        img.tabIndex = 0;
+        img.setAttribute('role', 'button');
+        const openPage = () => lightbox(
+          img.src, `${doc.label} — page ${p.index}`, null, null, img);
+        img.addEventListener('click', openPage);
+        img.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openPage();
+          }
+        });
         fig.appendChild(img);
         fig.appendChild(el('figcaption', null, `page ${p.index} · ${p.width}×${p.height}`));
         pages.appendChild(fig);
@@ -1713,55 +1726,276 @@ async function retryDocument(documentId) {
   setProgress('');
 }
 
-function lightbox(src, caption, evidence, box) {
-  // Keyboard users: Esc/click closes the overlay, and focus has to land back on
-  // the chip that opened it rather than on <body>, or the next Tab is lost.
-  const opener = document.activeElement instanceof HTMLElement
-    ? document.activeElement : null;
-  const close = () => {
-    fig.remove();
-    if (opener && typeof opener.focus === 'function') opener.focus();
-  };
+function lbButton(cls, label, aria, hint) {
+  const button = el('button', 'lb-btn ' + cls, label);
+  button.type = 'button';
+  button.setAttribute('aria-label', aria);
+  button.title = hint;
+  return button;
+}
+
+function lightbox(src, caption, evidence, box, trigger) {
+  // The trigger is passed in rather than read off activeElement: a page
+  // thumbnail is not focusable in every browser, and focus has to land back on
+  // the thing that was clicked rather than on <body>, or the next Tab is lost.
+  const opener = trigger instanceof HTMLElement ? trigger
+    : (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+
   const fig = el('figure', 'lightbox');
+  fig.setAttribute('role', 'dialog');
+  fig.setAttribute('aria-modal', 'true');
+  fig.setAttribute('aria-label', caption);
+
+  const bar = el('div', 'lb-bar');
+  const zoomOut = lbButton('lb-out', '−', 'Zoom out', 'Zoom out (−)');
+  const readout = el('output', 'lb-zoom', '100%');
+  readout.setAttribute('aria-live', 'polite');
+  const zoomIn = lbButton('lb-in', '+', 'Zoom in', 'Zoom in (+)');
+  const fitBtn = lbButton('lb-fit', 'Fit', 'Fit to screen', 'Fit to screen (0)');
+  const closeBtn = lbButton('lb-close', '×', 'Close', 'Close (Esc)');
+  bar.append(zoomOut, readout, zoomIn, fitBtn, closeBtn);
+
   const stage = el('div', 'lb-stage');
+  const canvas = el('div', 'lb-canvas');
   const img = el('img');
   img.src = src;
   img.alt = caption;
-  stage.appendChild(img);
+  img.draggable = false;
+  canvas.appendChild(img);
+  let mark = null;
   if (box && box.length === 4) {
-    // Fractions of the page, measured from its top-left corner, in a wrapper that
-    // is exactly the image's rendered size -- which is why percentages work even
-    // though the JPEG was resized: the aspect ratio is preserved, the proportions
-    // are the page's own.
+    // Fractions of the page, measured from its top-left corner, in a canvas that
+    // is exactly the image box. Zoom and pan transform the canvas, so the image
+    // and its rectangle move as one -- percentages stay the page's own and the
+    // mark cannot drift off the line it was drawn on.
     const pad = 0.004;
-    const mark = el('span', 'lb-box');
+    mark = el('span', 'lb-box');
     mark.style.left = (Math.max(box[0] - pad, 0) * 100).toFixed(3) + '%';
     mark.style.top = (Math.max(box[1] - pad, 0) * 100).toFixed(3) + '%';
     mark.style.width = ((box[2] - box[0] + pad * 2) * 100).toFixed(3) + '%';
     mark.style.height = ((box[3] - box[1] + pad * 2) * 100).toFixed(3) + '%';
     mark.setAttribute('aria-hidden', 'true');
-    stage.appendChild(mark);
+    canvas.appendChild(mark);
   }
-  fig.appendChild(stage);
-  fig.appendChild(el('figcaption', null, caption + ' · click anywhere or press Esc to close'));
+  stage.appendChild(canvas);
+  fig.append(bar, stage);
+  fig.appendChild(el('figcaption', null,
+    caption + ' · scroll or pinch to zoom, drag to pan, Esc closes'));
   // The quoted source line is the evidence; the image is context for it. Rendered
   // as text, never as markup -- it came out of someone else's document.
   if (evidence) fig.appendChild(el('blockquote', 'lb-evidence', '“' + evidence + '”'));
-  if (evidence && !(box && box.length === 4)) {
+  if (evidence && !mark) {
     fig.appendChild(el('p', 'lb-nocoords',
       'No coordinates available for this source, so nothing is drawn on the page. '
       + 'The rectangle needs the PDF’s own text layer; this document’s quote came '
       + 'from a source that has none.'));
   }
-  fig.addEventListener('click', () => close());
   document.body.appendChild(fig);
-  const closeOnEscape = (event) => {
-    if (event.key === 'Escape') {
-      close();
-      document.removeEventListener('keydown', closeOnEscape);
+
+  // ------------------------------------------------------------------
+  // zoom and pan. scale 1 is "fit": the whole page in the stage.
+  // ------------------------------------------------------------------
+  const MIN_SCALE = 1;
+  const MAX_SCALE = 8;
+  const STEP = 1.5;
+  let scale = 1;
+  let tx = 0;
+  let ty = 0;
+
+  const render = () => {
+    canvas.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${scale})`;
+    readout.textContent = Math.round(scale * 100) + '%';
+    stage.classList.toggle('zoomed', scale > MIN_SCALE + 1e-3);
+    zoomOut.disabled = scale <= MIN_SCALE + 1e-3;
+    zoomIn.disabled = scale >= MAX_SCALE - 1e-3;
+  };
+
+  const clampPan = () => {
+    // Bounds from the layout box, not getBoundingClientRect: the rect is the
+    // transformed one, so its size already contains the scale and the centre
+    // already contains the pan -- dividing it out again would double-count both.
+    const roomX = Math.max(0, (canvas.offsetWidth * scale - stage.clientWidth) / 2);
+    const roomY = Math.max(0, (canvas.offsetHeight * scale - stage.clientHeight) / 2);
+    tx = Math.min(roomX, Math.max(-roomX, tx));
+    ty = Math.min(roomY, Math.max(-roomY, ty));
+  };
+
+  const fitImage = () => {
+    if (!img.naturalWidth || !stage.clientWidth) return;
+    // One factor for both sides, so the ratio is the file's own at every size.
+    const k = Math.min(stage.clientWidth / img.naturalWidth,
+                       stage.clientHeight / img.naturalHeight, 1);
+    img.style.width = Math.max(1, Math.floor(img.naturalWidth * k)) + 'px';
+    img.style.height = 'auto';
+    clampPan();
+    render();
+  };
+
+  const setZoom = (next, anchor, from = { scale, tx, ty }) => {
+    const to = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
+    if (Math.abs(to - from.scale) < 1e-6) return;
+    if (anchor) {
+      // The transform is translate-then-scale about the centre, so a content
+      // point c sits at p = t + s*c. Holding p still under the pointer (or
+      // between two fingers) gives t' = p - (p - t) * s'/s.
+      const rect = stage.getBoundingClientRect();
+      const px = anchor.x - (rect.left + rect.width / 2);
+      const py = anchor.y - (rect.top + rect.height / 2);
+      tx = px - (px - from.tx) * (to / from.scale);
+      ty = py - (py - from.ty) * (to / from.scale);
+    } else {
+      tx = from.tx * (to / from.scale);
+      ty = from.ty * (to / from.scale);
+    }
+    scale = to;
+    clampPan();
+    render();
+  };
+
+  const reset = () => {
+    scale = 1;
+    tx = 0;
+    ty = 0;
+    clampPan();
+    render();
+  };
+
+  zoomIn.addEventListener('click', () => setZoom(scale * STEP));
+  zoomOut.addEventListener('click', () => setZoom(scale / STEP));
+  fitBtn.addEventListener('click', reset);
+
+  const onWheel = (event) => {
+    // A trackpad pinch arrives as ctrl+wheel and a plain wheel means the same
+    // thing to someone reading a scanned page. Neither may scroll the report
+    // behind the overlay.
+    event.preventDefault();
+    const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0015));
+    setZoom(scale * factor, { x: event.clientX, y: event.clientY });
+  };
+  stage.addEventListener('wheel', onWheel, { passive: false });
+
+  // Pointer events cover the mouse, a finger, and two fingers at once.
+  const pointers = new Map();
+  let pinch = null;
+  let drag = null;
+  let suppressClick = false;
+
+  const beginPinch = () => {
+    const [a, b] = [...pointers.values()];
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, scale, tx, ty };
+  };
+
+  stage.addEventListener('pointerdown', (event) => {
+    if (event.target.closest('.lb-btn')) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 2) {
+      // Capture both fingers so neither one leaving the stage ends the gesture
+      // early. Capturing is what makes the move events keep arriving.
+      for (const id of pointers.keys()) {
+        try {
+          stage.setPointerCapture(id);
+        } catch {
+          // Synthetic events have no live pointer to capture; the handlers below
+          // still track them by id, which is what the pinch test drives.
+        }
+      }
+      drag = null;
+      pinch = beginPinch();
+      stage.classList.add('dragging');
+    } else if (pointers.size === 1 && scale > MIN_SCALE + 1e-3) {
+      // Only capture when this really is a pan. A capture also retargets the
+      // click that ends it to the stage, and at fit a click on the page must
+      // stay a click on the page.
+      try {
+        stage.setPointerCapture(event.pointerId);
+      } catch { /* synthetic pointer */ }
+      drag = { x: event.clientX, y: event.clientY, tx, ty, moved: false };
+      stage.classList.add('dragging');
+    }
+  });
+
+  stage.addEventListener('pointermove', (event) => {
+    if (!pointers.has(event.pointerId)) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    if (pinch && pointers.size >= 2) {
+      const [a, b] = [...pointers.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      setZoom(pinch.scale * (dist / pinch.dist),
+              { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, pinch);
+      return;
+    }
+    if (!drag) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) > 4) drag.moved = true;
+    tx = drag.tx + dx;
+    ty = drag.ty + dy;
+    clampPan();
+    render();
+  });
+
+  const endPointer = (event) => {
+    if (!pointers.delete(event.pointerId)) return;
+    if (pointers.size < 2) pinch = null;
+    if (pointers.size === 0) {
+      stage.classList.remove('dragging');
+      // A drag ends with a click on the stage; that was a pan, not a request to
+      // dismiss the evidence.
+      if (drag && drag.moved) suppressClick = true;
+      drag = null;
     }
   };
-  document.addEventListener('keydown', closeOnEscape);
+  stage.addEventListener('pointerup', endPointer);
+  stage.addEventListener('pointercancel', endPointer);
+
+  const close = () => {
+    document.removeEventListener('keydown', onKey);
+    window.removeEventListener('resize', onResize);
+    fig.remove();
+    if (opener && typeof opener.focus === 'function') opener.focus();
+  };
+
+  fig.addEventListener('click', (event) => {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
+    if (event.target.closest('.lb-btn')) return;
+    // Only the dimmed area closes: the figure's own padding, or the stage around
+    // the page. Clicking the image is how a reader gets the page out of the way
+    // while zooming, and it must never dismiss the thing they are reading.
+    if (event.target === fig || event.target === stage) close();
+  });
+  closeBtn.addEventListener('click', close);
+
+  const onKey = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+    } else if (event.key === '+' || event.key === '=') {
+      event.preventDefault();
+      setZoom(scale * STEP);
+    } else if (event.key === '-' || event.key === '_') {
+      event.preventDefault();
+      setZoom(scale / STEP);
+    } else if (event.key === '0') {
+      event.preventDefault();
+      reset();
+    }
+  };
+  const onResize = () => {
+    fitImage();
+    clampPan();
+    render();
+  };
+  document.addEventListener('keydown', onKey);
+  window.addEventListener('resize', onResize);
+
+  img.addEventListener('load', fitImage);
+  if (img.complete) fitImage();
+  render();
+  closeBtn.focus({ preventScroll: true });
 }
 
 async function copyRunLink() {

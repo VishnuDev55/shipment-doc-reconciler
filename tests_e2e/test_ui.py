@@ -740,6 +740,223 @@ def test_the_lightbox_closes_on_click_outside_and_returns_focus(report_page):
     assert "page-chip" in focused, f"focus did not return to the chip: {focused!r}"
 
 
+# ---------------------------------------------------------------------------
+# reading the page: zoom, pan, and the ways out
+# ---------------------------------------------------------------------------
+
+
+def _open_box_lightbox(page):
+    """Open a chip that lands a rectangle, so the mark can be checked too."""
+    chips = page.locator(".page-chip")
+    for i in range(chips.count()):
+        chips.nth(i).click()
+        page.locator(".lightbox").wait_for(state="visible", timeout=10_000)
+        if page.locator(".lb-box").count():
+            page.wait_for_function(
+                "() => { const i = document.querySelector('.lightbox img');"
+                " return i && i.complete && i.naturalWidth > 0; }", timeout=15_000)
+            return
+        page.keyboard.press("Escape")
+    raise AssertionError("no chip landed a box to measure")
+
+
+def _image_size(page):
+    r = page.locator(".lightbox img").bounding_box()
+    return r["width"] / r["height"], r["width"]
+
+
+def _box_in_image(page):
+    """Where the rectangle sits inside the rendered page, as fractions of it."""
+    return page.evaluate(
+        """() => {
+            const img = document.querySelector('.lightbox img');
+            const b = document.querySelector('.lb-box');
+            if (!img || !b) return null;
+            const i = img.getBoundingClientRect(), r = b.getBoundingClientRect();
+            return {
+                left: (r.left - i.left) / i.width,
+                top: (r.top - i.top) / i.height,
+                width: r.width / i.width,
+                height: r.height / i.height,
+                inside: r.left >= i.left - 1 && r.right <= i.right + 1
+                     && r.top >= i.top - 1 && r.bottom <= i.bottom + 1,
+            };
+        }""")
+
+
+def _zoom_percent(page):
+    return int(page.locator(".lb-zoom").inner_text().replace("%", ""))
+
+
+def test_clicking_the_page_does_not_close_the_evidence(report_page):
+    """Break caught on the live instance: the whole overlay was a close button,
+    so the natural way to look closer at a page dismissed it. The dark area still
+    closes (the test above), and the image never does."""
+    _open_box_lightbox(report_page)
+    report_page.locator(".lightbox img").click()
+    report_page.wait_for_timeout(100)
+    assert report_page.locator(".lightbox").count() == 1, (
+        "clicking the image closed the evidence it was showing")
+
+
+def test_the_zoom_buttons_scale_the_page_and_fit_returns_to_whole(report_page):
+    _open_box_lightbox(report_page)
+    natural, fitted = _image_size(report_page)
+    assert _zoom_percent(report_page) == 100
+    assert report_page.locator(".lb-out").is_disabled(), (
+        "zoom out at fit would go below the whole page")
+
+    report_page.locator(".lb-in").click()
+    ratio, zoomed = _image_size(report_page)
+    assert zoomed > fitted * 1.3, (fitted, zoomed)
+    assert _zoom_percent(report_page) > 100
+    assert abs(ratio / natural - 1) < 0.01, "zooming changed the page's aspect ratio"
+
+    report_page.locator(".lb-fit").click()
+    assert _zoom_percent(report_page) == 100
+    assert abs(_image_size(report_page)[1] - fitted) < 1
+    assert report_page.locator(".lb-out").is_disabled()
+
+
+def test_a_wheel_zooms_where_the_pointer_is_and_the_rectangle_stays_put(report_page):
+    """The rectangle is drawn in percentages of the image box; scaling the box is
+    only safe if the mark travels with it. Its fractions must not move."""
+    _open_box_lightbox(report_page)
+    before = _box_in_image(report_page)
+    box = report_page.locator(".lb-box").bounding_box()
+    report_page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    report_page.mouse.wheel(0, -240)
+    report_page.wait_for_timeout(100)
+
+    assert _zoom_percent(report_page) > 100
+    after = _box_in_image(report_page)
+    assert after["inside"], "the mark drifted off the page while zooming"
+    for key in ("left", "top", "width", "height"):
+        assert abs(after[key] - before[key]) < 0.01, (key, before, after)
+
+
+def test_plus_minus_and_zero_zoom_from_the_keyboard(report_page):
+    _open_box_lightbox(report_page)
+    fitted = _image_size(report_page)[1]
+
+    report_page.keyboard.press("+")
+    assert _zoom_percent(report_page) > 100
+    assert _image_size(report_page)[1] > fitted * 1.3
+
+    report_page.keyboard.press("-")
+    assert _zoom_percent(report_page) == 100
+
+    report_page.keyboard.press("+")
+    report_page.keyboard.press("+")
+    assert _zoom_percent(report_page) > 100
+    report_page.keyboard.press("0")
+    assert _zoom_percent(report_page) == 100
+    assert abs(_image_size(report_page)[1] - fitted) < 1
+
+
+def test_dragging_pans_a_zoomed_page_without_dismissing_it(report_page):
+    _open_box_lightbox(report_page)
+    natural, _ = _image_size(report_page)
+    report_page.locator(".lb-in").click()  # 150%: the page is taller than the stage
+
+    before = report_page.locator(".lightbox img").bounding_box()
+    centre = report_page.locator(".lb-stage").bounding_box()
+    x, y = centre["x"] + centre["width"] / 2, centre["y"] + centre["height"] / 2
+    report_page.mouse.move(x, y)
+    report_page.mouse.down()
+    report_page.mouse.move(x, y - 60, steps=6)
+    report_page.mouse.up()
+    report_page.wait_for_timeout(100)
+
+    after = report_page.locator(".lightbox img").bounding_box()
+    assert after["y"] < before["y"] - 30, (before, after)
+    assert report_page.locator(".lightbox").count() == 1, "the drag closed the overlay"
+    assert abs(_image_size(report_page)[0] / natural - 1) < 0.01
+    assert _box_in_image(report_page)["inside"]
+
+
+def test_a_two_finger_pinch_zooms_the_page(report_page):
+    """Pointer events, dispatched by hand: Playwright cannot synthesise a real
+    multi-touch gesture, and the arithmetic under test -- the distance ratio and
+    the midpoint anchor -- is the app's own."""
+    _open_box_lightbox(report_page)
+    before = _image_size(report_page)[1]
+    report_page.evaluate(
+        """() => {
+            const stage = document.querySelector('.lb-stage');
+            const r = stage.getBoundingClientRect();
+            const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+            const send = (type, id, x, y) => stage.dispatchEvent(new PointerEvent(type, {
+                bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch',
+                clientX: x, clientY: y, isPrimary: id === 1,
+            }));
+            send('pointerdown', 1, cx - 40, cy);
+            send('pointerdown', 2, cx + 40, cy);
+            send('pointermove', 2, cx + 120, cy);
+            send('pointerup', 2, cx + 120, cy);
+            send('pointerup', 1, cx - 40, cy);
+        }""")
+    report_page.wait_for_timeout(100)
+    assert _image_size(report_page)[1] > before * 1.5
+    assert report_page.locator(".lightbox").count() == 1
+
+
+def test_the_close_button_closes_and_hands_focus_back(report_page):
+    chips = report_page.locator(".page-chip")
+    chips.first.click()
+    report_page.locator(".lightbox").wait_for(state="visible", timeout=10_000)
+    report_page.locator(".lb-close").click()
+    assert report_page.locator(".lightbox").count() == 0
+    focused = report_page.evaluate("() => document.activeElement?.className || ''")
+    assert "page-chip" in focused, f"focus did not return to the chip: {focused!r}"
+
+
+def test_closing_with_the_button_leaves_no_escape_listener_behind(report_page):
+    """The old overlay removed its key listener only on Escape, so a later Escape
+    on an ordinary report still ran the old close handler and yanked focus back to
+    a chip the reader had left."""
+    chips = report_page.locator(".page-chip")
+    chips.first.click()
+    report_page.locator(".lightbox").wait_for(state="visible", timeout=10_000)
+    report_page.locator(".lb-close").click()
+    assert report_page.locator(".lightbox").count() == 0
+
+    chips.nth(1).focus()
+    report_page.keyboard.press("Escape")
+    still = report_page.evaluate(
+        """() => [...document.querySelectorAll('.page-chip')]
+                   .indexOf(document.activeElement)""")
+    assert still == 1, f"a stale close handler moved focus to chip {still}"
+    assert report_page.locator(".lightbox").count() == 0
+
+
+def test_the_zoom_controls_work_on_a_phone(new_page, app):
+    """390px is the narrowest layout the app promises. Every control has to be on
+    screen and tappable, and the overlay may not widen the page behind it."""
+    page = new_page(viewport={"width": 390, "height": 844})
+    page.goto(app.base_url + "/?demo=shipment_conflict")
+    page.wait_for_selector("#results:not([hidden])", timeout=60_000)
+    page.wait_for_function(SETTLED_VERDICT, timeout=60_000)
+    _open_box_lightbox(page)
+
+    for selector in (".lb-in", ".lb-out", ".lb-fit", ".lb-close"):
+        control = page.locator(selector)
+        assert control.is_visible(), selector
+        rect = control.bounding_box()
+        assert rect["x"] >= 0 and rect["x"] + rect["width"] <= 390, (selector, rect)
+        assert rect["height"] >= 28, (selector, rect)
+
+    page.locator(".lb-in").click()
+    assert _zoom_percent(page) > 100
+    assert _box_in_image(page)["inside"]
+    assert not page.evaluate("() => document.documentElement.scrollWidth > innerWidth"), (
+        "the zoom toolbar widened the page behind the overlay")
+
+    page.locator(".lb-close").click()
+    assert page.locator(".lightbox").count() == 0
+    page.close()
+
+
 def test_wide_tables_do_not_widen_the_page_on_a_phone(new_page, app):
     """Break caught: a 42rem transparency table or a 992px comparison table makes
     the whole page scroll sideways at 390px, so the header and the upload form sit
