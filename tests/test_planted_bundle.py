@@ -280,3 +280,25 @@ async def test_the_invented_value_is_withdrawn_rather_than_turned_into_a_conflic
     assert [u.field for u in report.unverified] == ["po_number"]
     comparison = next(c for c in report.comparisons if c.field == "po_number")
     assert comparison.status != "conflict", comparison.reason
+
+
+@pytest.mark.asyncio
+async def test_an_overstated_goods_line_fails_on_the_multiply_alone(tmp_path):
+    """800 x 6.50 is 5,200.00; the row prints 5,300.00, and the invoice total is
+    the sum of the printed rows, so neither the other document nor the sum rule
+    can see it. This is the finding only the goods lines can produce, and the
+    reason reading them at all is worth a second call."""
+    case = _case("planted_line_overstated")
+    report = await _run(tmp_path, case)
+    ok, detail = score(case, report)
+    assert ok, detail
+    multiply = next(c for c in report.internal_checks
+                    if c.code == "line_total_math" and c.status == "fail")
+    assert "800 x 6.50" in multiply.detail
+    assert "5,200.00" in multiply.detail and "5,300.00" in multiply.detail
+    # One check per document: the packing list prints no rows, so its sum check
+    # is not_run. The invoice's must pass -- this case plants one defect, not two.
+    sums = [c for c in report.internal_checks if c.code == "line_total_sum"]
+    assert not [c for c in sums if c.status == "fail"], sums
+    assert [c for c in sums if c.status == "pass"], sums
+    assert report.status_report.banner == "review"

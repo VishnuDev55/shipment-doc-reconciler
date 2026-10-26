@@ -398,8 +398,8 @@ fixtures/
                          hand-authored: 12 omni live . 12 MiniCPM-V live .
                          12 Super-VL live . 12 hand-authored
   responses/narratives/  3 real AI summaries, keyed on verdict signature
-  planted/               the scored bundle: 19 shipments over 43 document slots
-                         on 21 distinct pages, each case declaring its ground
+  planted/               the scored bundle: 20 shipments over 45 document slots
+                         on 22 distinct pages, each case declaring its ground
                          truth in fixtures/planted.py
   live_responses/      captured live responses + raw bodies (incl. a
                        duplicate call kept as a determinism datapoint)

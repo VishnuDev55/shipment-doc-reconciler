@@ -427,18 +427,18 @@ beside it is how you can see how much of the report was never compared.
 
 ## Scored against ground truth the bundle declares in advance
 
-`fixtures/planted.py` holds 19 synthetic shipments whose right answer is written
-down before anything runs: 3 clean, 5 tricky-but-correct, 9 with **exactly one
-planted error**, and 1 case the engine cannot catch. They read 43 document slots
-off 21 distinct pages -- identical paperwork is rendered once, because a cache key
+`fixtures/planted.py` holds 20 synthetic shipments whose right answer is written
+down before anything runs: 3 clean, 6 tricky-but-correct, 10 with **exactly one
+planted error**, and 1 case the engine cannot catch. They read 45 document slots
+off 22 distinct pages -- identical paperwork is rendered once, because a cache key
 is a hash of the page images and one page can only carry one authored answer. `scripts/evaluate_planted.py`
 runs all of them through the real pipeline and prints what it found:
 
 ```
-planted errors caught   9/9
+planted errors caught   10/10
 false alarms            0/9  (clean + tricky shipments not called ready)
 designed miss           1 declared
-wall clock              2.4s for 19 shipments (43 documents)
+wall clock              2.9s for 20 shipments (45 documents)
 API calls made          0  (provenance: authored)
 approximate cost        $0.00 -- every response is hand-authored, so this run
                         measures the engine, not a model
@@ -635,17 +635,28 @@ What it deliberately does not do:
   would answer a ten-field lookup on the same pages, and the shape would parse
   with every field absent — a silent, plausible-looking empty report.
 
-**Verification status, stated plainly: the line-item read has never been run
-against a live model.** No fixture page has captured goods lines, so in
-`DEMO_MODE` the section reports `skipped` with that reason rather than showing an
-empty table. What *has* been verified is the plumbing, offline and through the
-running app: parsing and repair, the cache namespace, the pipeline's inability to
-change a verdict, and the UI and PDF rendering the section from a hand-seeded
-cache — which the panel then labels `hand-authored fixture — no model read these
-lines`. Capturing real goods lines is a `make probe-live`-shaped follow-up, and
-until it happens the feature's accuracy against a model is unmeasured.
+**Verification status, measured rather than assumed.** The goods-line read has
+been run against live models: 80 billed reads are in the run records under
+`runs/`, 75 on Nemotron-3.5-Super-VL and the rest on the omni reasoning model. No
+fixture page has goods lines captured into `fixtures/responses`, so `DEMO_MODE`
+reports `skipped` rather than showing a table it did not read. On these pages
+only the invoice prints a goods table, so cross-document matching had nothing to
+match in 74 of the 80 — the arithmetic checks still ran, because they read one
+document at a time.
 
-Off by default because it is one more vision call per document.
+**What the second call costs**, taken from that recorded spend rather than
+estimated, and making no new calls:
+
+| Model | Extra tokens | Extra cost | Extra wall clock |
+|---|---|---|---|
+| Nemotron-3.5-Super-VL | ~2,475 per document; line items total +52% on top of the same shipment's scalar reads | ~$0.0013 per document | median 2.3 s, p75 6.7 s for the shipment |
+| omni (the model `render.yaml` deploys) | ~23,700 per document, about 4× its ~6,000-token scalar read | ~$0.0033 per document | 50–110 s per document |
+
+Off by default, and left off in `render.yaml` for that reason: on the omni model
+the extra read roughly quadruples per-document tokens and adds a minute per
+document, which would cut the $2 cap's capacity from about a thousand documents
+to about four hundred. On Super-VL the same read is cheap enough to be worth
+merging `ENABLE_LINE_ITEMS=true` in.
 
 ---
 

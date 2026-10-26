@@ -1,4 +1,4 @@
-"""A planted-error test set: thirteen shipments whose ground truth is known.
+"""A planted-error test set: twenty shipments whose ground truth is known.
 
 The demo fixtures in `shipments.py` answer "does the app run". These answer a
 sharper question -- "when something is wrong, does it say so, and when nothing is
@@ -182,6 +182,15 @@ _GOODS_BAD_SUM = [
     ("CNC aluminium housing, type H-40", "600", "pieces", "4.85", "2,910.00"),
     ("Stainless fastener set, M6", "500", "pieces", "11.02", "5,510.00"),
 ]
+# A multiplication a reader can do in their head: 800 pieces at 6.50 is 5,200.00,
+# and the row prints 5,300.00. The invoice total is the sum of the PRINTED rows,
+# so line_total_sum still passes -- the multiply is the only thing wrong, which
+# is what makes this case a test of that rule and not of the other one.
+_GOODS_OVERSTATED = [
+    ("CNC aluminium housing, type H-40", "800", "pieces", "6.50", "5,300.00"),
+    ("Stainless fastener set, M6", "500", "pieces", "11.02", "5,510.00"),
+]
+_OVERSTATED_TOTAL = "USD 10,810.00"
 
 
 def _invoice(**over) -> dict:
@@ -403,6 +412,20 @@ CASES: list[dict] = [
         "expect": {"outcome": "review", "level": "warning", "code": "math:fail",
                    "check": "line_total_sum"},
         "note": "The rows add to 8,420.00 and the total says 9,420.00.",
+    },
+    {
+        "name": "planted_line_overstated",
+        "group": "planted",
+        "category": "arithmetic",
+        "docs": [("commercial_invoice", _invoice(rows=_GOODS_OVERSTATED,
+                                                 total=_OVERSTATED_TOTAL,
+                                                 fields={"invoice_value": _OVERSTATED_TOTAL})),
+                 ("packing_list", _packing())],
+        "expect": {"outcome": "review", "level": "warning", "code": "math:fail",
+                   "check": "line_total_math"},
+        "note": "800 pieces at 6.50 is 5,200.00 and the row prints 5,300.00. The "
+                "total adds the printed rows, so the only defect is the "
+                "multiplication -- the one thing no second document can confirm.",
     },
     {
         "name": "planted_net_above_gross",

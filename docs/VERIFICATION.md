@@ -113,7 +113,7 @@ Gone mid-project — so treat every ✅ as "true as of the capture, re-run
 | Normalizers, comparators, parse ladder | ✅ the offline suite is green, and the browser suite runs against a real server |
 | The status banner never contradicts the verdict or the risk strip | ✅ pinned from both directions, and proved to fail: flipping the container row from critical to warning breaks 8 tests, flipping the country-of-origin row back to warning breaks 2, and removing the verdict floor breaks 3 |
 | Correction drafts name no value no document printed | ✅ asserted over every draft, and the ZIP manifest bug that hid README.txt's header is pinned |
-| The engine against known ground truth | ✅ 9/9 planted errors caught, 0/9 false alarms on clean and tricky paperwork, 1 miss declared in advance — `docs/PLANTED.md`, 0 API calls |
+| The engine against known ground truth | ✅ 10/10 planted errors caught, 0/9 false alarms on clean and tricky paperwork, 1 miss declared in advance — `docs/PLANTED.md`, 0 API calls |
 | The evidence highlight lands on the right words | ✅ screenshot-verified in chromium (the rectangle and the image share one box), and proved to fail: dropping the verbatim-line restriction breaks the fuzzy test, and stopping the chip from passing its box breaks the browser suite |
 | `runs/{id}/report.json` is the same bytes on Windows and in the container | ✅ was not — pydantic writes unescaped non-ASCII, and `write_text()` used the locale codec, so an em dash landed as `0x97`. Encoding is now pinned to utf-8 on write and read |
 | End-to-end pipeline, UI, ZIP export, HTTP API | ✅ cache-verified **and** live-verified |

@@ -79,6 +79,16 @@ services:
         value: /app/fixtures/responses # baked into the image; samples read this
       - key: ENABLE_SUMMARY
         value: "true"
+      # Goods lines (which row disagrees, and arithmetic inside one invoice) need
+      # one more vision call per document. Measured from the committed run
+      # records on 2026-10-26, not estimated: on the omni model this file
+      # deploys it adds ~23,700 tokens per document (about 4x the scalar read)
+      # and 50-110 s of wall clock, cutting the $2 cap from ~1,000 documents to
+      # ~400. Off for that reason. On Nemotron-3.5-Super-VL the same read costs
+      # ~$0.0013 per document and a couple of seconds -- merge the two lines
+      # below in if you switch VISION_PROVIDER to nebius. See docs/FEATURES.md.
+      # - key: ENABLE_LINE_ITEMS
+      #   value: "true"
       # The UI's Configure panel writes to the shared process, so on a public
       # URL one visitor's key would serve everyone else's runs. Off here; keys
       # come from the dashboard secrets below instead.

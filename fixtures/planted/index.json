@@ -366,6 +366,29 @@
         }
       ]
     },
+    "planted_line_overstated": {
+      "group": "planted",
+      "category": "arithmetic",
+      "expect": {
+        "outcome": "review",
+        "level": "warning",
+        "code": "math:fail",
+        "check": "line_total_math"
+      },
+      "note": "800 pieces at 6.50 is 5,200.00 and the row prints 5,300.00. The total adds the printed rows, so the only defect is the multiplication -- the one thing no second document can confirm.",
+      "documents": [
+        {
+          "doc_type": "commercial_invoice",
+          "file": "page_fd988f896bed.png",
+          "pages": 1
+        },
+        {
+          "doc_type": "packing_list",
+          "file": "page_abf09ba61466.png",
+          "pages": 1
+        }
+      ]
+    },
     "planted_net_above_gross": {
       "group": "planted",
       "category": "arithmetic",
