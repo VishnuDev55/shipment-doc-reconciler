@@ -19,6 +19,8 @@ from __future__ import annotations
 import io
 from html import escape as esc
 
+from reportlab.pdfbase.pdfmetrics import stringWidth
+
 from .export import STATUS_LABEL, VERDICT_HEADLINE
 from .models import Report
 from .sections import (SECTIONS, check_counts, not_run_groups,
@@ -48,11 +50,6 @@ td.num { text-align: right; }
 .st-consistent { color: #176b2f; }
 .st-single_source { color: #555; }
 .mono { font-family: Courier; font-size: 7.6pt; }
-/* xhtml2pdf ignores table-layout and word-wrap; -pdf-word-wrap: CJK is the
-   one it honours, and it breaks long tokens at character boundaries rather
-   than letting them draw over the next column. It inserts an invisible
-   U+FFFE at each break, so the text stays complete. */
-.wrap { -pdf-word-wrap: CJK; }
 /* Dense tables: many columns, long tokens. Smaller type buys the width the
    numeric columns need without forcing the identifiers to wrap. */
 .dense td, .dense th { font-size: 7pt; padding: 1.1mm 1.3mm; }
@@ -73,12 +70,11 @@ td.num { text-align: right; }
 .sev-warning { color: #9a5b00; }
 .draft { border: 0.8pt solid #999; padding: 2.5mm; margin-bottom: 3mm; }
 .dsub { font-weight: bold; font-size: 8.6pt; margin-top: 1mm; }
-.draft pre { font-family: Helvetica; font-size: 8pt; white-space: pre-wrap;
+/* pre-line, not pre-wrap: this renderer keeps the newlines of a <pre> under
+   both, but only pre-line leaves its spaces breakable. Under pre-wrap every
+   space is unbreakable, so one long letter line ran off the sheet edge. */
+.draft pre { font-family: Helvetica; font-size: 8pt; white-space: pre-line;
              margin: 1.5mm 0 0 0; }
-/* pre-wrap is ignored here, so a letter line containing a long quoted reason ran
-   off the page. CJK wrap is the only wrapping this renderer implements; on a
-   draft it breaks a long token rather than losing it at the sheet edge. */
-.draft pre { -pdf-word-wrap: CJK; }
 ul { margin: 1mm 0 0 4mm; padding: 0; }
 li { margin-bottom: 0.8mm; }
 .quote { border-left: 2pt solid #999; padding: 1mm 0 1mm 2.5mm; margin: 1.5mm 0;
@@ -100,6 +96,76 @@ DOC_SOURCE_TEXT = {
     "authored": "hand-authored fixture",
     "none": "—",
 }
+
+# ---------------------------------------------------------------------------
+# fitting text into columns
+#
+# This renderer wraps at spaces and nowhere else, so a single token wider than
+# its column -- a file name, a model id like
+# nvidia/nemotron-3-nano-omni-30b-a3b-reasoning -- does not wrap; it draws over
+# the neighbouring cell. Every cell text therefore goes through _soft, which
+# measures with the same metrics the renderer uses and inserts <br/> *only*
+# inside a token too wide for its column, preferring to break after a separator
+# so ids break where a reader expects. Ordinary words are never touched.
+#
+# The character-boundary wrapping tried earlier (-pdf-word-wrap: CJK, the only
+# word-wrap this renderer implements) is deliberately not used: it breaks
+# ordinary words mid-word ("Quantit/y", "Industr/ial") and its line splitter
+# swallows every <br/>, which ran the per-document entries of the comparison
+# table and the lines of the correction drafts together into one blob.
+_CONTENT_PT = (210 - 26) * 72 / 25.4  # A4 width minus the 13mm page margins
+_BREAK_AFTER = "/-_.,;:"
+
+
+def _col(pct: float, pad_mm: float = 1.8) -> float:
+    """Printable width in points of a column ``pct`` percent of the content box."""
+    return pct / 100 * _CONTENT_PT - 2 * pad_mm * 72 / 25.4 - 1
+
+
+def _split_token(token: str, avail: float, font: str, size: float) -> list[str]:
+    """Break one space-free token into pieces no wider than ``avail`` points."""
+    if stringWidth(token, font, size) <= avail:
+        return [token]
+    pieces: list[str] = []
+    while token and stringWidth(token, font, size) > avail:
+        lo, hi = 1, len(token)
+        while lo < hi:  # longest prefix that still fits
+            mid = (lo + hi + 1) // 2
+            if stringWidth(token[:mid], font, size) <= avail:
+                lo = mid
+            else:
+                hi = mid - 1
+        cut = max((token.rfind(s, 0, lo) for s in _BREAK_AFTER), default=-1)
+        take = cut + 1 if cut >= lo // 2 else lo
+        pieces.append(token[:take])
+        token = token[take:]
+    if token:
+        pieces.append(token)
+    return pieces
+
+
+def _soft(text: str, avail: float, font: str = "Helvetica", size: float = 8.2) -> str:
+    """Escaped cell text, broken only where a token cannot fit its column."""
+    return " ".join(
+        "<br/>".join(esc(piece) for piece in _split_token(word, avail, font, size))
+        for word in text.split()
+    )
+
+
+def _soft_pre(text: str, avail: float, font: str = "Helvetica", size: float = 8) -> str:
+    """Like _soft but keeps the letter's own line breaks.
+
+    A correction draft is filed as the letter it will be sent as, so its newlines
+    are content, not layout: each is kept (the renderer turns a newline in a
+    pre-line <pre> into a break), while a token too wide for the sheet -- a file
+    name quoted in the letter -- is still broken rather than run off the edge.
+    """
+    return "\n".join(
+        " ".join("<br/>".join(esc(piece)
+                              for piece in _split_token(word, avail, font, size))
+                 for word in line.split())
+        for line in text.split("\n")
+    )
 
 
 def _provenance(report: Report) -> str:
@@ -152,11 +218,13 @@ def _status(report: Report) -> str:
     note = report.status_report
     if not note.findings and note.banner in ("empty", "running"):
         return ""
+    wide = _col(91)  # the severity column is a fixed 16mm; the rest is text
     rows = "".join(
         f"<tr><td class='sev sev-{esc(f.severity)}'>{esc(f.severity)}</td>"
-        f"<td class='wrap'><b>{esc(f.label)}</b><br/>"
-        f"<span class='small'>{esc(f.detail)}</span>"
-        + (f"<br/><span class='small'>{esc(' · '.join(f.documents))}</span>"
+        f"<td><b>{_soft(f.label, wide, 'Helvetica-Bold')}</b><br/>"
+        f"<span class='small'>{_soft(f.detail, wide, size=7.6)}</span>"
+        + (f"<br/><span class='small'>"
+           f"{_soft(' · '.join(f.documents), wide, size=7.6)}</span>"
            if f.documents else "")
         + "</td></tr>"
         for f in visible_findings(report)
@@ -174,8 +242,9 @@ def _status(report: Report) -> str:
 def _risk(report: Report) -> str:
     r = report.risk
     rows = "".join(
-        f"<tr><td class='mono'>{esc(c.code)}</td><td class='num'>+{c.points}</td>"
-        f"<td>{esc(c.detail)}</td></tr>"
+        f"<tr><td class='mono'>{_soft(c.code, _col(30), 'Courier', 7.6)}</td>"
+        f"<td class='num'>+{c.points}</td>"
+        f"<td>{_soft(c.detail, _col(62))}</td></tr>"
         for c in r.contributions
     ) or "<tr><td colspan='3' class='small'>No rule awarded a point: nothing " \
          "classification-relevant disagreed.</td></tr>"
@@ -189,19 +258,22 @@ def _risk(report: Report) -> str:
 
 def _comparisons(report: Report) -> str:
     rows = []
+    field_w, why_w, val_w = _col(17), _col(33), _col(39)
     for comp in report.comparisons:
         values = []
         for v in comp.values:
-            shown = esc(v.raw_value) if v.raw_value else "<i>not printed</i>"
+            shown = (_soft(v.raw_value, val_w, "Courier", 7.4)
+                     if v.raw_value else "<i>not printed</i>")
             # ASCII arrow, not U+2192: the renderer's built-in Courier has no
             # glyph for it, and a silently blank character in the one column an
             # auditor cross-checks by eye is the worst place to lose a character.
-            canonical = (f"<br/>&nbsp;&nbsp;-&gt; {esc(v.canonical)}"
+            canonical = ("<br/>&nbsp;&nbsp;-&gt; "
+                         + _soft(v.canonical, val_w, "Courier", 7.4)
                          if v.canonical and v.canonical != v.raw_value else "")
             outlier = " <b>[outlier]</b>" if v.is_outlier else ""
             flags = []
             if v.warnings:
-                flags.append("; ".join(esc(w) for w in v.warnings))
+                flags.append("; ".join(v.warnings))
             # Confidence 0 is what an absent field legitimately carries, so
             # flagging it as a low-confidence read would tell the reader the
             # model was unsure about a value it never claimed.
@@ -209,22 +281,23 @@ def _comparisons(report: Report) -> str:
                 flags.append(f"low confidence {v.confidence:.2f}")
             if not v.raw_value and not v.expected_here:
                 flags.append("not expected on this document type")
-            note = ("<br/><span class='small'>" + " · ".join(flags) + "</span>"
+            note = ("<br/><span class='small'>"
+                    + _soft(" · ".join(flags), val_w, size=7.6) + "</span>"
                     if flags else "")
             values.append(
-                f"<span class='val'>{esc(v.document_label)} p{v.page_index}: "
-                f"{shown}{canonical}{outlier}</span>{note}"
+                f"<span class='val'>{_soft(v.document_label, val_w, 'Courier', 7.4)}"
+                f" p{v.page_index}: {shown}{canonical}{outlier}</span>{note}"
             )
         value_cell = "<br/>".join(values) if values else (
             "<span class='small'>no document stated a value</span>"
         )
         rows.append(
-            f"<tr><td class='wrap'><b>{esc(comp.label)}</b><br/>"
-            f"<span class='small mono'>{esc(comp.field)} · {esc(comp.kind)}</span></td>"
+            f"<tr><td><b>{_soft(comp.label, field_w, 'Helvetica-Bold')}</b><br/>"
+            f"<span class='small mono'>{_soft(comp.field + ' · ' + comp.kind, field_w, 'Courier', 7.6)}</span></td>"
             f"<td class='st st-{esc(comp.status)}'>"
             f"{esc(STATUS_LABEL.get(comp.status, comp.status))}</td>"
-            f"<td class='why wrap'>{esc(comp.reason)}</td>"
-            f"<td class='wrap'>{value_cell}</td></tr>"
+            f"<td class='why'>{_soft(comp.reason, why_w)}</td>"
+            f"<td>{value_cell}</td></tr>"
         )
     return f"""<h2>Field comparisons</h2>
 <table><thead><tr><th style="width:17%">Field</th><th style="width:11%">Verdict
@@ -243,7 +316,7 @@ def _sanity(report: Report) -> str:
         return ""
     items = "".join(
         f"<li><b>{esc(f.level)}</b> <span class='mono'>{esc(f.code)}</span> — "
-        f"{esc(f.explanation)}</li>"
+        f"{_soft(f.explanation, _col(94), size=8.6)}</li>"
         for f in report.sanity
     )
     return f"""<h2>Cross-field checks</h2>
@@ -268,18 +341,19 @@ def _internal_checks(report: Report) -> str:
     # reason, once per document that has no goods lines -- so it is grouped, and
     # the grouping is defined in app/sections.py so the HTML export lists the
     # same documents this table does.
+    doc_w, code_w, detail_w = _col(24, 1.3), _col(16, 1.3), _col(51, 1.3)
     not_run_rows = "".join(
-        f"<tr><td class='wrap'>{esc(', '.join(documents))}</td>"
-        f"<td class='wrap'>{esc(code.replace('_', ' '))}</td>"
+        f"<tr><td>{_soft(', '.join(documents), doc_w, size=7)}</td>"
+        f"<td>{_soft(code.replace('_', ' '), code_w, size=7)}</td>"
         f"<td>not run</td>"
-        f"<td class='small wrap'>{esc(reason)}"
+        f"<td class='small'>{_soft(reason, detail_w, size=7.6)}"
         f"{f' <i>({len(documents)} documents)</i>' if len(documents) > 1 else ''}</td></tr>"
         for code, reason, documents in not_run_groups(report)
     )
     rows = "".join(
-        f"<tr><td class='wrap'>{esc(c.document_label)}</td>"
-        f"<td class='wrap'>{esc(c.code.replace('_', ' '))}</td>"
-        f"<td>{esc(c.status)}</td><td class='small wrap'>{esc(c.detail)}</td></tr>"
+        f"<tr><td>{_soft(c.document_label, doc_w, size=7)}</td>"
+        f"<td>{_soft(c.code.replace('_', ' '), code_w, size=7)}</td>"
+        f"<td>{esc(c.status)}</td><td class='small'>{_soft(c.detail, detail_w, size=7.6)}</td></tr>"
         for c in (failed + passed)
     ) + not_run_rows
     # Counts come from the shared helper, so "not run" counts checks rather than
@@ -307,14 +381,17 @@ def _unverified(report: Report) -> str:
     items = report.unverified
     if not items:
         return ""
+    # Six columns the renderer splits equally; a quoted line is text from inside
+    # a shipment document and can contain a token of any length at all.
+    w = _col(100 / 6)
     rows = "".join(
-        f"<tr><td class='wrap'>{esc(u.label)}</td><td class='wrap'>{esc(u.document_label)}</td>"
-        f"<td class='val wrap'>{esc(u.value or '')}</td>"
-        f"<td class='small wrap'>{esc(u.evidence_text)}</td>"
-        f"<td class='small wrap'>{esc(u.reason)}</td>"
+        f"<tr><td>{_soft(u.label, w)}</td><td>{_soft(u.document_label, w)}</td>"
+        f"<td class='val'>{_soft(u.value or '', w, 'Courier', 7.4)}</td>"
+        f"<td class='small'>{_soft(u.evidence_text, w, size=7.6)}</td>"
+        f"<td class='small'>{_soft(u.reason, w, size=7.6)}</td>"
         f"<td class='small'>"
-        + (f"<i>AI-generated, advisory:</i> {esc(u.advisor_note)}"
-           f" ({esc(u.advisor_model)})"
+        + (f"<i>AI-generated, advisory:</i> {_soft(u.advisor_note, w, size=7.6)}"
+           f" ({_soft(u.advisor_model, w, size=7.6)})"
            if u.advisor_note else "—")
         + "</td></tr>"
         for u in items
@@ -340,10 +417,11 @@ def _drafts(report: Report) -> str:
     if not report.correction_emails:
         return ""
     blocks = "".join(
-        f"<div class='draft'><b>To {esc(m.recipient_role)}</b>"
-        f"<div class='dsub'>{esc(m.subject)}</div>"
-        f"<div class='small'>{esc(m.document_label)} &middot; {m.critical} critical, "
-        f"{m.warning} warning</div><pre>{esc(m.body)}</pre></div>"
+        f"<div class='draft'><b>To {_soft(m.recipient_role, _col(96), 'Helvetica-Bold', 8.6)}</b>"
+        f"<div class='dsub'>{_soft(m.subject, _col(96), 'Helvetica-Bold', 8.6)}</div>"
+        f"<div class='small'>{_soft(m.document_label, _col(96), size=7.6)} &middot; "
+        f"{m.critical} critical, {m.warning} warning</div>"
+        f"<pre>{_soft_pre(m.body, _col(95))}</pre></div>"
         for m in report.correction_emails
     )
     return f"""<h2>Correction drafts</h2>
@@ -358,11 +436,12 @@ def _corrections(report: Report) -> str:
     reverted = [c for d in report.documents for c in d.corrections if c.reverted_at]
     if not active and not reverted:
         return ""
+    w = _col(100 / 6)  # six columns the renderer splits equally
     rows = "".join(
-        f"<tr><td class='wrap'>{esc(c.field)}</td><td class='wrap'>{esc(c.document_id)}</td>"
-        f"<td class='val'>{esc(c.original_value or '— absent —')}</td>"
-        f"<td class='val'>{esc(c.corrected_value)}</td>"
-        f"<td>{esc(c.actor)}</td><td class='small'>{esc(c.at)}</td></tr>"
+        f"<tr><td>{_soft(c.field, w)}</td><td>{_soft(c.document_id, w)}</td>"
+        f"<td class='val'>{_soft(c.original_value or '— absent —', w, 'Courier', 7.4)}</td>"
+        f"<td class='val'>{_soft(c.corrected_value, w, 'Courier', 7.4)}</td>"
+        f"<td>{_soft(c.actor, w)}</td><td class='small'>{_soft(c.at, w, size=7.6)}</td></tr>"
         for c in active
     )
     table = (f"<table><thead><tr><th>Field</th><th>Document</th><th>Model said"
@@ -386,13 +465,17 @@ def _line_items(report: Report) -> str:
     if not li.enabled or not li.matches:
         return ""
     docs = li.documents
-    head = "".join(f"<th>{esc(d)}</th>" for d in docs)
+    # Item, one column per document, status, detail -- the renderer splits them
+    # equally, and the document columns are headed by file names.
+    w = _col(100 / (3 + len(docs)))
+    head = "".join(f"<th>{_soft(d, w, 'Helvetica-Bold', 8)}</th>" for d in docs)
     rows = "".join(
         "<tr>"
-        f"<td class='val'>{esc(m.label)}</td>"
-        + "".join(f"<td class='val'>{esc(m.quantities.get(d) or '—')}</td>" for d in docs)
-        + f"<td>{esc(m.status.replace('_', ' '))}</td>"
-        f"<td class='small wrap'>{esc(m.detail)}</td>"
+        f"<td class='val'>{_soft(m.label, w, 'Courier', 7.4)}</td>"
+        + "".join(f"<td class='val'>{_soft(m.quantities.get(d) or '—', w, 'Courier', 7.4)}</td>"
+                  for d in docs)
+        + f"<td>{_soft(m.status.replace('_', ' '), w)}</td>"
+        f"<td class='small'>{_soft(m.detail, w, size=7.6)}</td>"
         "</tr>"
         for m in li.matches
     )
@@ -416,7 +499,7 @@ def _model_prose(report: Report) -> str:
             continue
         blocks.append(
             f"<h2>{esc(label)}</h2>"
-            f"<div class='quote'>{esc(part.text)}</div>"
+            f"<div class='quote'>{_soft(part.text, _col(96))}</div>"
             f"<div class='small'>Written by {esc(part.model)} via "
             f"{esc(part.provider)} · {esc(part.source)}. Model prose: verify "
             "every figure against the documents.</div>"
@@ -425,12 +508,15 @@ def _model_prose(report: Report) -> str:
 
 
 def _documents(report: Report) -> str:
+    file_w, type_w, model_w, src_w = (_col(19, 1.3), _col(16, 1.3),
+                                      _col(20, 1.3), _col(16, 1.3))
     rows = "".join(
-        f"<tr><td class='wrap'>{esc(d.label)}</td>"
-        f"<td class='small wrap'>{esc(d.detected_doc_type or d.declared_doc_type or '—')}</td>"
+        f"<tr><td>{_soft(d.label, file_w, size=7)}</td>"
+        f"<td class='small'>{_soft(d.detected_doc_type or d.declared_doc_type or '—', type_w, size=7)}</td>"
         f"<td>{esc(d.status)}</td>"
-        f"<td class='small wrap'>{esc(d.provider or '—')}<br/>{esc(d.model or '—')}</td>"
-        f"<td class='small wrap'>{DOC_SOURCE_TEXT.get(d.source, esc(d.source))}</td>"
+        f"<td class='small'>{_soft(d.provider or '—', model_w, size=7)}<br/>"
+        f"{_soft(d.model or '—', model_w, size=7)}</td>"
+        f"<td class='small'>{_soft(DOC_SOURCE_TEXT.get(d.source, d.source), src_w, size=7)}</td>"
         f"<td class='num'>{d.usage.total if d.usage else 0}</td>"
         f"<td class='num'>{d.timings_ms}</td>"
         f"<td class='num'>{d.attempts}</td></tr>"
@@ -459,11 +545,13 @@ def _transparency(report: Report) -> str:
     from .transparency import cost_line, powered_by, source_word
 
     steps, tokens, ms = transparency(report)
+    step_w, prov_w, model_w, src_w = (_col(21, 1.3), _col(10, 1.3),
+                                      _col(28, 1.3), _col(19, 1.3))
     rows = "".join(
-        f"<tr><td class='wrap'>{esc(s['step'])}</td>"
-        f"<td class='small wrap'>{esc(s['provider'])}</td>"
-        f"<td class='small wrap'>{esc(s['model'])}</td>"
-        f"<td class='small wrap'>{esc(source_word(s['source']))}</td>"
+        f"<tr><td>{_soft(s['step'], step_w, size=7)}</td>"
+        f"<td class='small'>{_soft(s['provider'], prov_w, size=7)}</td>"
+        f"<td class='small'>{_soft(s['model'], model_w, size=7)}</td>"
+        f"<td class='small'>{_soft(source_word(s['source']), src_w, size=7)}</td>"
         f"<td class='num'>{s['tries']}</td>"
         f"<td class='num'>{s['usage'].total if s['usage'] else 0}</td>"
         f"<td class='num'>{s['latency_ms']}</td></tr>"
