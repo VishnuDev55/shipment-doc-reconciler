@@ -43,10 +43,13 @@ BASE_ENV = {
     "ENABLE_LINE_ITEMS": "false",
 }
 
-VERDICTS = """() => ['All cross-checked fields agree',
-                  'No hard conflicts — a few fields deserve a glance',
-                  'Conflicts found — reconcile before the goods move']
-             .includes(document.querySelector('#verdict-headline').textContent.trim())"""
+# Settled means "a verdict, not a placeholder". The finished sentences live in
+# app/export.py and web/app.js; copying them here would make every wording
+# change break the screenshots.
+VERDICTS = """() => {
+    const text = document.querySelector('#verdict-headline').textContent.trim();
+    return Boolean(text) && text !== 'Working\\u2026' && text !== 'Extracting\\u2026';
+}"""
 
 # The overlay fades in, and `wait_for(state="visible")` is satisfied at the first
 # painted frame -- mid-animation the whole figure is partly transparent, so a

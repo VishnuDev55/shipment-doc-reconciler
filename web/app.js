@@ -44,10 +44,14 @@ const ICON = {
   single_source: '•', absent: '–',
 };
 
+// Word for word the server's VERDICT_HEADLINE in app/export.py, which a test
+// pins: the web app and the filed HTML must not describe one shipment two ways.
+// Descriptive only -- the banner below is the one line that tells the reader
+// what to do, because it is the one that has read every stage.
 const HEADLINE = {
   clean: 'All cross-checked fields agree',
   review: 'No hard conflicts — a few fields deserve a glance',
-  conflicts: 'Conflicts found — reconcile before the goods move',
+  conflicts: 'Conflicts found in the field table',
   running: 'Extracting…',
   empty: 'Nothing to reconcile yet',
 };
@@ -746,6 +750,13 @@ function renderStatus(report) {
 
   $('#status-flag').textContent =
     note.headline || BANNER_LABEL[note.banner] || note.banner;
+
+  // Printed only when the banner and the engine verdict could read as two
+  // different answers to the same question. Empty otherwise, so it never
+  // becomes furniture under a report that already reads as one story.
+  const bridge = $('#status-bridge');
+  bridge.textContent = note.bridge || '';
+  bridge.hidden = !note.bridge;
 
   const list = $('#status-list');
   list.textContent = '';

@@ -50,6 +50,37 @@ BANNER_HEADLINE = {
     "empty": "Nothing to report yet",
 }
 
+# The banner and the engine verdict answer different questions, and on four of
+# the reachable pairs a reader who sees both gets two different answers. One
+# sentence per pair, printed under the banner; empty everywhere else, so it
+# never becomes boilerplate under a shipment that already reads as one story.
+#
+# The verdict line describes the field table and instructs nobody -- the
+# imperative lives here, once. Live-tested: "Conflicts found, reconcile before
+# the goods move" beside a banner saying "Review needed" left a reviewer unable
+# to say which of the two governed the shipment.
+BRIDGE: dict[tuple[str, str], str] = {
+    ("review", "conflicts"): (
+        "Conflicts in the field table are a human decision, not a stop: nothing "
+        "above makes this a different shipment, which is what blocked is "
+        "reserved for."),
+    ("review", "clean"): (
+        "The field table found no disagreement; these items come from checks it "
+        "cannot see, such as a document that did not add up, a quote its page "
+        "does not print, or a page nobody could read."),
+    ("blocked", "clean"): (
+        "The field table found no disagreement, but a stage it cannot see "
+        "produced a blocking item. It is the first one above."),
+    ("blocked", "review"): (
+        "Nothing in the field table is a hard conflict, but a stage it cannot "
+        "see produced a blocking item. It is the first one above."),
+}
+
+
+def bridge_line(banner: str, verdict: str) -> str:
+    """The one line that reconciles the banner with the engine verdict, or ""."""
+    return BRIDGE.get((banner, verdict), "")
+
 # ---------------------------------------------------------------------------
 # THE table. One row per (source, field, status) and nothing else decides a
 # level. Tuning severity means editing this dict and nothing else -- which is
@@ -414,6 +445,7 @@ def status_report(report: Report) -> StatusReport:
     return StatusReport(
         banner=banner,  # type: ignore[arg-type]
         headline=headline,
+        bridge=bridge_line(banner, report.summary.verdict),
         caveat=caveat,
         critical=counts["critical"],
         warning=counts["warning"],
@@ -439,5 +471,5 @@ def apply_status(report: Report) -> Report:
     return report
 
 
-__all__ = ["SEVERITY_TABLE", "apply_status", "derive_banner", "findings",
-           "status_report"]
+__all__ = ["BRIDGE", "SEVERITY_TABLE", "apply_status", "bridge_line",
+           "derive_banner", "findings", "status_report"]

@@ -38,12 +38,21 @@ STATUS_ICON = {
     "absent": "–",
 }
 
+# One sentence per verdict, shared word for word with the HEADLINE map in
+# web/app.js -- tests/test_severity.py fails if the two drift, because the web
+# app and the filed HTML describing the same shipment differently is a
+# disagreement nobody would notice until they had both open.
+#
+# Descriptive, never imperative: the banner in app/severity.py is the only line
+# in the report that tells a reader what to do, and it is the only one that has
+# read every stage. A verdict that also issued an instruction would be a second
+# answer beside the first.
 VERDICT_HEADLINE = {
-    "clean": "All cross-checked fields agree.",
-    "review": "No hard conflicts, but some fields need a human glance.",
-    "conflicts": "Conflicts found. Reconcile before the goods move.",
-    "running": "Extraction still in progress.",
-    "empty": "No documents processed.",
+    "clean": "All cross-checked fields agree",
+    "review": "No hard conflicts — a few fields deserve a glance",
+    "conflicts": "Conflicts found in the field table",
+    "running": "Extracting…",
+    "empty": "Nothing to reconcile yet",
 }
 
 
@@ -279,7 +288,8 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
     )
     status_html = (
         f'<div class="statusbar {esc(status.banner)}"><b>{esc(status.headline)}</b>'
-        f'<span>engine verdict {esc(status.verdict)} · customs risk '
+        + (f'<span class="bridge">{esc(status.bridge)}</span>' if status.bridge else "")
+        + f'<span>engine verdict {esc(status.verdict)} · customs risk '
         f'{status.risk_score}/100 · {status.critical} critical, {status.warning} '
         f'warning, {status.info} informational</span>'
         + (f'<span class="caveat">{esc(status.caveat)}</span>' if status.caveat else "")

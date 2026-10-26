@@ -397,6 +397,22 @@ from both directions -- it enumerates the scoring table, so a rule added to the
 risk strip without a severity row behind it fails a test instead of shipping a
 banner that ignores it.
 
+**One instruction per report.** The banner is the only line allowed to tell the
+reader what to do, because it is the only line that has read every stage. The
+verdict headline describes the field table and nothing else. Live-tested: the web
+report printed "Conflicts found — reconcile before the goods move" directly above a
+banner reading "Review needed" — two orders, and no way to tell which governs. The
+headlines are now descriptive ("Conflicts found in the field table") and word
+identical between `app/export.py` and `web/app.js`, pinned by a test that parses the
+JS object and compares it to the Python dict rather than trusting either one. Where
+the two panels can legitimately differ — the banner is stricter, because a stage the
+comparison cannot see found something — `StatusReport.bridge` carries one sentence
+saying why, and it renders in the web app, in `report.html` and in the PDF. It is
+empty whenever the banner and the verdict already agree, so a matching report adds no
+text. Four pairs need it: review beside conflicts, review beside clean, and blocked
+beside each of those two; every combination of severity counts, verdict and risk band
+is enumerated in `tests/test_severity.py`.
+
 **What READY TO SHIP does not mean.** It means no rule found something to block.
 It is not a guarantee that every value was cross-checked: on a shipment where only
 one document states the invoice value, nobody compared it, and that is exactly the

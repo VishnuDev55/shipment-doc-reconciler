@@ -494,6 +494,10 @@ class StatusReport(BaseModel):
 
     banner: Banner = "empty"
     headline: str = ""
+    # One sentence for the reader who notices the banner and the engine verdict
+    # are not saying the same thing. Empty whenever the two already agree, so a
+    # bridge cannot become boilerplate under every shipment.
+    bridge: str = ""
     # The reason a ready banner is not a clean bill of health: what was never
     # cross-checked at all.
     caveat: str = ""

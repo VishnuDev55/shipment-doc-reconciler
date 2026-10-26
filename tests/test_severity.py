@@ -14,11 +14,13 @@ finished -- so without this the tests would be measuring the wrong question.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 from app.config import Settings
+from app.export import VERDICT_HEADLINE
 from app.fields import EXPECTED, FIELD_KIND, FIELD_LABEL
 from app.models import (
     Comparison,
@@ -35,6 +37,7 @@ from app.scoring import HIGH_AT, MEDIUM_AT, POINTS, score_report
 from app.severity import (
     LEVELS,
     SEVERITY_TABLE,
+    bridge_line,
     derive_banner,
     findings,
     status_report,
@@ -756,3 +759,104 @@ async def test_the_banner_survives_the_round_trip_through_disk(tmp_path):
     assert reopened is not rec.get(sid), "a second reader, from disk only"
     assert reopened.status_report.model_dump() == first
     assert reopened.status_report.banner == "blocked"
+
+
+# ---------------------------------------------------------------------------
+# the banner and the verdict: one story, or one line about the difference
+# ---------------------------------------------------------------------------
+
+# Instructions. The banner is the only line in the report allowed to use one,
+# because it is the only line that has read every stage. Phrases, not words:
+# "Nothing to reconcile yet" describes a state and must keep passing, while
+# "reconcile before the goods move" is an order and must not.
+IMPERATIVES = ("reconcile before", "before the goods move", "must be corrected",
+               "do not ship", "hold this", "check the", "correct the", "resolve ")
+
+# The pairs that read as two different answers, and so owe the reader a
+# sentence. Everything else either agrees (blocked beside "conflicts found") or
+# cannot happen at all (ready beside a verdict that withheld it).
+MISMATCH = {("review", "conflicts"), ("review", "clean"),
+            ("blocked", "clean"), ("blocked", "review")}
+
+
+def test_no_verdict_line_competes_with_the_banner_for_the_instruction():
+    """Break caught on the live instance: "Conflicts found — reconcile before
+    the goods move" printed directly above a banner saying "Review needed". Two
+    lines, two orders, and no way to tell which governs. The verdict describes
+    the field table; the banner decides."""
+    for verdict, headline in VERDICT_HEADLINE.items():
+        low = headline.lower()
+        assert not any(word in low for word in IMPERATIVES), \
+            f"{verdict}: {headline!r} tells the reader what to do"
+
+
+def test_the_web_app_and_the_export_word_the_verdict_identically():
+    """One sentence in two languages: a Python dict and a JS object. Nothing a
+    reader can notice drifting, which is exactly why it is pinned here -- the
+    web app and the filed HTML would quietly disagree about the same shipment."""
+    js = (REPO / "web" / "app.js").read_text(encoding="utf-8")
+    block = js.split("const HEADLINE = {", 1)[1].split("};", 1)[0]
+    assert dict(re.findall(r"(\w+):\s*'([^']*)'", block)) == VERDICT_HEADLINE
+
+
+COMBINATIONS = [
+    (critical, warning, verdict, risk)
+    for critical in (0, 1)
+    for warning in (0, 1)
+    for verdict in ("clean", "review", "conflicts")
+    for risk in (0, MEDIUM_AT)
+]
+
+
+def _items(critical: int, warning: int) -> list[SeverityFinding]:
+    return [
+        SeverityFinding(code=f"test:{level}", severity=level,  # type: ignore[arg-type]
+                        source="comparison", label=level, detail="")
+        for level, count in (("critical", critical), ("warning", warning))
+        for _ in range(count)
+    ]
+
+
+@pytest.mark.parametrize("critical,warning,verdict,risk", COMBINATIONS)
+def test_every_combination_reads_as_one_story(critical, warning, verdict, risk):
+    """All 24 reachable shapes, enumerated rather than sampled: either the two
+    lines point the same way, or exactly one sentence says why they do not."""
+    banner, headline, _caveat = derive_banner(
+        items=_items(critical, warning), verdict=verdict, risk_score=risk,
+        state="done")
+    bridge = bridge_line(banner, verdict)
+
+    assert headline
+    if banner == "ready":
+        assert verdict == "clean", "the monotonic rule: never kinder than the verdict"
+    if banner == "blocked":
+        assert critical == 1
+    assert (bridge != "") == ((banner, verdict) in MISMATCH), \
+        f"{banner} beside {verdict}: {bridge!r}"
+    if bridge:
+        assert len(bridge.split()) <= 40, "one line means one line"
+        assert bridge.endswith(".")
+
+
+def test_the_one_line_reaches_the_filed_artifacts():
+    """A bridge that only the web app renders is a bridge only the person who
+    happened to look at the screen can cross."""
+    from app.export import standalone_html
+    from app.pdf import report_html
+
+    report = settled(conflict("invoice_value"))
+    report.risk = score_report(report)
+    report.status_report = status_report(report)
+    assert report.status_report.banner == "review"
+    assert report.summary.verdict == "conflicts"
+    line = report.status_report.bridge
+    assert line, "this is the pair the live instance showed"
+    assert line in standalone_html(report)
+    assert line in report_html(report)
+
+
+def test_the_web_page_has_somewhere_to_put_the_line():
+    page = (REPO / "web" / "index.html").read_text(encoding="utf-8")
+    js = (REPO / "web" / "app.js").read_text(encoding="utf-8")
+    assert 'id="status-bridge"' in page
+    assert "status-bridge" in js

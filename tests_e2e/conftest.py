@@ -201,6 +201,16 @@ def page(new_page):
     return new_page()
 
 
+# True once #verdict-headline shows a verdict rather than a placeholder. The
+# two placeholders live in web/index.html ("Working…") and in the HEADLINE map
+# in web/app.js ("Extracting…"); the finished sentences are deliberately not
+# listed here, so improving the wording cannot break a wait.
+SETTLED_VERDICT = """() => {
+    const text = document.querySelector('#verdict-headline').textContent.trim();
+    return Boolean(text) && text !== 'Working\\u2026' && text !== 'Extracting\\u2026';
+}"""
+
+
 @pytest.fixture
 def report_page(new_page, app):
     """A page already showing the finished "conflict" fixture shipment.
@@ -211,13 +221,9 @@ def report_page(new_page, app):
     page = new_page()
     page.goto(app.base_url + "/?demo=shipment_conflict")
     page.wait_for_selector("#results:not([hidden])", timeout=60_000)
-    # Settled means the headline is one of the three verdicts, not the running
-    # or working placeholder. Anything looser races the poll.
-    page.wait_for_function(
-        """() => ['All cross-checked fields agree',
-                  'No hard conflicts — a few fields deserve a glance',
-                  'Conflicts found — reconcile before the goods move']
-             .includes(document.querySelector('#verdict-headline').textContent.trim())""",
-        timeout=60_000,
-    )
+    # Settled means the headline is a verdict and not one of the two
+    # placeholders. Matched on what it is not, rather than on a list of the
+    # three finished sentences: the wording belongs to app/export.py and a test
+    # that copied it would fail on every improvement to it.
+    page.wait_for_function(SETTLED_VERDICT, timeout=60_000)
     return page

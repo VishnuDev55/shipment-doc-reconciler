@@ -414,6 +414,12 @@ main > *, .panel, .doc, .doc-body { min-width: 0; }
   margin: 0; font-size: 1.5rem; font-weight: 650; letter-spacing: -.02em;
   text-wrap: balance; color: var(--ink);
 }
+/* The one line that reconciles the banner with the engine verdict printed
+   beside it. Present only when the two could read as different answers. */
+.banner-bridge {
+  margin: .45rem 0 0; font-size: .85rem; line-height: 1.5;
+  color: var(--ink-3); max-width: 70ch;
+}
 .banner.is-blocked { border-left-color: var(--bad); background: var(--bad-soft); }
 .banner.is-review  { border-left-color: var(--warn); background: var(--warn-soft); }
 .banner.is-ready   { border-left-color: var(--ok); background: var(--ok-soft); }

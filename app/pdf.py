@@ -231,7 +231,8 @@ def _status(report: Report) -> str:
     ) or "<tr><td colspan='2' class='small'>No critical or warning-level item. " \
          "What is below the line is listed in the sections after this one.</td></tr>"
     return f"""<h2>Status</h2>
-<div class="status status-{esc(note.banner)}"><b>{esc(note.headline)}</b><br/>
+<div class="status status-{esc(note.banner)}"><b>{esc(note.headline)}</b>
+{f"<br/><span class='small'>{_soft(note.bridge, wide)}</span>" if note.bridge else ""}<br/>
 <span class="small">Engine verdict: {esc(note.verdict)} · customs risk
 {note.risk_score}/100 · {note.critical} critical, {note.warning} warning,
 {note.info} informational · {esc(note.method)}</span>

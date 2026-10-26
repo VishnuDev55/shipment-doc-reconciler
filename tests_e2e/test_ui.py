@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import SETTLED_VERDICT
+
 REPO = Path(__file__).resolve().parents[1]
 
 FIELD_COUNT = 10  # app/fields.py: the table has to show every contracted field
@@ -68,6 +70,27 @@ def test_cold_start_announces_demo_mode_before_anything_is_reconciled(page, app)
 def test_a_sample_shipment_renders_a_settled_verdict(report_page):
     assert "Conflicts found" in report_page.locator("#verdict-headline").inner_text()
     assert report_page.locator("#counts button").count() >= 4
+    assert report_page.errors == []
+
+
+def test_the_banner_and_the_verdict_do_not_give_two_orders(report_page):
+    """Break caught on the live instance: the verdict line read "Conflicts
+    found — reconcile before the goods move" directly above a banner saying
+    "Review needed", and a reviewer could not say which of the two governed the
+    shipment. The verdict now describes the field table and instructs nobody;
+    the banner alone decides. On this fixture the two already point the same way
+    (blocked, conflicts), so the bridge line that explains a disagreement stays
+    hidden rather than turning into furniture under every report.
+    """
+    verdict = report_page.locator("#verdict-headline").inner_text().strip()
+    flag = report_page.locator("#status-flag").inner_text().strip()
+    bridge = report_page.locator("#status-bridge")
+
+    assert "Conflicts found" in verdict
+    assert "reconcile" not in verdict.lower()
+    assert "before the goods move" not in verdict.lower()
+    assert flag.startswith("Blocked")
+    assert bridge.is_hidden()
     assert report_page.errors == []
 
 
@@ -658,10 +681,7 @@ def test_the_evidence_image_keeps_its_natural_aspect_ratio(new_page, app, width,
     page = new_page(viewport={"width": width, "height": height})
     page.goto(app.base_url + "/?demo=shipment_conflict")
     page.wait_for_selector("#results:not([hidden])", timeout=60_000)
-    page.wait_for_function(
-        "() => ['Conflicts found — reconcile before the goods move']"
-        ".includes(document.querySelector('#verdict-headline').textContent.trim())",
-        timeout=60_000)
+    page.wait_for_function(SETTLED_VERDICT, timeout=60_000)
 
     chips = page.locator(".page-chip")
     opened = None
