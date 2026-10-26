@@ -19,7 +19,10 @@ from pathlib import Path
 import pytest
 
 from app.config import Settings
+from app.fields import EXPECTED, FIELD_KIND, FIELD_LABEL
 from app.models import (
+    Comparison,
+    ComparisonValue,
     DocumentReport,
     InternalCheck,
     Report,
@@ -28,7 +31,7 @@ from app.models import (
     UnverifiedField,
 )
 from app.orchestrator import Reconciler, build_summary
-from app.scoring import MEDIUM_AT, POINTS, score_report
+from app.scoring import HIGH_AT, MEDIUM_AT, POINTS, score_report
 from app.severity import (
     LEVELS,
     SEVERITY_TABLE,
@@ -236,18 +239,140 @@ def test_a_field_only_one_document_stated_is_shown_but_never_blocks():
     assert "only one document stated" in report.status_report.caveat
 
 
-def test_absence_is_only_a_finding_when_the_report_already_treats_it_as_one():
-    """A packing-list-only shipment prints no invoice value and that is normal.
-    An HS code nowhere is the one absence the risk strip scores, so the banner
-    agrees with it instead of inventing a second opinion."""
-    absent_value = report_with(invoice_value=stated(
-        "invoice_value", [("d1", "Packing list", None)], status="absent"))
-    assert findings(absent_value) == []
+# ---------------------------------------------------------------------------
+# absence: who was asked
+# ---------------------------------------------------------------------------
 
-    absent_hs = settled(report_with(hs_code=stated(
-        "hs_code", [("d1", "Packing list", None)], status="absent")))
-    assert severity_of(absent_hs, "comparison")["comparison:hs_code:absent"] == "warning"
-    assert absent_hs.status_report.banner == "review"
+# The five fields a customs entry is filed on. A bill of lading carries none of
+# them, so a BL-only run is the shape where "absent" means nobody was asked --
+# which is what the live instance showed beside a +55 risk score.
+CUSTOMS_FIELDS = ("hs_code", "invoice_value", "incoterms", "po_number",
+                  "country_of_origin")
+NOT_CARRIED_BY = ("bill_of_lading",)
+CARRIED_BY = ("commercial_invoice", "packing_list")
+
+DOC_LABEL = {
+    "commercial_invoice": "Invoice",
+    "packing_list": "Packing list",
+    "bill_of_lading": "Bill of lading",
+    "certificate_of_origin": "Certificate of origin",
+}
+
+
+def absent_on(field: str, doc_types: tuple[str, ...],
+              failed: tuple[str, ...] = ()) -> Report:
+    """A finished run over exactly these documents, in which nobody printed it.
+
+    Shaped the way the engine shapes it: a document that could not be read
+    produces no observation at all, so it is in `documents` and not in `values`.
+    That is the case the carrier test has to survive -- the invoice was uploaded,
+    it just could not be read, and blaming the shipment for that would be
+    reporting our own failure as somebody else's paperwork.
+    """
+    report = Report(shipment_id="s1", created_at="now", updated_at="now")
+    report.documents = [
+        DocumentReport(id=f"d{i}", label=DOC_LABEL[dt], filename=f"{dt}.png",
+                       declared_doc_type=dt,  # type: ignore[arg-type]
+                       status="failed" if dt in failed else "ok",
+                       error="no text could be recovered" if dt in failed else None)
+        for i, dt in enumerate(doc_types, start=1)
+    ]
+    report.comparisons = [Comparison(
+        field=field, label=FIELD_LABEL[field], kind=FIELD_KIND[field],
+        status="absent", reason="not found on any document",
+        values=[
+            ComparisonValue(
+                document_id=doc.id, document_label=doc.label,
+                doc_type=doc.declared_doc_type,  # type: ignore[arg-type]
+                page_index=1, raw_value=None, canonical=None, compare_key=None,
+                confidence=0.0,
+                expected_here=field in EXPECTED.get(doc.declared_doc_type,  # type: ignore[arg-type]
+                                                    frozenset()),
+            )
+            for doc in report.documents if doc.status != "failed"
+        ],
+    )]
+    report.risk = score_report(report)
+    return settled(report)
+
+
+def comparison_findings(report: Report) -> list[SeverityFinding]:
+    return [f for f in findings(report) if f.source == "comparison"]
+
+
+@pytest.mark.parametrize("field", CUSTOMS_FIELDS)
+def test_a_field_no_uploaded_document_carries_is_not_checked_not_flagged(field):
+    """The live-testing break: a run with no invoice in it said "HS code stated
+    on no document" as a *warning* and added 55 risk points, in the same breath
+    as its own reason text saying the absence was expected. Nobody was asked, so
+    there is nothing to reconcile and nothing to score."""
+    report = absent_on(field, NOT_CARRIED_BY)
+    got = comparison_findings(report)
+    assert len(got) == 1
+    assert got[0].severity == "info"
+    assert got[0].code == f"comparison:{field}:absent:not_carried"
+    assert got[0].label == f"{FIELD_LABEL[field]} not checked"
+    assert "no document that normally carries" in got[0].detail
+    assert report.status_report.banner == "ready"
+    assert report.risk.contributions == []
+    assert report.risk.score == 0
+
+
+@pytest.mark.parametrize("field", CUSTOMS_FIELDS)
+def test_a_field_missing_from_a_document_that_prints_it_still_warns(field):
+    report = absent_on(field, CARRIED_BY)
+    got = comparison_findings(report)
+    assert len(got) == 1
+    assert got[0].severity == "warning"
+    assert got[0].code == f"comparison:{field}:absent"
+    assert got[0].label == f"{FIELD_LABEL[field]} stated on no document"
+    assert report.status_report.banner == "review"
+
+
+def test_only_a_carried_hs_code_costs_the_classification_points():
+    """The 55 points are for a classification that cannot be verified. Where no
+    uploaded document would have carried it, the field was never in reach, and
+    scoring it would put a paperwork gap in the high band on its own."""
+    carried = absent_on("hs_code", CARRIED_BY)
+    assert [c.code for c in carried.risk.contributions] == ["hs_code_absent"]
+    assert carried.risk.score == POINTS["hs_code_absent"] == HIGH_AT
+
+    not_carried = absent_on("hs_code", NOT_CARRIED_BY)
+    assert not_carried.risk.contributions == []
+    assert not_carried.risk.score == 0
+
+
+def test_an_unreadable_carrier_is_a_coverage_gap_not_an_expected_absence():
+    report = absent_on("hs_code", ("commercial_invoice", "bill_of_lading"),
+                       failed=("commercial_invoice",))
+    picked = {f.code: f.severity for f in findings(report)}
+    assert picked["comparison:hs_code:absent"] == "warning"
+    assert picked["document:failed"] == "warning"
+    assert report.status_report.banner == "review"
+
+
+def test_the_ready_caveat_names_the_fields_nobody_was_asked_about():
+    """`ready` with items underneath has to say what kind they are, or the
+    reader cannot tell "nothing was wrong" from "nothing was looked at"."""
+    report = absent_on("hs_code", NOT_CARRIED_BY)
+    assert report.status_report.banner == "ready"
+    assert "no uploaded document was expected to carry" in report.status_report.caveat
+    assert "only one document stated" in report.status_report.caveat
+
+
+def test_absence_of_an_uncarried_field_leaves_a_clean_run_ready():
+    """The whole point of the split, on a report that is otherwise clean: five
+    fields nobody printed, five informational notes, and a shipment that still
+    moves -- with the caveat saying why the list is not empty."""
+    report = absent_on(CUSTOMS_FIELDS[0], NOT_CARRIED_BY)
+    report.comparisons = [absent_on(field, NOT_CARRIED_BY).comparisons[0]
+                          for field in CUSTOMS_FIELDS]
+    report.risk = score_report(report)
+    settled(report)
+    assert report.status_report.info == len(CUSTOMS_FIELDS)
+    assert report.status_report.warning == 0
+    assert report.status_report.banner == "ready"
+    assert report.risk.score == 0
 
 
 # ---------------------------------------------------------------------------

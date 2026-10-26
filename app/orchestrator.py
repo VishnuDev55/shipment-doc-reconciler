@@ -66,6 +66,7 @@ from .models import (
     Summary,
     TokenUsage,
     UnverifiedField,
+    effective_doc_type,
 )
 from .narrative_cache import NarrativeCache
 from .normalize import normalize_field
@@ -286,19 +287,6 @@ def result_source(docs: list[DocumentReport]) -> str:
     if model_backed:
         return "live"
     return "authored"
-
-
-def effective_doc_type(doc: DocumentReport) -> str:
-    """The document type the comparison engine should treat this doc as.
-
-    The user's declaration wins over the model's guess. Live-verified: on a page
-    whose heading plainly reads PACKING LIST, the model reported
-    doc_type=commercial_invoice. That guess is kept in `detected_doc_type` as a
-    signal (a mismatch is worth surfacing), but it must not silently change
-    which fields are treated as expected-to-be-present, or a genuinely absent
-    HS code on a packing list starts looking like a problem.
-    """
-    return doc.declared_doc_type or doc.detected_doc_type or "other"
 
 
 def _sum_usage(attempts: list) -> TokenUsage:

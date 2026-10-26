@@ -16,8 +16,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Literal
 
+from .compare import carrier_uploaded
 from .fields import FieldKey
-from .models import Report, RiskContribution, RiskNote
+from .models import Report, RiskContribution, RiskNote, effective_doc_type
 
 # Points per condition. Sized so a single classification-relevant conflict
 # (HS code or container) clears the high band on its own, a commercial conflict
@@ -65,13 +66,18 @@ class _Award:
 def _awards(report: Report) -> list[_Award]:
     out: list[_Award] = []
     got = {comp.field: comp for comp in report.comparisons}
+    doc_types = [effective_doc_type(d) for d in report.documents]
 
     hs = got.get("hs_code")
     if hs is not None:
         if hs.status == "conflict":
             out.append(_Award("hs_code_conflict", POINTS["hs_code_conflict"],
                               f"HS codes disagree: {hs.reason}", ("hs_code",)))
-        elif hs.status == "absent":
+        elif hs.status == "absent" and carrier_uploaded(hs, doc_types):
+            # Scored only when a document that states HS codes was in the run.
+            # Without one, the field was never in reach: 55 points -- the high
+            # band on its own -- for a shipment nobody asked about its heading
+            # would be the score disagreeing with the finding's own wording.
             out.append(_Award("hs_code_absent", POINTS["hs_code_absent"],
                               "no document states an HS code, so classification "
                               "cannot be verified", ("hs_code",)))

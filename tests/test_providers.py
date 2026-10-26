@@ -400,7 +400,7 @@ def test_declared_doc_type_wins_over_model_guess(tmp_path):
     """A user who says 'this is a packing list' must not have their expectation
     silently rewritten by a model that guessed 'commercial_invoice'."""
     from app.models import ExtractionResponse
-    from app.orchestrator import effective_doc_type
+    from app.models import effective_doc_type
 
     payload = ExtractionResponse.model_validate(
         {"doc_type": "commercial_invoice", "doc_type_reason": "x",

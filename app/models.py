@@ -778,6 +778,23 @@ class DocumentReport(BaseModel):
     verification: dict[FieldKey, FieldVerification] = Field(default_factory=dict)
 
 
+def effective_doc_type(doc: DocumentReport) -> str:
+    """The document type the comparison engine should treat this doc as.
+
+    The user's declaration wins over the model's guess. Live-verified: on a page
+    whose heading plainly reads PACKING LIST, the model reported
+    doc_type=commercial_invoice. That guess is kept in `detected_doc_type` as a
+    signal (a mismatch is worth surfacing), but it must not silently change
+    which fields are treated as expected-to-be-present, or a genuinely absent
+    HS code on a packing list starts looking like a problem.
+
+    Lives beside the model rather than in the orchestrator because three readers
+    need the same answer: the comparison that builds observations, the severity
+    table and the risk score, the last two of which must not import the pipeline.
+    """
+    return doc.declared_doc_type or doc.detected_doc_type or "other"
+
+
 class RunInfo(BaseModel):
     """Version tags. A cached response must never be silently reconciled
     against a newer, incompatible ruleset."""

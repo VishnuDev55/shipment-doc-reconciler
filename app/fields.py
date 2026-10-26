@@ -8,7 +8,8 @@ here, so adding a field means editing this file and nothing else that matters.
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Iterable
+from typing import Literal, cast
 
 DocType = Literal["commercial_invoice", "packing_list", "bill_of_lading",
               "certificate_of_origin", "other"]
@@ -105,6 +106,17 @@ EXPECTED: dict[DocType, frozenset[FieldKey]] = {
     }),
     "other": frozenset(),
 }
+
+
+def carried_by(doc_types: Iterable[str], key: FieldKey) -> bool:
+    """True when one of these document types normally prints this field.
+
+    The question behind every "absent" verdict: a field no uploaded document was
+    ever going to state is a coverage gap in the upload, not a discrepancy in the
+    shipment, and the two have to read differently to a reviewer.
+    """
+    return any(key in EXPECTED.get(cast(DocType, dt), frozenset()) for dt in doc_types)
+
 
 # Human-facing description of where each field usually appears, used in the
 # "absent" reason string so the user can tell expected-absent from worrying.

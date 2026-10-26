@@ -347,8 +347,8 @@ stages already produced and assigning each a level from one table.
 | Level | What earns it |
 |---|---|
 | **CRITICAL** | container number, consignee, HS code (first six digits), country of origin, or an invoice value stated in two currencies |
-| **WARNING** | any other cross-document conflict, a suspicious reading, a document that could not be read, an internal arithmetic failure, a withdrawn unverified value, a cross-field rule at `risk`/`warn` |
-| **INFO** | a difference of counting basis (items against cartons, whatever the two numbers are), the same count printed with different package words, a field only one document stated, a check that did not run, a goods line one document printed alone |
+| **WARNING** | any other cross-document conflict, a suspicious reading, a value missing from a document type that normally prints it, a document that could not be read, an internal arithmetic failure, a withdrawn unverified value, a cross-field rule at `risk`/`warn` |
+| **INFO** | a difference of counting basis (items against cartons, whatever the two numbers are), the same count printed with different package words, a field only one document stated, a field no uploaded document was expected to carry, a check that did not run, a goods line one document printed alone |
 
 Country of origin is the newest entry in the critical band, and it is a judgment
 call rather than a measurement: origin decides the duty rate and whether an FTA
@@ -366,6 +366,20 @@ severity is editing a dict, not chasing conditions. It is a table of *levels*, n
 of scores: the 0-100 customs strip above stays where it is, because "how exposed
 is this entry to customs" and "can this shipment move today" are different
 questions with different answers.
+
+**Absence is two findings, not one.** A field nobody printed splits on whether a
+document that normally prints it was in the run (`carrier_uploaded()` in
+`app/compare/__init__.py`, over the same `EXPECTED` map the comparator uses). If
+one was, the value is missing from paperwork that should have carried it:
+**WARNING**, `{field} stated on no document`. If none was, nobody was ever going
+to state it: **INFO**, `{field} not checked`, worded as an instruction to upload
+the invoice rather than as a defect. Live-tested: a set with no invoice in it
+reported "HS code stated on no document" as a warning *and* 55 risk points — the
+high band on its own — while the comparison row beside it said the absence was
+expected. Both readers now ask the same question first, and the risk strip scores
+`hs_code_absent` only when a carrier was uploaded. An invoice that was uploaded
+and could not be read still counts as a carrier: that is a coverage gap, and the
+`document:failed` warning beside it says so.
 
 The banner is mechanical: any critical → **BLOCKED**, else any warning →
 **REVIEW NEEDED**, else **READY TO SHIP**. It sits above the verdict in the web

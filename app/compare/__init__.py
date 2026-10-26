@@ -11,12 +11,20 @@ output that reads like a product and output that reads like a raw diff.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from rapidfuzz import fuzz
 
-from ..fields import FIELD_KIND, FIELD_LABEL, FIELD_ORDER, EXPECTED, DocType, FieldKey
+from ..fields import (
+    FIELD_KIND,
+    FIELD_LABEL,
+    FIELD_ORDER,
+    EXPECTED,
+    DocType,
+    FieldKey,
+    carried_by,
+)
 from ..models import Comparison, ComparisonValue, ExtractedField, NormalizedField, Status
 
 # ---------------------------------------------------------------------------
@@ -510,3 +518,18 @@ def compare_shipment(
         ]
         comparisons.append(compare_field(key, obs))
     return comparisons
+
+
+def carrier_uploaded(comp: Comparison, doc_types: Iterable[str]) -> bool:
+    """True when a document that normally prints this field was part of the run.
+
+    The question every reader of an `absent` comparison has to answer first: a
+    field no uploaded document was ever going to state is a gap in the upload,
+    while the same field missing from a document that does state it is a gap in
+    the paperwork. Both sources are read because each covers what the other
+    misses -- the values carry the engine's own per-document `expected_here` for
+    every document that was read, and `doc_types` is the run's own list, which
+    still names a document that could not be read and so left no value behind.
+    """
+    return any(v.expected_here for v in comp.values) \
+        or carried_by(doc_types, comp.field)

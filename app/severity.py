@@ -23,14 +23,17 @@ That asymmetry is the whole claim the banner makes, and it is tested.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
-from .compare import LOW_CONFIDENCE, package_basis
+from .compare import LOW_CONFIDENCE, carrier_uploaded, package_basis
+from .fields import TYPICALLY_IN
 from .models import (
     Comparison,
     InternalCheck,
     Report,
     SeverityFinding,
     StatusReport,
+    effective_doc_type,
 )
 from .scoring import MEDIUM_AT
 
@@ -92,11 +95,17 @@ SEVERITY_TABLE: dict[str, str] = {
     # and the engine already says so; a difference of basis is context.
     "comparison:quantity:suspicious:basis": "info",
     "comparison:*:single_source": "info",
-    # Absent is expected for almost every field -- a packing list carries no
-    # invoice value, and saying otherwise would flag all four documents every
-    # time. HS code is the exception because the risk strip already treats its
-    # absence as a classification that cannot be verified at all.
-    "comparison:hs_code:absent": "warning",
+    # Absent splits on one question: was a document uploaded that normally
+    # prints this field? If yes, a value that should have been there is missing
+    # and a human has to go and look -- for the HS code the risk strip scores
+    # that as a classification it cannot verify, and for the rest it is the same
+    # kind of gap on a smaller scale. If no, nothing was ever going to state it:
+    # a bill-of-lading-only run carries no invoice value, and calling that a
+    # warning would flag every upload that is missing a document type it never
+    # claimed to have. The wording of the two has to differ, because "not
+    # printed here" and "printed nowhere" are different instructions to a reader.
+    "comparison:*:absent": "warning",
+    "comparison:*:absent:not_carried": "info",
     # --- documents ------------------------------------------------------
     # "We could not read it" is not "it agrees". Coverage gaps are the finding
     # most likely to be mistaken for a clean run.
@@ -171,7 +180,9 @@ def _difference_of_basis(comp: Comparison) -> bool:
     return bases == {"item", "package"}
 
 
-def _comparison_finding(comp: Comparison) -> SeverityFinding | None:
+def _comparison_finding(
+    comp: Comparison, doc_types: Sequence[str]
+) -> SeverityFinding | None:
     if comp.status == "consistent":
         return None
 
@@ -188,25 +199,40 @@ def _comparison_finding(comp: Comparison) -> SeverityFinding | None:
         row = code = "comparison:quantity:suspicious:basis"
     else:
         code = f"comparison:{comp.field}:{comp.status}"
-        row = code if code in SEVERITY_TABLE else f"comparison:*:{comp.status}"
+        if comp.status == "absent" and not carrier_uploaded(comp, doc_types):
+            code += ":not_carried"
+            row = "comparison:*:absent:not_carried"
+        else:
+            row = code if code in SEVERITY_TABLE else f"comparison:*:{comp.status}"
 
     severity = _lookup(row)
     if severity is None:
         return None
 
     documents = sorted({v.document_label for v in comp.values if v.compare_key})
-    label = comp.label
+    label, detail = comp.label, comp.reason
     if comp.status == "single_source":
         label = f"{comp.label} checked by nobody"
     elif comp.status == "absent":
-        label = f"{comp.label} stated on no document"
+        if row.endswith(":not_carried"):
+            # Says what was not done, not what is wrong with the paperwork: the
+            # engine's own reason already calls this absence expected, and a
+            # finding that reads as a defect would contradict the row it sits in.
+            label = f"{comp.label} not checked"
+            detail = (f"Not checked: no document that normally carries "
+                      f"{comp.label.lower()} was uploaded -- it is usually found "
+                      f"on {TYPICALLY_IN[comp.field]}. Nothing disagreed, because "
+                      f"nothing was asked. Upload one of those documents and this "
+                      f"field is compared too.")
+        else:
+            label = f"{comp.label} stated on no document"
 
     return SeverityFinding(
         code=code,
         severity=severity,  # type: ignore[arg-type]
         source="comparison",
         label=label,
-        detail=comp.reason,
+        detail=detail,
         fields=[comp.field],
         documents=documents,
     )
@@ -219,9 +245,10 @@ def findings(report: Report) -> list[SeverityFinding]:
     wrote: no document is re-opened, no value is re-decided.
     """
     out: list[SeverityFinding] = []
+    doc_types = [effective_doc_type(d) for d in report.documents]
 
     for comp in report.comparisons:
-        finding = _comparison_finding(comp)
+        finding = _comparison_finding(comp, doc_types)
         if finding is not None:
             out.append(finding)
 
@@ -356,7 +383,8 @@ def derive_banner(
     caveat = ""
     if banner == "ready" and unchecked:
         caveat = (f"{unchecked} informational item(s) sit below this. Some are "
-                  f"fields only one document stated, which nothing compared; "
+                  f"fields no uploaded document was expected to carry, so nothing "
+                  f"could compare them; some are fields only one document stated; "
                   f"others are arithmetic checks that were not enabled. Ready "
                   f"means nothing was found to block, not that everything was "
                   f"checked.")
