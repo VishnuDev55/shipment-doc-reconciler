@@ -183,16 +183,16 @@ standing. So a CI run spending a provider key is not a risk to manage, it is a
 thing the tests refuse to do.
 
 **Status: observed on GitHub, and it went red before it went green.** The first
-run ever executed (2026-10-23, commit `bc61e92`, run 39914486048) failed all four
+run ever executed (2026-10-23, commit `6131bc7`, run 39914486048) failed all four
 Python jobs — and passed `docker` — because `requirements-dev.txt` pinned
 `pytest==9.1.1` while `pytest-playwright==0.7.1` declares `pytest<9`, so a fresh
 clone could not resolve the dev extras at all. The suite died in dependency
 resolution before running a single test; nothing in `app/` was implicated, and the
 local run never saw it because this machine has 8.4.2 installed. Pinning pytest to
-`8.4.2` (commit `bf258db`) fixed it, verified by a clean-venv dry run before
+`8.4.2` (commit `7c9e26b`) fixed it, verified by a clean-venv dry run before
 pushing rather than by spending another CI attempt.
 
-Run 39915598051 on `bf258db` is the observed green: `lint-and-test` on 3.11 and
+Run 39915598051 on `7c9e26b` is the observed green: `lint-and-test` on 3.11 and
 3.12, the coverage floor, the chromium `DEMO_MODE` browser suite, and the docker
 build with its smoke test and `HEALTHCHECK` — five jobs, all `success`.
 
