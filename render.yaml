@@ -103,17 +103,23 @@ services:
         sync: false
       - key: NEBIUS_API_KEY
         sync: false
-      # The instance will not start without API_KEYS. That is deliberate, and it
-      # is the second of two reasons this file is safe to deploy: DEMO_MODE is
-      # "false", so the app is serving other people's commercial documents over
-      # the public internet, and a blank API_KEYS makes every route -- including
-      # /page/, which reads files out of the run directory -- answer to anybody
-      # who finds the URL. Render leaves an unset secret empty, so the alternative
-      # to setting this one is a boot that fails loudly rather than a deployment
-      # that is quietly open. Generate one with `python -c "import secrets;
-      # print(secrets.token_urlsafe(24))"` and paste it into the dashboard.
+      # This instance is open, and says so. A blank API_KEYS makes every route
+      # -- including /page/, which reads files out of the run directory --
+      # answer to anybody who finds the URL, so the app refuses to boot that way
+      # unless the deployment admits it is intended. This one is a public demo:
+      # the daily cap is the money guard, run ids are random and their files are
+      # deleted after RUN_TTL_HOURS, and the three bundled samples cost nothing.
+      # Do not put real commercial documents on it.
+      #
+      # To key it instead: generate a key with
+      #   python -c "import secrets; print(secrets.token_urlsafe(24))"
+      # paste it into the dashboard's API_KEYS secret, and delete the
+      # ALLOW_OPEN_LIVE_DEPLOY entry below. The app then gates every data route
+      # -- the bundled samples included -- to whoever holds the key.
       - key: API_KEYS
         sync: false
+      - key: ALLOW_OPEN_LIVE_DEPLOY
+        value: "1"
       # /api/config never returns a key in full, but with a blank CONFIG_TOKEN it
       # does return the first five and last four characters of each one to
       # whoever holds an API key -- enough, on a shared key, to make a real guess

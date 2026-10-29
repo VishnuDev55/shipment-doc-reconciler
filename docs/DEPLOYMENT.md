@@ -17,9 +17,17 @@ bodies all live under it, and losing the container layer loses your history.
 With no keys set, add `DEMO_MODE=true` to the environment or edit the compose
 file; the bundled cache replays real captured model responses. Going the other way
 — live, with no `API_KEYS` — is no longer a state the container will start in: it
-raises at boot and names the two ways out. `docker-compose.yml` passes `API_KEYS`
+raises at boot and names the ways out. `docker-compose.yml` passes `API_KEYS`
 through from your `.env` rather than inventing a default, because a default key
 committed to a repository is not a key.
+
+**The hosted blueprint is the open case, and says so.** `render.yaml` deploys
+live with `ALLOW_OPEN_LIVE_DEPLOY=1`: it is a public demo, so the daily cap is the
+money guard, run ids are random and their files are deleted at the TTL. Delete
+that line and paste a key into the dashboard's `API_KEYS` secret to turn the same
+blueprint into a keyed service — at which point the bundled samples need the key
+too. The CI Docker smoke runs the blueprint's configuration, so a blueprint that
+stops booting fails CI before it fails a deploy.
 
 For a bare run without compose:
 

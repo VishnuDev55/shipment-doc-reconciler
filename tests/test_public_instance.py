@@ -238,6 +238,25 @@ def test_the_boot_gate_is_lifted_only_by_saying_so(tmp_path) -> None:
         assert client.get("/api/health").status_code == 200
 
 
+def test_the_blueprint_states_whether_it_is_open_or_keyed() -> None:
+    """The file that decides what a deployed URL exposes has to say so.
+
+    This blueprint is live and leaves API_KEYS for the dashboard to fill, so the
+    only way it can boot is the explicit opt-out. Deleting that line would stop
+    the deployment rather than quietly serving documents to anyone who finds it
+    -- and this test is where the choice is written down, so a future edit that
+    removes it is a decision rather than a slip.
+    """
+    import yaml
+
+    blueprint = yaml.safe_load((REPO / "render.yaml").read_text(encoding="utf-8"))
+    env = {e["key"]: e.get("value") for e in blueprint["services"][0]["envVars"]}
+    assert env["DEMO_MODE"] == "false", "render.yaml is the live deployment"
+    assert str(env.get("ALLOW_OPEN_LIVE_DEPLOY", "")).lower() in {"1", "true"}, (
+        "a live blueprint with a dashboard-filled API_KEYS cannot boot without "
+        "ALLOW_OPEN_LIVE_DEPLOY, so it would fail on deploy instead of running")
+
+
 # ---------------------------------------------------------------------------
 # the cap under concurrency
 # ---------------------------------------------------------------------------
