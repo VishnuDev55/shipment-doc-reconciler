@@ -15,7 +15,11 @@ the database here: `report.json`, the page JPEGs, the uploads and the raw model
 bodies all live under it, and losing the container layer loses your history.
 
 With no keys set, add `DEMO_MODE=true` to the environment or edit the compose
-file; the bundled cache replays real captured model responses.
+file; the bundled cache replays real captured model responses. Going the other way
+— live, with no `API_KEYS` — is no longer a state the container will start in: it
+raises at boot and names the two ways out. `docker-compose.yml` passes `API_KEYS`
+through from your `.env` rather than inventing a default, because a default key
+committed to a repository is not a key.
 
 For a bare run without compose:
 
@@ -35,14 +39,33 @@ build itself now verified to exit 0). It runs as an unprivileged `appuser`, and
 dashboard and it creates the service with the right Dockerfile, health-check
 path and environment.
 
-The committed blueprint is the **keyless demo**:
+The committed blueprint is **live mode**, because a visitor's own upload is the
+point of the tool:
 
 ```yaml
-DEMO_MODE: "true"          # replays the bundled cache
+DEMO_MODE: "false"           # real uploads; the three samples still replay from cache
 GUI_CONFIG_ENABLED: "false"  # no anonymous writes to process-global keys
-API_KEYS: ""               # set this before exposing the API to anyone
+USD_DAILY_CAP: "2.00"
+MAX_DOCUMENTS: "3"
+MAX_PAGES_PER_DOCUMENT: "4"
+RUN_TTL_HOURS: "24"
 RUNS_DIR: /tmp/shipment-runs # ephemeral on the free tier, by design
 ```
+
+and four `sync: false` secrets you set in the dashboard, which is the only place
+they can go: `NVIDIA_API_KEY`, `NEBIUS_API_KEY`, `API_KEYS`, `CONFIG_TOKEN`.
+
+This section used to show `DEMO_MODE: "true"` with `API_KEYS: ""` while
+`render.yaml` said `"false"`. The disagreement mattered because of the boot gate
+below.
+
+**A live instance will not start without `API_KEYS`.** `_lifespan`
+(`app/main.py:90`) raises `RuntimeError` when `DEMO_MODE=false` and the key list is
+empty, so Render's "secret not set yet" state produces a service that fails
+visibly rather than one that quietly serves every route to the internet. Generate
+one with `python -c "import secrets; print(secrets.token_urlsafe(24))"`. If the
+thing in front of your instance genuinely authenticates, say so on purpose with
+`ALLOW_OPEN_LIVE_DEPLOY=1`.
 
 Two things to know before you change it:
 
@@ -56,9 +79,18 @@ Two things to know before you change it:
   and raw bodies), so nothing is lost that a reviewer would see, but a shared
   deployment needs a persistent disk.
 
-To make it a live instance: set `NVIDIA_API_KEY` and `NEBIUS_API_KEY` as secret
-env vars in the dashboard, flip `DEMO_MODE` to `"false"`, and leave
-`GUI_CONFIG_ENABLED` false. Do not put real keys in `render.yaml`.
+To put it on real keys: set `NVIDIA_API_KEY` and `NEBIUS_API_KEY` as secret env
+vars in the dashboard, set `API_KEYS` (required — the app will not boot live
+without it) and `CONFIG_TOKEN`, and leave `GUI_CONFIG_ENABLED` false. Do not put
+real keys in `render.yaml`.
+
+`LIVE_CACHE_DIR` is worth a line here even though the blueprint does not set it. A
+live run's captured responses are written to `$PROJECT_ROOT/.live_cache/responses`
+(gitignored), never into `fixtures/responses`, because that directory is tracked,
+reviewed provenance the samples replay byte-for-byte. On Render the path lands on
+ephemeral disk like the runs do, so a redeploy loses the cache and the next upload
+pays for its own reading — which is the correct failure, not a wrong answer. Point
+it at a persistent disk if you attach one.
 
 The exact steps, in order:
 

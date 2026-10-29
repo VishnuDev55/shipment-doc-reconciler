@@ -11,12 +11,20 @@ Interactive docs are served by the app itself at **`/docs`** (OpenAPI at
 
 ## Authentication
 
-The app is open by default, which is right on a laptop and wrong on a shared
-host. Set `API_KEYS` to turn it into a keyed service:
+The app is open by default in **demo** mode, which is right on a laptop and wrong
+on a shared host. A **live** instance will not start open at all: `DEMO_MODE=false`
+with an empty `API_KEYS` raises at boot, because blank keys and live mode together
+leave every route below — including `/page/`, which reads files out of the run
+directory — answering to anyone who can reach the port. Set `API_KEYS` to turn it
+into a keyed service:
 
 ```bash
 API_KEYS="k-live-2f7c…,k-partner-9be1…"   # comma-separated; any one is accepted
 ```
+
+If something in front of the instance already authenticates, opt out of the boot
+check explicitly with `ALLOW_OPEN_LIVE_DEPLOY=1` rather than leaving `API_KEYS`
+blank and hoping the default is understood.
 
 Then every data-bearing route requires a key:
 
@@ -101,7 +109,7 @@ implies, written by rule with no model call), `summary`, `narrative`, `briefing`
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/health` | Status, both providers' readiness, model discovery results, `api_protected`. Always open |
+| `GET` | `/api/health` | Status, `mode`, and `api_protected`. Always open. On a keyed deployment it also reports both providers' readiness and model discovery results **only to a caller holding a key or a session** — a liveness probe needs "is it up", not the model ids and hostnames |
 | `POST` | `/api/session` | Exchange an API key for the browser session cookie |
 | `DELETE` | `/api/session` | Revoke the current session |
 | `GET` | `/api/fixtures` | The three bundled demo shipments |
@@ -110,7 +118,7 @@ implies, written by rule with no model call), `summary`, `narrative`, `briefing`
 | `GET` | `/api/shipments` | Ids of runs held on disk |
 | `GET` | `/api/shipments/{id}/report` | The full report (see above) |
 | `GET` | `/api/shipments/{id}/events` | Server-sent events: `event: stage` frames per document (queued/reading/verifying/comparing/done/failed, with provider, model and elapsed ms) plus `event: report` on each write, so progress is pushed rather than polled |
-| `POST` | `/api/shipments/{id}/retry` | Re-read one failed document. Body `{"document_id": "…"}` |
+| `POST` | `/api/shipments/{id}/retry` | Re-read one failed document. Body `{"document_id": "…"}`. **Billed**: shares the upload's cap check, rate limit and reservation, and is refused with 429 before the document row changes |
 | `POST` | `/api/shipments/{id}/documents/{docId}/fields/{field}` | Correct one value. Body `{"value": "…", "actor": "…", "note": "…"}` |
 | `POST` | `/api/shipments/{id}/documents/{docId}/fields/{field}/revert` | Undo the active correction |
 | `GET` | `/api/shipments/{id}/corrections` | The audit trail, active and reverted |

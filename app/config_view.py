@@ -8,10 +8,9 @@ actually typed".
 
 from __future__ import annotations
 
-import hmac
-
 from fastapi import HTTPException, Request
 
+from .auth import secret_matches
 from .config import _usable
 
 MASK_MARK = "…"
@@ -39,7 +38,7 @@ def _require_config_token(request: Request) -> None:
     if not expected:
         return
     supplied = request.headers.get("x-config-token", "")
-    if not hmac.compare_digest(supplied, expected):
+    if not secret_matches(supplied, expected):
         raise HTTPException(401, "a valid X-Config-Token header is required for this deployment")
 
 

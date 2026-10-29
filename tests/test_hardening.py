@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -82,6 +83,118 @@ def test_a_decompression_bomb_is_refused_before_it_is_decoded():
 
 def test_the_ceiling_is_a_number_we_chose_in_one_place():
     assert ingest_module.MAX_IMAGE_PIXELS == Image.MAX_IMAGE_PIXELS
+
+
+# ---------------------------------------------------------------------------
+# R14: the same ceiling, applied to what a PDF *declares* before it is drawn
+# ---------------------------------------------------------------------------
+
+
+def _pdf(page_points: tuple[float, float], pages: int = 1) -> bytes:
+    import io
+
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=page_points)
+    for _ in range(pages):
+        c.drawString(40, max(page_points[1] - 40, 10), "page")
+        c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def test_a_page_that_declares_a_ludicrous_size_is_never_drawn_at_full_scale(monkeypatch):
+    """Break caught: a sub-MiB PDF may declare a 14400x14400 pt page, and
+    `rasterize_pdf` handed every page to pypdfium2 at a fixed scale of 2.0 --
+    28800x28800 px, ~830 MP, ~3 GB of bitmap per page. The ceiling that refuses
+    such an image never saw it, because it guards the Pillow path.
+
+    Asserted on the scale actually passed to `render`, because the page that
+    comes back is resized to the long edge either way: the output is small with
+    or without the fix, and only the allocation is the vulnerability.
+    """
+    raw = _pdf((14400, 14400))
+    drawn: list[tuple[float, float, float]] = []
+    real_document = ingest_module.pdfium.PdfDocument
+
+    def spy(raw):
+        doc = real_document(raw)
+
+        class _Page:
+            def __init__(self, page):
+                self._page = page
+
+            def get_size(self):
+                return self._page.get_size()
+
+            def render(self, **kw):
+                w, h = self._page.get_size()
+                drawn.append((w, h, float(kw.get("scale", 1.0))))
+                return self._page.render(**kw)
+
+        class _Doc:
+            def __len__(self):
+                return len(doc)
+
+            def __getitem__(self, i):
+                return _Page(doc[i])
+
+            def close(self):
+                doc.close()
+
+        return _Doc()
+
+    monkeypatch.setattr(ingest_module.pdfium, "PdfDocument", spy)
+    ingest_module.rasterize_pdf(raw, max_pages=1)
+
+    assert drawn, "the page was never drawn, so nothing was measured"
+    for w, h, scale in drawn:
+        assert (w * scale) * (h * scale) <= ingest_module.MAX_IMAGE_PIXELS, (
+            f"a {w:.0f}x{h:.0f} pt page drawn at {scale} asks for "
+            f"{(w * scale) * (h * scale) / 1e6:.0f} MP"
+        )
+
+
+def test_the_declared_size_decides_the_scale_before_the_page_is_drawn():
+    """The clamp is derived from the page's own numbers, so a big page is drawn
+    smaller rather than refused: every page is resized to the long edge moments
+    later anyway, and a reader of a 14400 pt poster still gets their document."""
+    scale = ingest_module._render_scale(14400, 14400, scale=2.0, long_edge=1600)
+    assert (14400 * scale) * (14400 * scale) <= ingest_module.MAX_IMAGE_PIXELS
+    assert 14400 * scale <= 1600 * 2, "no point drawing larger than twice the output"
+
+    # An ordinary A4 page is untouched by all of this.
+    assert ingest_module._render_scale(595, 842, scale=2.0, long_edge=1600) == 2.0
+
+
+def test_a_pdf_that_takes_too_long_to_draw_is_stopped(monkeypatch):
+    """Break caught: an unbounded render loop turns one document into the whole
+    instance's CPU, and the upload timeout does not cover a sync threadpool call
+    that is already running.
+
+    The clock is moved rather than the deadline set to zero: a Windows
+    monotonic clock can report the same tick twice, and a check that passes at
+    0.0 s elapsed would let this test pass by accident.
+    """
+    raw = _pdf((2000, 2000), pages=4)
+
+    class _Clock:
+        """Replaces `ingest.time` (the name in that module, not the stdlib
+        module) so the moved clock cannot affect anything else in the run."""
+
+        def __init__(self, ticks):
+            self._ticks = iter(ticks)
+
+        def monotonic(self):
+            return next(self._ticks)
+
+    monkeypatch.setattr(ingest_module, "time",
+                        _Clock([0.0, 0.0, 1.0, 500.0, 500.0, 500.0]))
+
+    with pytest.raises(ValueError, match="too long"):
+        ingest_module.rasterize_pdf(raw, max_pages=6, deadline_seconds=30.0)
+
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +512,60 @@ def test_reading_a_report_is_never_rate_limited(tmp_path):
         assert client.get(f"/api/shipments/{sid}/report").status_code == 200
 
 
+def test_a_retry_is_refused_when_the_day_has_no_money_left(tmp_path):
+    """Break caught: /retry reaches a live vision call but was never gated, so a
+    shipment refused at the door could still be paid for, one document at a time,
+    through the back of it."""
+    from app import budget
+
+    settings = settings_for(tmp_path, demo_mode=False, usd_daily_cap=0.05)
+    configure(Reconciler(settings))
+    client = TestClient(app)
+    sid = client.get("/api/fixture/shipment_clean").json()["shipment_id"]
+    doc_id = client.get(f"/api/shipments/{sid}/report").json()["documents"][0]["id"]
+    before = _doc_status(client, sid, doc_id)
+
+    # Spend the day through the real ledger path.
+    budget.record_call(settings, "nebius", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+                       {"prompt": 1_000_000, "completion": 0})
+
+    res = client.post(f"/api/shipments/{sid}/retry", json={"document_id": doc_id})
+    assert res.status_code == 429, res.text
+    assert "Retry-After" in res.headers
+    # Refusal must happen before the row is touched: a document marked "running"
+    # by a retry that never ran is a lie the reviewer polls for.
+    assert _doc_status(client, sid, doc_id) == before
+
+
+def _doc_status(client, sid: str, doc_id: str) -> str:
+    body = client.get(f"/api/shipments/{sid}/report").json()
+    return next(d["status"] for d in body["documents"] if d["id"] == doc_id)
+
+
+def test_a_retry_holds_its_estimate_against_the_cap(tmp_path):
+    """Break caught: two retries arriving together each read a ledger that has
+    not been written yet, both pass, and both bill."""
+    from app import budget
+
+    settings = settings_for(tmp_path, demo_mode=False)
+    # A day that fits exactly one document's worst case, derived from the
+    # estimate the gate itself uses: what is under test is whether a second run
+    # can see the first's intention, not what a page costs.
+    one = budget.estimate_run_usd(settings, 1, provider="nvidia")
+    settings = settings_for(tmp_path, demo_mode=False, usd_daily_cap=one * 1.5)
+    rec = Reconciler(settings)
+    configure(rec)
+    client = TestClient(app)
+    sid = client.get("/api/fixture/shipment_clean").json()["shipment_id"]
+    ids = [d["id"] for d in client.get(f"/api/shipments/{sid}/report").json()["documents"]]
+
+    # One document's worth of reservation, then a second that cannot fit.
+    rec._reserve_spend(sid, 1, key=f"{sid}:{ids[0]}")
+    assert budget.pending_total() > 0.0
+    with pytest.raises(budget.SpendCapReached):
+        rec._reserve_spend(sid, 1, key=f"{sid}:{ids[1]}")
+
+
 def test_health_is_not_rate_limited_even_at_zero(tmp_path):
     configure(Reconciler(settings_for(tmp_path, run_limit_per_minute=1)))
     client = TestClient(app)
@@ -443,3 +610,233 @@ def test_no_cors_headers_by_default(tmp_path):
     client = TestClient(app)
     res = client.get("/api/health", headers={"Origin": "https://elsewhere.test"})
     assert "access-control-allow-origin" not in res.headers
+
+
+# ---------------------------------------------------------------------------
+# R16: the standalone report is the one artifact with no CSP
+# ---------------------------------------------------------------------------
+
+
+def _hostile_report(value: str):
+    """A one-conflict report carrying attacker-chosen text in the reason, the
+    document label, the raw value and the canonical value.
+
+    Built through the real models rather than a dict, because the shapes the
+    template reads are the shapes that have to be escaped.
+    """
+    from app.models import Comparison, ComparisonValue, Report, RunInfo
+
+    report = Report(shipment_id="s", created_at="now", updated_at="now")
+    report.run = RunInfo(prompt_version="t", normalizer_version="t",
+                         comparator_version="t", model="m", vision_provider="nvidia",
+                         summary_model="s", summary_provider="nebius",
+                         demo_mode=True, json_schema_mode="strict",
+                         result_source="authored", live_calls=0, usd_per_mtok=0.0)
+    report.comparisons = [Comparison(
+        field="hs_code", label="HS code", kind="hs_code", status="conflict",
+        reason=value,
+        values=[ComparisonValue(document_id="d", document_label=value,
+                                doc_type="other", page_index=1, raw_value=value,
+                                canonical=value, compare_key=value, confidence=0.9,
+                                warnings=[])],
+    )]
+    return report
+
+
+@pytest.mark.parametrize("value", [
+    "<script>alert(1)</script>",
+    "</td></tr><script>document.cookie</script>",
+    '"><img src=x onerror=alert(1)>',
+    "]]>&<xmp>-",
+])
+def test_document_text_cannot_mark_up_the_standalone_report(value):
+    """Break caught: docs/SECURITY.md cited `tests/test_lineitems.py` as the pin
+    for this, and no such assertion existed anywhere.
+
+    The standalone HTML leaves the app as a file -- mailed, saved to a desktop,
+    opened from a USB stick -- so unlike the served pages it inherits no
+    Content-Security-Policy header. Escaping is the only thing between a
+    document's text and execution, which is precisely why it needs a test rather
+    than a sentence in a doc.
+    """
+    import html
+
+    from app.export import standalone_html
+
+    page = standalone_html(_hostile_report(value))
+    # quote=True, because these values land inside attributes as well as between
+    # tags -- a check that only escaped `<` and `>` would pass a payload built out
+    # of a closing quote.
+    assert html.escape(value) in page, "the value must survive as text"
+    assert "<script" not in page.lower(), "and must not arrive as an element"
+    assert "<img src=x" not in page, "no element may be assembled from document text"
+
+
+# ---------------------------------------------------------------------------
+# R17: a filename is text, and text does not get to contain line breaks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("hostile", [
+    "invoice\r\nApproved by: accounts.png",
+    "invoice\n\nURGENT: pay to IBAN X.png",
+    "invoice\tTOTAL: 0.png",
+    "invoice\x00\x1b[2J.png",
+])
+def test_a_filename_cannot_put_control_characters_into_a_label(hostile):
+    """Break caught: `short_label` copied the filename into the label, and the
+    label is rendered into the draft email and the report. A carriage return in a
+    name is enough to start a new line of the letter or forge a header-shaped
+    line in a text client, and a tab or an escape sequence can reorder what a
+    terminal shows about a shipment.
+    """
+    from app.orchestrator import short_label
+
+    label = short_label(hostile, 1)
+    assert not any(ord(ch) < 32 or ord(ch) == 127 for ch in label), repr(label)
+    assert label.strip(), "the label must not be emptied by the cleaning"
+
+
+def test_an_ordinary_filename_keeps_its_unicode():
+    """The cleaning must not be a sledgehammer: accented names and CJK are data
+    a reviewer needs, and only control characters are being removed."""
+    from app.orchestrator import short_label
+
+    assert "Gutschrift" in short_label("Gutschrift Müller.pdf", 1)
+    assert "発票" in short_label("発票.pdf", 1)
+
+
+# ---------------------------------------------------------------------------
+# R18: a spreadsheet is a program, and a cell can be a program too
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("payload", [
+    '=HYPERLINK("http://evil.test","click me")',
+    "+1+cmd|' /C calc'!A0",
+    "-2+3",
+    "@SUM(1+1)*cmd|' /C calc'!A0",
+    "\t=1+1",
+    "\r=1+1",
+])
+def test_a_document_value_cannot_start_a_formula_in_the_csv_export(payload):
+    """Break caught: report.csv is written from document text with no cell
+    treatment, so a field whose value begins `=`, `+`, `-`, `@`, tab or CR opens
+    in Excel, LibreOffice or Sheets as a formula. The attacker does not need the
+    reviewer to click anything -- the payload runs when the file is opened, and
+    the reviewer was sent it precisely because they are the person with access.
+    """
+    import csv as csv_module
+    import io
+
+    from app.export import report_csv
+
+    rows = list(csv_module.reader(io.StringIO(report_csv(_hostile_report(payload)))))
+    header, first = rows[0], rows[1]
+    value = first[header.index("raw_value")]
+
+    assert not value.startswith(("=", "+", "-", "@", "\t", "\r")), value
+    assert payload in value, "the value must still be readable, not dropped"
+
+
+def test_a_negative_amount_is_still_a_number_not_a_formula():
+    """The blunt fix -- prefix every `-` -- would put a quote in front of every
+    negative amount in every export. Only a `-` that does not parse as a number
+    is a formula."""
+    import csv as csv_module
+    import io
+
+    from app.export import report_csv
+
+    rows = list(csv_module.reader(io.StringIO(report_csv(_hostile_report("-1,234.00")))))
+    header, first = rows[0], rows[1]
+    value = first[header.index("raw_value")]
+    assert value == "-1,234.00"
+
+
+# ---------------------------------------------------------------------------
+# R19: who the limiter thinks you are is not your decision
+# ---------------------------------------------------------------------------
+
+
+def _request_with(headers: dict[str, str]):
+    from starlette.requests import Request
+
+    return Request({
+        "type": "http", "method": "POST", "path": "/api/shipments",
+        "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+        "client": ("203.0.113.9", 51234),
+    })
+
+
+def test_a_caller_cannot_pick_their_own_rate_limit_bucket(tmp_path):
+    """Break caught: `_client_key` always believed the first hop of
+    X-Forwarded-For, so a caller could send a different value on every request
+    and never share a bucket with themselves. `RUN_LIMIT_PER_MINUTE` was
+    therefore a limit on well-behaved clients only.
+
+    Believing the header is only correct when something you control sets it, so
+    it is now off unless the deployment says a trusted proxy is in front.
+    """
+    from app.ratelimit import _client_key
+
+    configure(Reconciler(settings_for(tmp_path)))
+    spoofed = _request_with({"x-forwarded-for": "198.51.100.7, 10.0.0.1"})
+    assert _client_key(spoofed) == "ip:203.0.113.9", (
+        "the peer address is the only identity a caller cannot choose"
+    )
+
+
+def test_a_trusted_proxy_still_gets_to_say_who_the_client_is(tmp_path):
+    """The other half: behind a proxy the peer address is the proxy's, so every
+    visitor would share one bucket. Naming the proxy is how a deployment opts
+    back in to the forwarded identity."""
+    from app.ratelimit import _client_key
+
+    configure(Reconciler(settings_for(tmp_path, trusted_proxy=True)))
+    forwarded = _request_with({"x-forwarded-for": "198.51.100.7, 10.0.0.1"})
+    assert _client_key(forwarded) == "ip:198.51.100.7"
+
+
+def test_a_supplied_key_still_wins_over_the_address(tmp_path):
+    """A key is a better identity than an address when one is offered, and that
+    does not change: a shared key is one budget by design."""
+    from app.ratelimit import _client_key
+
+    configure(Reconciler(settings_for(tmp_path)))
+    keyed = _request_with({"x-api-key": "k-live-000000000042",
+                           "x-forwarded-for": "198.51.100.7"})
+    assert _client_key(keyed) == "key:000000000042"
+
+
+# ---------------------------------------------------------------------------
+# R20: the export is the artifact that leaves the building, so it carries its own policy
+# ---------------------------------------------------------------------------
+
+
+def test_the_standalone_report_ships_a_content_security_policy():
+    """Break caught: the served pages get a CSP header from `security_headers`,
+    and the standalone report gets nothing -- because it is not served, it is
+    saved, mailed and opened from a desktop. It therefore has no origin, no
+    header and no server, which makes an inline policy the only place a rule can
+    live. The escaping is the actual control; this is the second lock, for the
+    markup that a future editor adds without escaping.
+    """
+    from app.export import standalone_html
+
+    page = standalone_html(_hostile_report("plain"))
+
+    match = re.search(
+        r'<meta http-equiv="Content-Security-Policy" content="([^"]+)"', page, re.I)
+    assert match, "the standalone export must carry a CSP of its own"
+    policy = match.group(1)
+
+    assert "default-src 'none'" in policy, policy
+    assert "script-src" not in policy, (
+        "no directive may re-permit scripts; default-src 'none' is the whole point"
+    )
+    assert "style-src 'unsafe-inline'" in policy, "the layout is inline <style>"
+    assert "img-src data:" in policy, "evidence pages are embedded as data: URIs"
+
+    head = page.split("</head>", 1)[0]
+    assert "Content-Security-Policy" in head, "a meta CSP outside <head> is ignored"

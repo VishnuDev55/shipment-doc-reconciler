@@ -40,7 +40,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpe
 
 from . import budget
 from .cache import ResponseCache, cache_key
-from .config import LINEITEMS_PROMPT_VERSION, Settings, get_settings
+from .config import LINEITEMS_PROMPT_VERSION, Settings, cache_write_dir, get_settings
 from .fields import FieldKey
 from .ingest import PageImage
 from .models import (
@@ -479,7 +479,11 @@ class ExtractionClient(ChatClient):
         self.settings = settings or get_settings()
         super().__init__(vision_endpoint(self.settings), self.settings, raw_dir=raw_dir)
         self.spend_note = "extraction"
-        self.cache = ResponseCache(self.settings.cache_dir)
+        live_dir = cache_write_dir(self.settings)
+        self.cache = ResponseCache(
+            [self.settings.cache_dir, live_dir],
+            write_dir=live_dir,
+        )
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrency)
 
     async def extract_document(

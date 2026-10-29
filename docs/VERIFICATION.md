@@ -61,6 +61,7 @@ new test in the wrong shape could have spent real credits in CI.
 | `test_fixture_truth.py` | The fixture data has to be true to the page it claims to show |
 | `test_hardening.py` | Tests for the Phase 4 hardening: what an upload is allowed to be, what it is |
 | `test_lineitems.py` | Goods-line matching: opt-in, exact, and incapable of moving a verdict |
+| `test_live_cache_split.py` | live writes stay out of the tracked fixture tree: where a write may land, read order, the authored fallback's scope, and a live run that leaves `fixtures/` byte-identical |
 | `test_live_fixtures.py` | captured **live** responses; transcription and confidence quirks pinned |
 | `test_mathcheck.py` | Arithmetic inside one document: pass, fail, and within tolerance |
 | `test_narrative_cache.py` | The executive-summary cache: verdict-keyed, disk-backed, tolerant of junk |

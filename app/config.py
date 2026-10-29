@@ -96,6 +96,19 @@ class Settings(BaseSettings):
     # Compared in constant time and never echoed back or logged.
     api_keys: str = Field(default="", alias="API_KEYS")
 
+    # Whether something you control sets X-Forwarded-For. Off by default, because
+    # with nothing in front of the app the header is simply whatever the caller
+    # typed: reading it unconditionally let any client rotate its own rate-limit
+    # bucket by sending a new value per request. Turn it on behind a proxy you
+    # run, where the header is written by that proxy and not by the visitor.
+    trusted_proxy: bool = Field(default=False, alias="TRUSTED_PROXY")
+
+    # Lift the boot gate that refuses a live instance with no API_KEYS. Exists so
+    # an operator on a private network can run open without editing code; it is
+    # named for what it does, so nobody turns it on by reading a comment about
+    # "disabling security". Nothing else in the app reads it.
+    allow_open_live_deploy: bool = Field(default=False, alias="ALLOW_OPEN_LIVE_DEPLOY")
+
     @property
     def api_key_list(self) -> list[str]:
         return [k.strip() for k in (self.api_keys or "").split(",") if k.strip()]
@@ -127,6 +140,39 @@ class Settings(BaseSettings):
     runs_dir: Path = Field(default=PROJECT_ROOT / "runs", alias="RUNS_DIR")
     cache_dir: Path = Field(default=PROJECT_ROOT / "fixtures" / "responses", alias="CACHE_DIR")
 
+    # Where a live run's captured responses are WRITTEN. Deliberately not under
+    # RUNS_DIR: `store.purge_older_than()` rmtree's every subdirectory of the runs
+    # root older than RUN_TTL_HOURS, so a cache that lived there would be deleted
+    # at startup on any instance that sets a TTL -- which render.yaml does.
+    #
+    # Reads still check `CACHE_DIR` first, so the committed tree cannot be
+    # shadowed by a file a model produced. Before this setting existed, every
+    # live answer was written into the tracked fixture directory, where one
+    # `git add -A` would commit another company's shipment as if it were a
+    # hand-authored sample and the report's "captured response" provenance line
+    # would stop being a claim anybody could check.
+    # Where a live run's captured responses are WRITTEN. Deliberately not under
+    # RUNS_DIR: `store.purge_older_than()` rmtree's every subdirectory of the runs
+    # root older than RUN_TTL_HOURS, so a cache that lived there would be deleted
+    # at startup on any instance that sets a TTL -- which render.yaml does.
+    #
+    # Reads still check `CACHE_DIR` first, so the committed tree cannot be
+    # shadowed by a file a model produced. Before this setting existed, every
+    # live answer was written into the tracked fixture directory, where one
+    # `git add -A` would commit another company's shipment as if it were a
+    # hand-authored sample.
+    #
+    # None means "work it out from cache_dir" -- see `cache_write_dir()`, which
+    # is a function rather than a validator because tests build settings with
+    # `model_copy(update=...)`, and a validator does not run on that path.
+    live_cache_dir: Path | None = Field(default=None, alias="LIVE_CACHE_DIR")
+
+    # Age after which entries in the live cache are deleted at startup. Zero keeps
+    # everything, like RUN_TTL_HOURS: on a laptop a cache is a convenience, on a
+    # public instance it is a disk that fills with other people's documents. The
+    # committed fixture tree is never pruned, whatever this says.
+    live_cache_ttl_hours: int = Field(default=0, alias="LIVE_CACHE_TTL_HOURS")
+
     max_documents: int = Field(default=5, alias="MAX_DOCUMENTS")
 
     # Age after which runs under RUNS_DIR are deleted at startup. Zero -- the
@@ -153,6 +199,15 @@ class Settings(BaseSettings):
     # On a free Render plan the ledger lives on an ephemeral volume, so a
     # redeploy resets the day -- stated on the page, not hidden here.
     usd_daily_cap: float = Field(default=2.00, alias="USD_DAILY_CAP")
+
+    # How long a run's projected cost is held against the cap before it is
+    # assumed dead. Reservations exist to close the gap between "we decided to
+    # spend" and "the provider answered and the ledger has the row", which is a
+    # run's lifetime, not a request's -- an omni shipment measured 50-110 s per
+    # document. An hour covers the worst of that plus a slow queue, and the only
+    # cost of overshooting is that a crashed run stops counting early.
+    spend_reservation_ttl_seconds: float = Field(
+        default=3600.0, alias="SPEND_RESERVATION_TTL_SECONDS")
 
     # Comma-separated origins allowed to call the API from a browser. Empty --
     # the default -- sends no CORS headers at all, so the app stays same-origin
@@ -276,3 +331,36 @@ def _usable(key: str) -> bool:
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+# The tracked fixture tree. Its contents are reviewed provenance: 36 of the files
+# in it are deliberate captures that docs/ARCHITECTURE.md counts and DEMO_MODE
+# replays byte-for-byte, which is why a live run writing there is the thing this
+# function exists to prevent.
+COMMITTED_CACHE_DIR = PROJECT_ROOT / "fixtures" / "responses"
+
+
+def cache_write_dir(settings: Settings) -> Path:
+    """Where this instance is allowed to WRITE a captured model response.
+
+    A function called at use time rather than a validator on the model, because
+    tests build settings with `model_copy(update=...)` and a validator never runs
+    on that path -- a resolved-at-boot answer would be stale, or worse, wrong in
+    the direction that writes into the tracked tree.
+
+    LIVE_CACHE_DIR names the answer outright. Unset means "write where you read",
+    with one exception: if what you are reading IS the committed fixture tree,
+    then writes go to the untracked `.live_cache` beside it. A deployment that
+    points CACHE_DIR at some directory of its own gets the ordinary behavior of
+    caching in it, and no second knob to discover.
+    """
+    if settings.live_cache_dir is not None:
+        return Path(settings.live_cache_dir)
+    read = Path(settings.cache_dir)
+    try:
+        reads_the_committed_tree = read.resolve() == COMMITTED_CACHE_DIR.resolve()
+    except OSError:
+        reads_the_committed_tree = False
+    if reads_the_committed_tree:
+        return PROJECT_ROOT / ".live_cache" / "responses"
+    return read

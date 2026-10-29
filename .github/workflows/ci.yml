@@ -110,6 +110,19 @@ jobs:
       - name: Test (zero network calls by construction)
         run: python -m pytest tests/ -q
 
+      - name: "The suite left the reviewed fixtures alone -- BLOCKING"
+        # `fixtures/` is the tracked, hand-reviewed provenance the demo replays
+        # byte-for-byte. A live response written into it during a test run means
+        # the read/write split in Settings.live_cache_dir has stopped working,
+        # and the next commit would carry somebody's shipment data as a sample.
+        run: |
+          if [ -n "$(git status --porcelain fixtures/)" ]; then
+            echo "::error::the test suite modified or added files under fixtures/"
+            git status --porcelain fixtures/
+            exit 1
+          fi
+          echo "fixtures/ is byte-identical after the run"
+
       - name: Upload rendered pages if the suite failed
         if: failure()
         uses: actions/upload-artifact@v4

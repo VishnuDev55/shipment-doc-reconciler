@@ -198,6 +198,140 @@ def test_the_exported_html_says_the_run_was_a_sample(make_client):
 
 
 # ---------------------------------------------------------------------------
+# booting
+# ---------------------------------------------------------------------------
+
+
+def test_live_mode_refuses_to_boot_without_api_keys(tmp_path) -> None:
+    """Break caught: `require_api_key` returns immediately when API_KEYS is
+    blank, so a live instance that never set it serves every data-bearing route
+    -- including the one that reads files off disk -- to anyone who can reach the
+    port. Nothing in the logs says so, and render.yaml shipped that way."""
+    configure(Reconciler(live_settings(tmp_path, api_keys="")))
+
+    with pytest.raises(RuntimeError, match="API_KEYS"), TestClient(app):
+        pass
+
+
+def test_demo_mode_boots_open_because_it_spends_and_leaks_nothing(tmp_path) -> None:
+    """The other half of the gate: the keyless hosted demo and every laptop must
+    still start, or the fix becomes an outage."""
+    configure(Reconciler(live_settings(tmp_path, demo_mode=True, api_keys="")))
+
+    with TestClient(app) as client:
+        assert client.get("/api/health").status_code == 200
+
+
+def test_live_mode_boots_once_keys_exist(tmp_path) -> None:
+    configure(Reconciler(live_settings(tmp_path, api_keys="a-test-key")))
+
+    with TestClient(app) as client:
+        assert client.get("/api/health").status_code == 200
+
+
+def test_the_boot_gate_is_lifted_only_by_saying_so(tmp_path) -> None:
+    """An operator behind a private proxy must be able to boot open, but not by
+    default and not by accident."""
+    configure(Reconciler(live_settings(tmp_path, allow_open_live_deploy=True)))
+
+    with TestClient(app) as client:
+        assert client.get("/api/health").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# the cap under concurrency
+# ---------------------------------------------------------------------------
+
+# One run's reserved estimate, pinned so this file tests the gate rather than the
+# price table (test_budget.py owns the table).
+COST = 0.10
+
+
+def _never_finishes(hold):
+    """A stand-in for `_process`: dispatched, billed nothing, and still running.
+
+    A reservation is only interesting while a run is in flight, which is the one
+    state a synchronous test client cannot sit still in.
+    """
+
+    async def _process(self, shipment_id, prepared):
+        await hold.wait()
+
+    return _process
+
+
+@pytest.mark.asyncio
+async def test_n_uploads_cannot_all_pass_an_empty_ledger(tmp_path, monkeypatch) -> None:
+    """Break caught: the cap is read from a file that only gains a row once a
+    provider answers, so N uploads arriving together all see an empty day, all
+    pass, and all spend. A $2.00 ceiling is a suggestion at N=40.
+
+    Six uploads against a day that fits two: the ledger stays empty the whole
+    time, so any refusal here can only have come from the reservation.
+    """
+    import asyncio
+
+    import httpx
+
+    settings = live_settings(tmp_path, usd_daily_cap=2 * COST)
+    rec = Reconciler(settings)
+    configure(rec)
+
+    hold = asyncio.Event()
+    monkeypatch.setattr(Reconciler, "_process", _never_finishes(hold))
+    monkeypatch.setattr(budget, "estimate_run_usd", lambda *a, **k: COST)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        results = await asyncio.gather(
+            *[client.post("/api/shipments", files=upload_files()) for _ in range(6)]
+        )
+
+    codes = [r.status_code for r in results]
+    try:
+        assert codes.count(201) == 2, f"a day of 2 x ${COST} holds two runs, got {codes}"
+        assert codes.count(429) == 4, f"the other four must be refused, got {codes}"
+        assert budget.spent_today(settings) == 0.0, (
+            "the gate held on projected cost alone: nothing was recorded because "
+            "nothing was spent"
+        )
+        assert len(budget.pending_reservations()) == 2
+    finally:
+        hold.set()
+        await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_a_refused_upload_reserves_nothing(tmp_path, monkeypatch) -> None:
+    """Break caught: a refusal that still leaves its reservation on the day lets
+    one caller lock an instance by hammering it with uploads it knows will fail."""
+    import asyncio
+
+    import httpx
+
+    settings = live_settings(tmp_path, usd_daily_cap=COST)
+    configure(Reconciler(settings))
+    hold = asyncio.Event()
+    monkeypatch.setattr(Reconciler, "_process", _never_finishes(hold))
+    monkeypatch.setattr(budget, "estimate_run_usd", lambda *a, **k: COST)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post("/api/shipments", files=upload_files())
+        assert first.status_code == 201
+        second = await client.post("/api/shipments", files=upload_files())
+        assert second.status_code == 429
+
+    try:
+        # One reservation, not two: the refused upload took nothing off the day.
+        reserved = [r.key for r in budget.pending_reservations()]
+        assert reserved == [first.json()["shipment_id"]]
+    finally:
+        hold.set()
+        await asyncio.sleep(0)
+
+
+# ---------------------------------------------------------------------------
 # upload caps, and the pages a cap does not read
 # ---------------------------------------------------------------------------
 

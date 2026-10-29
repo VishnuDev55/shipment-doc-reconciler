@@ -103,3 +103,22 @@ services:
         sync: false
       - key: NEBIUS_API_KEY
         sync: false
+      # The instance will not start without API_KEYS. That is deliberate, and it
+      # is the second of two reasons this file is safe to deploy: DEMO_MODE is
+      # "false", so the app is serving other people's commercial documents over
+      # the public internet, and a blank API_KEYS makes every route -- including
+      # /page/, which reads files out of the run directory -- answer to anybody
+      # who finds the URL. Render leaves an unset secret empty, so the alternative
+      # to setting this one is a boot that fails loudly rather than a deployment
+      # that is quietly open. Generate one with `python -c "import secrets;
+      # print(secrets.token_urlsafe(24))"` and paste it into the dashboard.
+      - key: API_KEYS
+        sync: false
+      # /api/config never returns a key in full, but with a blank CONFIG_TOKEN it
+      # does return the first five and last four characters of each one to
+      # whoever holds an API key -- enough, on a shared key, to make a real guess
+      # about a key that leaked elsewhere. The token puts a second secret in
+      # front of that read. GUI_CONFIG_ENABLED is "false" here so the panel that
+      # writes config is already closed; this is about the read, not the write.
+      - key: CONFIG_TOKEN
+        sync: false

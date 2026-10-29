@@ -284,6 +284,59 @@ model.
     only listed Nebius hostnames, so the claim proved less than it sounded.
     Extended to all five NVIDIA/Nebius hosts and re-run.
 
+12. **A test of mine was proving nothing, and stayed green over a live hole.**
+    `tests/test_api.py:195` asks `/page/{id}/../secret.txt` and asserts 404 — but no
+    test ever created `secret.txt`, so it would have 404ed whether or not the
+    traversal worked. It also only traversed through `path`, never through the
+    `shipment_id`, which is where the actual critical bug was (`..` moved the
+    containment base itself up a level, and `.env` satisfied "am I under base").
+    The suite was green on a tree where `curl --path-as-is /page/../.env` returned
+    the keys. Rewritten to create the file it asks for, and to hit the id segment.
+    *Second-order lesson:* an assertion that a thing is absent is only evidence if
+    something would have made it present.
+
+13. **A doc claim of mine was the only thing standing where a test should have
+    been.** `docs/SECURITY.md` said the standalone report's HTML escaping was
+    "pinned by parametrized tests in `tests/test_lineitems.py`". No such assertion
+    existed in that file, or anywhere else, for that artifact — the one export that
+    leaves the app as a bare file and so inherits no CSP header. The sentence had
+    been true-ish in my head for weeks because the *PDF* is pinned. Test added; and
+    to make sure the test isn't decorative, deleting one `esc()` call in
+    `app/export.py:147` was observed to fail three of its four payloads.
+
+14. **My first version of the PDF-bomb test measured the wrong thing.** It asserted
+    that the returned page was within the pixel ceiling — which was true before the
+    fix, because every page is resized to the long edge after rendering. The
+    vulnerability was the *allocation*, not the artifact. Rewritten to assert the
+    scale handed to `page.render()`, and confirmed red against the unfixed call
+    site. Same failure mode as item 12, arriving from the other direction: I wrote
+    the assertion to match what the code returns rather than what the bug does.
+
+15. **Two scripts the plan told me to fix did not need fixing.** The audit
+    predicted that `probe_live.py` and `evaluate_planted.py` would silently stop
+    producing committable captures once cache writes moved. Tracing each to its
+    concrete call showed neither writes to the tracked tree at all — one keeps its
+    own `.probe_cache`, the other only rewrites a markdown file. Checked before
+    editing, so no override was added to a script that never had a write to
+    redirect.
+
+16. **The offline guard's "flake" was a real bug, and I had reported it as
+    "not mine".** One full-suite run failed
+    `test_a_loopback_port_this_process_never_bound_is_refused` with a
+    `TimeoutError`, passed alone and in three later runs, and I wrote it up as a
+    machine quirk. It was not: `_self_bound_ports` recorded every port the process
+    had *ever* bound and never forgot one, so a socket that was closed and gone
+    still authorized a connect to its port. Whether the test's hardcoded ports
+    collided with something the suite had bound earlier was a property of the
+    run's history. On this machine a connect to a dead loopback port hangs rather
+    than refusing, which is why the symptom was a timeout instead of a connection
+    error, and that is what made it look environmental. The fix is
+    `_guarded_close`: authorization now follows the open listener, not the log of
+    listeners. A four-line test that binds, closes and reconnects reproduces the
+    failure deterministically, so it cannot come back as a mystery. *Lesson: "flaky
+    on my machine" is a hypothesis, and if the mechanism is not written down it is
+    just a shrug.*
+
 ---
 
 ## Honest notes on process

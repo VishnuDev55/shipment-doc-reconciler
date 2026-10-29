@@ -7,6 +7,129 @@ calendar weeks.
 The format follows Keep a Changelog's grouping, but the entries are written as what
 changed and what it cost, because that is the useful history for this repository.
 
+## Unreleased — the deferred P2 set, and a flaky test that was a real bug (2026-10-29)
+
+The first pass closed Critical and High and recorded the rest rather than dropping
+them. This one works through that record. Each item was reproduced before it was
+fixed, including the flake.
+
+- **The offline guard authorized ports it had merely bound once (test
+  infrastructure; see `PROGRESS.md`).** `tests/conftest.py` remembered every
+  loopback port the process had *ever* bound, so a socket that was closed and gone
+  still authorized a later connect to its port. That made one assertion in
+  `test_offline_guard.py` depend on which ports the rest of the suite had used, and
+  on this machine a connect to a dead loopback port hangs rather than refusing —
+  which is why the symptom was a `TimeoutError` seen once in a full run.
+  Authorization now follows the listener: the port is forgotten when the socket
+  closes. Reproduced deterministically before the fix.
+- **A header that is not ASCII produced a 500 before authentication (R21).**
+  `hmac.compare_digest` raises `TypeError` on non-ASCII `str`; headers are decoded
+  from raw bytes and a JSON body carries any Unicode, so `X-API-Key`,
+  `Authorization: Bearer`, the session body and `X-Config-Token` each crashed the
+  check instead of failing it. One `secret_matches()` now compares UTF-8 bytes
+  through the same constant-time routine.
+- **A document could start a formula in the exported CSV (R18).** `report.csv`
+  inside the ZIP had no cell treatment, so a value beginning `=`, `+`, `-`, `@`, tab
+  or CR ran when the reviewer opened the export. Prefixed with the conventional
+  apostrophe; a leading `-` that parses as a number is left alone, because negative
+  amounts are common and honest.
+- **A filename could put control characters into a label (R17).** The label is
+  rendered into the draft email, so a carriage return in a name started a new line
+  of a letter. C0 controls and DEL are stripped; accents and CJK are kept, and the
+  test pins that too.
+- **The rate limiter believed the caller about who they were (R19).**
+  `X-Forwarded-For` was trusted unconditionally, so a client could rotate its own
+  bucket per request and the per-minute limit applied only to well-behaved clients.
+  Now read only when `TRUSTED_PROXY` says a proxy you control writes it; otherwise
+  the peer address is the identity, because it is the only part of a request the
+  caller cannot choose.
+- **The export that leaves the building had no policy of its own (R20).** The
+  standalone report is saved, mailed and opened from a desktop, so it inherits no
+  header. It carries a meta `Content-Security-Policy` (`default-src 'none'`) now —
+  escaping is the control, this is the second lock for markup a later edit adds
+  without escaping it.
+- **Nothing had ever pruned a cache (R22).** `LIVE_CACHE_TTL_HOURS`, default 0,
+  pruned at startup; the committed fixture tree is refused by name, because one
+  script points its write directory there on purpose.
+- **`/api/health` described the deployment to strangers (R23).** On a keyed
+  instance, a caller without a key gets status, mode and `api_protected`; the model
+  ids, hosts, version and retention window need the same key as everything else. The
+  UI's two detail renderers tolerate the short payload and re-poll after a session
+  opens.
+- **Cost:** 27 tests added, 1159 → **1186 passed**, lint clean, `node --check` on
+  `web/app.js`. The only item still deferred is pinning the transitive dependency
+  set, which needs `pip-compile` against a live index this environment cannot
+  reach.
+
+## Unreleased — a whole-repository security review, and the six things it found (2026-10-29)
+
+A read of the entire tree for security flaws, with four parallel review agents and
+verification of every claim against the code before it was believed. One finding was
+critical and reachable without a credential; the reproduction is in
+`docs/AUDIT.md` under R10.
+
+- **A shipment id was a path, and it served `.env` (R10, critical).**
+  `/page/{shipment_id}/{path}` anchored its containment test to a directory the
+  caller named, so `shipment_id=".."` moved the base up to the repository root and
+  `.env` was inside it — no API key needed, because `render.yaml` set neither
+  `API_KEYS` nor `CONFIG_TOKEN`. Fixed at the chokepoint: `RunStore.dir()`
+  validates the id's shape, so all 11 callers inherit it, and `serve_page` requires
+  the run to exist and re-checks containment against the resolved runs root. The
+  test that appeared to cover this asked for a file no test ever created, so its 404
+  proved nothing; the replacement writes the file first.
+- **A live instance can no longer boot open (R11).** `DEMO_MODE=false` with an empty
+  `API_KEYS` now raises at startup instead of coming up with every data-bearing route
+  public and a healthy-looking `/api/health`. `ALLOW_OPEN_LIVE_DEPLOY=1` is the
+  explicit opt-out. `render.yaml` gained `API_KEYS` and `CONFIG_TOKEN` as dashboard
+  secrets, which also closes the `/api/config` mask finding, and `docker-compose.yml`
+  passes `API_KEYS` through rather than defaulting it.
+- **`/retry` was a billed call through an ungated door (R12).** It reached the vision
+  model with no cap check and no limiter, so an instance that had correctly refused
+  every upload for the day would still re-read documents one POST at a time. Both
+  spend endpoints now share one gate, and a refusal happens before the document row
+  is touched.
+- **The daily cap is now a real ceiling (R13).** `cap_reached()` reads a ledger that
+  gains a row only after a provider answers, so N simultaneous uploads all read the
+  same empty day, all passed, and all spent. A reservation is now taken
+  synchronously at dispatch and counts projected cost; it lives in memory only,
+  expires at read time, and is released whatever the run's outcome — a persisted
+  reservation held by a crashed process would have wedged the day for everyone,
+  which is a worse failure than the race. `estimate_run_usd` reads `settings`, not
+  module constants, and is deliberately pessimistic because an underestimate spends
+  somebody's money past their cap while an overestimate only refuses a cheap upload.
+- **A PDF's declared page size no longer decides our allocation (R14).** The 50 MP
+  bomb ceiling guarded the Pillow path; `rasterize_pdf` handed every page to
+  pypdfium2 at a fixed scale without reading the size it declared, so a sub-MiB file
+  asking for 14400×14400 pt wanted ~3 GB per page. The scale is now clamped from
+  `get_size()` before the render, and the loop has a wall-clock bound.
+- **Live runs stopped writing into the tracked fixture tree (R15).** `CACHE_DIR`
+  defaulted to git-tracked `fixtures/responses` and every live capture landed there,
+  so `git add -A` could commit another company's shipment as a hand-authored sample.
+  Reads and writes are now separate, with the committed tree checked first so a
+  reviewed capture cannot be shadowed. `LIVE_CACHE_DIR` is new; `scripts/capture_summaries.py`
+  names the committed tree explicitly, since producing committable captures is its
+  job. CI fails if the suite leaves anything dirty under `fixtures/`.
+- **A doc claim that was protecting nothing (R16).** `docs/SECURITY.md` cited
+  `tests/test_lineitems.py` as pinning the standalone report's HTML escaping. No such
+  assertion existed anywhere, in that file or in any other — and that artifact is the
+  one which leaves the app as a bare file, inheriting no CSP header. It has a test
+  now, proven non-vacuous by deleting one `esc()` call and watching three payloads
+  fail.
+- **Corrected, not just patched:** `docs/SECURITY.md`'s traversal and spend-throttling
+  claims, `docs/DEPLOYMENT.md`'s blueprint sample (which showed `DEMO_MODE: "true"`
+  against a `render.yaml` saying `"false"`), and the `README`/`SECURITY` lines that
+  described `API_KEYS` as a recommendation.
+- **Cost of the work:** 34 tests added, none removed or weakened; suite
+  1124 → **1158 passed**, coverage 92% against an 88 floor; `pyflakes` and `ruff`
+  clean. Each fix was proven red before it was green, and the traversal, the
+  reservation race and the fixture-tree test were re-run red after the fact by
+  reverting the specific change.
+- **Deliberately out of scope** (Critical + High only, recorded in `docs/AUDIT.md`
+  rather than dropped): `X-Forwarded-For` as rate-limit identity, CSV formula
+  injection in the export, `hmac.compare_digest` raising a pre-auth 500 on a
+  non-ASCII header, no cache or TTL pruning after startup, no CSP on the standalone
+  report, and `/api/health`'s unauthenticated deployment fingerprint.
+
 ## Unreleased — live verification round (2026-10-19)
 
 Paid live calls, budgeted at $8 and tracked in `scripts/spend.py` →

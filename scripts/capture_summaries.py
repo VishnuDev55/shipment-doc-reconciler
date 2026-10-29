@@ -49,6 +49,12 @@ async def main() -> int:
         nvidia_api_key="",
         runs_dir=ROOT / "runs" / "_capture_summary",
         cache_dir=ROOT / "fixtures" / "responses",
+        # The deliberate exception. A live run's narrative belongs in the
+        # untracked cache; THIS script exists to produce the committed ones, so
+        # its writes have to land in the tracked tree or the capture is not
+        # committable and DEMO_MODE never sees it. Named here rather than left to
+        # the default so the intent survives whoever reads this next.
+        live_cache_dir=ROOT / "fixtures" / "responses",
         enable_summary=True,
     )
     if not settings.has_nebius_key:

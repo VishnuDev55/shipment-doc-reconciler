@@ -14,9 +14,9 @@ is up without holding a secret.
 from __future__ import annotations
 
 import asyncio
-import hmac
 import json
 import os
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 
@@ -34,7 +34,8 @@ from starlette.concurrency import run_in_threadpool
 
 from . import budget
 from . import ingest
-from .auth import SESSION_TTL_SECONDS, _issue_session, _sessions, require_api_key
+from .auth import (SESSION_TTL_SECONDS, _issue_session, _sessions, key_is_valid,
+                   require_api_key, secret_matches)
 from .config import PROJECT_ROOT, get_settings
 from .config_view import _require_config_token, config_view, sanitize_config_updates
 from .correct import CorrectionError, active_corrections, correction_trail
@@ -85,8 +86,38 @@ def git_commit() -> str:
     return "unknown"
 
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Refuse to boot a live instance that has no key to check anyone against.
+
+    `require_api_key` returns immediately when API_KEYS is blank -- that is what
+    lets the bundled demo and every laptop work without a key -- and the same
+    rule on an instance deployed with DEMO_MODE=false leaves every data-bearing
+    route open to the internet, including the one that reads files from disk.
+    The app cannot tell the two apart from inside a request, and nothing in the
+    logs says which one you have, so it says it here instead.
+
+    Reads the injected reconciler rather than get_settings(), so a test that
+    configures its own instance is judged by the settings it actually set.
+    """
+    settings = active_settings()
+    if (not settings.demo_mode and not settings.api_key_list
+            and not settings.allow_open_live_deploy):
+        raise RuntimeError(
+            "refusing to start in live mode with API_KEYS empty: every route, "
+            "including /page/ which reads files from disk, would be open to "
+            "anyone who can reach this port. Set API_KEYS to at least one key "
+            "(docs/SECURITY.md calls that the minimum for a live deployment), "
+            "or run with DEMO_MODE=true, or -- if this instance really is "
+            "behind something that authenticates -- say so explicitly with "
+            "ALLOW_OPEN_LIVE_DEPLOY=1."
+        )
+    yield
+
+
 app = FastAPI(
     title="Shipment Doc Reconciler",
+    lifespan=_lifespan,
     description=(
         "Cross-check ten fields across trade documents: quantity, gross weight, "
         "net weight, container number, HS code, consignee, invoice value, "
@@ -112,6 +143,12 @@ def configure(rec: Reconciler) -> None:
     """Inject a configured reconciler. Used by tests."""
     global _reconciler
     _reconciler = rec
+    # Reservations are projected spend for the instance that made them, and a
+    # new reconciler is a different instance with a different cap. Carrying the
+    # previous one's reservations over would make an unrelated earlier test the
+    # reason this one saw a 429 -- the same reason _limiter_for() re-arms the
+    # rate limiter when the injected limit changes.
+    budget.reset_pending()
 
 
 def active_settings():
@@ -136,7 +173,7 @@ def open_session(body: SessionRequest, response: Response) -> dict:
     key = (body.key or "").strip()
     if not allowed:
         raise HTTPException(400, "this deployment is open: no API key is required")
-    if not key or not any(hmac.compare_digest(key, k) for k in allowed):
+    if not key or not any(secret_matches(key, k) for k in allowed):
         raise HTTPException(401, "that key is not valid for this deployment")
     token = _issue_session()
     response.set_cookie(
@@ -212,7 +249,7 @@ def index() -> HTMLResponse:
 
 
 @app.get("/api/health")
-def health() -> dict:
+def health(request: Request) -> dict:
     """Two providers are in play; report each one's readiness separately so the
     UI can be truthful about which parts of the app can actually run.
 
@@ -222,23 +259,33 @@ def health() -> dict:
     "unconfigured" is a state the operator fixes in the dashboard, not a reason
     to restart the container. Provider status is `configured`/`not configured`
     booleans only; the key itself is never echoed.
+
+    On a keyed deployment a stranger gets status, mode and `api_protected` and
+    nothing else. Those three are what a load balancer and the UI need; the model
+    ids, hostnames, version and retention window are a description of what to
+    target, and they are not somebody's health check.
     """
     rec = reconciler()
     settings = rec.settings
-    vision = rec.client.endpoint
-    summary = rec.summary_client.endpoint
-    return {
+    body: dict = {
         "status": "ok",
         # `mode` is the human-facing word; `demo_mode` stays for anything that
         # already read the boolean.
         "mode": "demo" if settings.demo_mode else "live",
         "demo_mode": settings.demo_mode,
-        "version": APP_VERSION,
-        "git_commit": git_commit(),
         # The UI reads this to decide whether to ask for a key before it can
         # show anything. Health itself stays open so a load balancer can poll it
         # without holding a secret.
         "api_protected": bool(settings.api_key_list),
+    }
+    if not key_is_valid(request):
+        return body
+
+    vision = rec.client.endpoint
+    summary = rec.summary_client.endpoint
+    body.update({
+        "version": APP_VERSION,
+        "git_commit": git_commit(),
         # Hours after which uploaded runs are deleted at startup. Zero means they
         # are kept, which is what a laptop wants; the page reads this to say so
         # rather than carrying a second, hand-typed claim about retention.
@@ -269,7 +316,8 @@ def health() -> dict:
         # "reachable" are different claims, and conflating them is how a dead
         # model turns into a mystery.
         "models": rec.model_selections(),
-    }
+    })
+    return body
 
 
 @app.get("/api/models", dependencies=[Depends(require_api_key)])
@@ -394,18 +442,33 @@ async def _read_capped(upload: UploadFile, limit: int) -> bytes:
             )
 
 
-@app.post("/api/shipments", dependencies=[Depends(require_api_key)])
-async def create_shipment(
-    request: Request,
-    files: list[UploadFile] = File(...),
-    doc_types: str = Form(""),
-) -> JSONResponse:
-    """Upload 1-5 documents for one shipment. Returns the shipment id to poll."""
+def _cap_refusal(exc: budget.SpendCapReached) -> HTTPException:
+    """Turn a refused reservation into the 429 a caller can act on.
+
+    The message is written by `budget`, because the numbers in it -- what the day
+    has cost, what is reserved, what this run would have cost -- are only visible
+    together at the moment the gate refused.
+    """
+    return HTTPException(
+        429,
+        detail=str(exc),
+        headers={"Retry-After": str(budget.seconds_until_utc_midnight())},
+    )
+
+
+def _gate_spending(request: Request):
+    """Refuse a request that would bill the operator, before it bills anything.
+
+    Two endpoints reach a live model: creating a shipment and retrying one
+    document. They share this gate so a retry cannot be a hole in a control that
+    the upload has -- which is exactly what it was.
+
+    The money check comes first: it is the one refusal that no retry or wait of
+    seconds can clear, and it applies to every caller at once rather than to one
+    client's minute. Demo mode is exempt because a replay spends nothing --
+    blocking it would break a laptop whose ledger happens to hold an old day.
+    """
     settings = active_settings()
-    # The money check comes first: it is the one refusal that no retry or wait of
-    # seconds can clear, and it applies to every caller at once rather than to one
-    # client's minute. Demo mode is exempt because a replay spends nothing --
-    # blocking it would break a laptop whose ledger happens to hold an old day.
     if not settings.demo_mode and budget.cap_reached(settings):
         spent = budget.spent_today(settings)
         retry_after = budget.seconds_until_utc_midnight()
@@ -428,6 +491,17 @@ async def create_shipment(
                    f"{max(1, int(retry_in) + 1)}s.",
             headers={"Retry-After": str(max(1, int(retry_in) + 1))},
         )
+    return settings
+
+
+@app.post("/api/shipments", dependencies=[Depends(require_api_key)])
+async def create_shipment(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    doc_types: str = Form(""),
+) -> JSONResponse:
+    """Upload 1-5 documents for one shipment. Returns the shipment id to poll."""
+    settings = _gate_spending(request)
     declared: list[str | None] = []
     if doc_types:
         try:
@@ -470,6 +544,10 @@ async def create_shipment(
 
     try:
         shipment_id, report = await reconciler().create_shipment(uploads)
+    except budget.SpendCapReached as exc:
+        # The door check above compares the ledger with the cap; this refusal
+        # came from inside the dispatcher, where reservations are visible.
+        raise _cap_refusal(exc) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -613,8 +691,15 @@ async def shipment_events(shipment_id: str) -> StreamingResponse:
 
 
 @app.post("/api/shipments/{shipment_id}/retry", dependencies=[Depends(require_api_key)])
-async def retry_document(shipment_id: str, body: RetryRequest) -> dict:
-    report = await reconciler().retry_document(shipment_id, body.document_id)
+async def retry_document(shipment_id: str, request: Request,
+                         body: RetryRequest) -> dict:
+    # A retry re-reads a document through the vision model, so it is the second
+    # path to the operator's bill and was the one nobody gated.
+    _gate_spending(request)
+    try:
+        report = await reconciler().retry_document(shipment_id, body.document_id)
+    except budget.SpendCapReached as exc:
+        raise _cap_refusal(exc) from exc
     if report is None:
         raise HTTPException(404, "unknown shipment or document")
     return {"shipment_id": shipment_id, "state": report.state}
@@ -628,6 +713,10 @@ def export_zip(shipment_id: str) -> Response:
         raise HTTPException(404, "unknown shipment id")
 
     archive = build_zip(report, rec.store.dir(shipment_id))
+    # Interpolated into a header, so its alphabet matters: reaching here means
+    # store.read() found a report, and store.read() only accepts ids matching
+    # [A-Za-z0-9_-]{1,24}. No quote, CR or LF can survive that, so the filename
+    # needs no separate sanitizer.
     filename = f"reconciliation_{shipment_id}.zip"
     return Response(
         content=archive,
@@ -729,10 +818,20 @@ async def load_fixture(name: str) -> JSONResponse:
 def serve_page(shipment_id: str, path: str) -> FileResponse:
     """Serve normalized page images used as evidence."""
     rec = reconciler()
-    base = rec.store.dir(shipment_id).resolve()
+    # exists() is False for a malformed id, so dir() below can only be handed a
+    # name that matches the run-id shape. This also stops the route from ever
+    # resolving a path for a run that does not exist.
+    if not rec.store.exists(shipment_id):
+        raise HTTPException(404, "no such page")
+    base = rec.store.dir(shipment_id)
     target = (base / path).resolve()
-    # Containment via the stdlib helper. A string prefix test would let
-    # runs/abcdef satisfy a check for runs/abc.
-    if not target.is_relative_to(base) or not target.is_file():
+    # Two containment tests, not one. `is_relative_to(base)` checks the suffix,
+    # but before the id was validated a shipment_id of ".." *made* base the
+    # repository, so that check passed while pointing outside runs/. Anchoring
+    # the second test to the runs root means the answer no longer depends on a
+    # directory name the caller chose.
+    if not target.is_relative_to(base) or not target.is_relative_to(rec.store.root_resolved):
+        raise HTTPException(404, "no such page")
+    if not target.is_file():
         raise HTTPException(404, "no such page")
     return FileResponse(target, media_type="image/jpeg")

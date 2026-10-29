@@ -149,21 +149,32 @@ class AdjudicationCache:
     a different subdir, keyed on the whole verdict set.
     """
 
-    def __init__(self, cache_dir: Path, subdir: str = "adjudications"):
-        self.dir = Path(cache_dir) / subdir
+    def __init__(self, cache_dir: Path, subdir: str = "adjudications",
+                 *, live_dir: Path | None = None):
+        self.read_dirs = [Path(cache_dir) / subdir]
+        if live_dir is not None:
+            self.read_dirs.append(Path(live_dir) / subdir)
+        # With no live_dir named, this reads and writes the one directory it
+        # always did -- which is what the capture scripts want, since their whole
+        # job is to put a reviewed answer into the committed tree.
+        self.dir = self.read_dirs[-1]
 
     def _path(self, signature: str) -> Path:
         return self.dir / f"{signature}.json"
 
     def get(self, signature: str) -> dict | None:
-        path = self._path(signature)
-        if not path.is_file():
-            return None
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return None
-        return payload if isinstance(payload, dict) else None
+        name = f"{signature}.json"
+        for directory in self.read_dirs:
+            candidate = directory / name
+            if not candidate.is_file():
+                continue
+            try:
+                loaded = json.loads(candidate.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(loaded, dict):
+                return loaded
+        return None
 
     def put(self, signature: str, *, model: str, provider: str, raw: str,
             **extra: object) -> None:

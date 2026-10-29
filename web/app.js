@@ -257,6 +257,10 @@ function renderModeChip(h) {
 
 function renderKeyWarning(h) {
   const box = $('#key-warning');
+  // A keyed instance answers a stranger with status and mode only, so the
+  // provider block is absent until this tab holds a session. Nothing to warn
+  // about in that state: the warning is about provider keys, not the API key.
+  if (!h.vision) { box.hidden = true; return; }
   const show = !h.demo_mode && !h.vision.key_present;
   box.hidden = !show;
   if (!show) return;
@@ -270,6 +274,10 @@ function renderKeyWarning(h) {
 function renderConnection(h) {
   const host = $('#conn-list');
   host.innerHTML = '';
+  // Same reason as renderKeyWarning: no provider detail until this tab is
+  // unlocked. The list comes back on the next loadHealth() after the session
+  // opens, which is exactly when the names mean something.
+  if (!h.vision || !h.summary) return;
   const rows = [
     ['Mode', h.demo_mode ? 'demo · cached' : 'live'],
     ['Vision', h.vision.model, h.vision.host, h.vision.key_present],

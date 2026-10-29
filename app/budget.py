@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import json
 import threading
+import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -169,3 +171,202 @@ def seconds_until_utc_midnight(*, now: datetime | None = None) -> int:
     nxt = (moment + timedelta(days=1)).replace(hour=0, minute=0, second=0,
                                                microsecond=0)
     return max(1, int((nxt - moment).total_seconds()))
+
+
+# ---------------------------------------------------------------------------
+# Reservations: the part of the cap that has not reached the ledger yet
+# ---------------------------------------------------------------------------
+#
+# `cap_reached` reads a file, and the file only gains a row once a provider has
+# answered. So N uploads that arrive together all read the same empty ledger,
+# all pass, and all spend. The cap could be exceeded by a factor of N by a
+# caller doing nothing cleverer than pressing enter on a form.
+#
+# A reservation closes that window by counting *projected* spend: money this
+# process has decided is likely to be spent but has not yet seen. It lives in
+# memory only, and that is the load-bearing property. Persisted state would
+# have to be cleaned up, and a process that dies holding a reservation would
+# wedge the day for everyone -- a worse failure than the race it fixes. Instead:
+#
+#   * `reserve()` never awaits, so one event-loop turn cannot interleave with
+#     another writer's. The lock is for the threaded `record_call` path, not for
+#     the race.
+#   * every reservation expires on its own at READ time, so a leaked one stops
+#     counting by itself and there is no sweeper task that can fail to run.
+#   * a restart clears the table, which is correct: a dead process is not going
+#     to spend anything.
+
+# A page is sent as an image, so the prompt is dominated by visual tokens rather
+# than text. 1500/page reproduces the measured ~6,000-token document read in
+# docs/FEATURES.md at the 4-page ceiling render.yaml deploys, so the figure comes
+# from this repo's own logs and not from a provider's marketing page.
+ESTIMATED_TOKENS_PER_PAGE = 1500
+ESTIMATED_COMPLETION_TOKENS_PER_READ = 900
+
+# Ladder lengths mirror client.BACKOFF_SCHEDULE: Nebius cleared inside 3 live
+# attempts, NVIDIA's shared workers needed 5. Repeated here rather than imported
+# because .client imports this module to record spend, so importing back is a
+# cycle; the numbers are covered by test_budget pinning them to the schedule.
+BACKOFF_ATTEMPTS = {"nebius": 3, "nvidia": 5}
+
+
+def estimate_run_usd(settings: Settings, docs: int, *, provider: str = "nvidia",
+                     model: str = "") -> float:
+    """What a run of `docs` documents could cost at worst, in USD.
+
+    Reads `settings`, not module constants: `max_documents` is 5 in config.py and
+    3 in render.yaml, `max_pages_per_document` 6 and 4, and reserving against the
+    wrong pair misprices every run in one direction or the other.
+
+    Deliberately pessimistic, because the two errors are not equal: an
+    underestimate spends somebody's money past their cap, an overestimate refuses
+    an upload that would have been cheap. So it prices the full ladder the
+    transport climbs when a provider is flaky, both reads when consensus is on,
+    and the extra read when line items are on.
+    """
+    docs = max(int(docs), 1)
+    pages = max(int(settings.max_pages_per_document or 1), 1)
+    reads = docs * BACKOFF_ATTEMPTS.get(provider, 3)
+    if settings.consensus:
+        reads *= 2
+    if settings.enable_line_items:
+        reads += docs
+
+    prompt = reads * pages * ESTIMATED_TOKENS_PER_PAGE
+    completion = reads * ESTIMATED_COMPLETION_TOKENS_PER_READ
+    blended = float(settings.usd_per_mtok or 0.0) or None
+    return round(cost_of(provider, model, prompt, completion, blended), 6)
+
+
+@dataclass(frozen=True)
+class Reservation:
+    key: str
+    amount: float
+    shipment_id: str
+    docs: int
+    deadline: float
+
+
+class SpendCapReached(Exception):
+    """Raised at the point of dispatch, not at the door.
+
+    The route's ledger check cannot see a reservation, and a run that is refused
+    after the uploads are read still has to tell the caller why. Carrying both
+    numbers lets the 429 say what the day has already cost, what is still
+    reserved against it, and what this run would have cost -- the last of which
+    is the only figure that tells a caller to upload fewer documents rather than
+    to simply come back later.
+    """
+
+    def __init__(self, *, spent: float, reserved: float, amount: float, cap: float):
+        self.spent = spent
+        self.reserved = reserved
+        self.amount = amount
+        self.cap = cap
+        super().__init__(
+            f"Daily spend cap reached: ${spent:.2f} spent today (UTC) and "
+            f"${reserved:.2f} of the ${cap:.2f} cap is reserved by runs already "
+            f"in this instance. This shipment is estimated at ${amount:.2f}. "
+            "Uploads resume after 00:00 UTC. The bundled sample shipments still "
+            "work from cache, and they cost nothing."
+        )
+
+
+class SpendGate:
+    """Projected spend, held in memory, keyed by what will spend it.
+
+    `clock` is injectable for the same reason RateLimiter takes one: a TTL test
+    that sleeps measures the scheduler, not the gate.
+    """
+
+    def __init__(self, clock=time.monotonic):
+        self._clock = clock
+        self._pending: dict[str, Reservation] = {}
+        self._lock = threading.Lock()
+
+    def reserve(self, settings: Settings, *, key: str, shipment_id: str, docs: int,
+                amount: float,
+                now: datetime | None = None) -> Reservation | None:
+        """Take `amount` off the day's remaining cap, or return None.
+
+        Synchronous end to end. Nothing between reading the projected total and
+        writing the reservation may yield the loop, which is the whole reason the
+        race is closed: an `await` in the middle would put us back where the
+        ledger check was.
+
+        Returns a zero-cost reservation rather than None when there is no cap, so
+        `None` means exactly one thing to the caller: refused.
+        """
+        cap = float(settings.usd_daily_cap or 0.0)
+        ttl = max(float(settings.spend_reservation_ttl_seconds or 0.0), 1.0)
+        with self._lock:
+            self._prune()
+            if cap <= 0:
+                return Reservation(key=key, amount=0.0, shipment_id=shipment_id,
+                                   docs=docs, deadline=self._clock() + ttl)
+            projected = spent_today(settings, now=now) + self._total_locked()
+            if projected + amount > cap:
+                return None
+            res = Reservation(key=key, amount=amount, shipment_id=shipment_id,
+                              docs=docs, deadline=self._clock() + ttl)
+            self._pending[key] = res
+            return res
+
+    def release(self, key: str) -> None:
+        with self._lock:
+            self._pending.pop(key, None)
+
+    def pending(self) -> list[Reservation]:
+        with self._lock:
+            self._prune()
+            return list(self._pending.values())
+
+    def pending_total(self) -> float:
+        with self._lock:
+            self._prune()
+            return self._total_locked()
+
+    def reset(self) -> None:
+        with self._lock:
+            self._pending.clear()
+
+    def _total_locked(self) -> float:
+        return sum(r.amount for r in self._pending.values())
+
+    def _prune(self) -> None:
+        now = self._clock()
+        for key in [k for k, r in self._pending.items() if r.deadline <= now]:
+            del self._pending[key]
+
+
+GATE = SpendGate()
+
+
+def reserve(settings: Settings, *, key: str, shipment_id: str, docs: int,
+            amount: float, now: datetime | None = None) -> Reservation | None:
+    """Module-level handle on the one gate this process shares.
+
+    A caller that constructed its own SpendGate would be reserving against a
+    projection nobody else can see, which is exactly the hole this closes.
+    """
+    return GATE.reserve(settings, key=key, shipment_id=shipment_id, docs=docs,
+                        amount=amount, now=now)
+
+
+def release(key: str) -> None:
+    GATE.release(key)
+
+
+def pending_reservations() -> list[Reservation]:
+    return GATE.pending()
+
+
+def pending_total() -> float:
+    return GATE.pending_total()
+
+
+def reset_pending() -> None:
+    """Forget every reservation. Called by `configure()` so one test's held
+    projection cannot 429 the next test's upload."""
+    GATE.reset()
+

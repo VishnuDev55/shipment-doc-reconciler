@@ -20,12 +20,61 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from .config import PROMPT_VERSION
+from .config import COMMITTED_CACHE_DIR, PROMPT_VERSION
 
 AUTHORED_MARKER = "HAND-AUTHORED"
+
+
+def purge_cache_older_than(directory: Path, hours: int) -> list[str]:
+    """Delete cache entries older than `hours`. Returns the relative names.
+
+    Zero -- the default -- keeps everything, the same rule `RUN_TTL_HOURS` uses:
+    deleting somebody's cache is a decision, and a deployment makes it by setting
+    a number, not by upgrading.
+
+    The committed fixture tree is refused by name. It is tracked, reviewed
+    provenance that the demo replays byte-for-byte, and one script points its
+    write directory at it on purpose -- so a `LIVE_CACHE_TTL_HOURS` set on a
+    machine whose `LIVE_CACHE_DIR` was left pointing at the fixtures must be a
+    no-op, not a deletion.
+    """
+    if hours <= 0:
+        return []
+    root = Path(directory)
+    try:
+        if root.resolve() == COMMITTED_CACHE_DIR.resolve():
+            return []
+    except OSError:
+        return []
+    if not root.is_dir():
+        return []
+
+    cutoff = time.time() - hours * 3600
+    removed: list[str] = []
+    for path in sorted(root.rglob("*.json")):
+        try:
+            if path.stat().st_mtime > cutoff:
+                continue
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(str(path.relative_to(root)).replace("\\", "/"))
+
+    # Leave the directory as it was found, minus what was pruned: an empty
+    # narratives/ is recreated by the next put, and thousands of empty directories
+    # are worse than none.
+    for child in sorted((p for p in root.rglob("*") if p.is_dir()),
+                        key=lambda p: len(p.parts), reverse=True):
+        try:
+            child.rmdir()
+        except OSError:
+            pass
+    return removed
 
 
 def cache_key(
@@ -44,11 +93,56 @@ def cache_key(
     return h.hexdigest()[:32]
 
 class ResponseCache:
-    def __init__(self, directory: Path):
-        self.directory = Path(directory)
+    """Model responses, read from one or more trees and written to one.
+
+    The split exists because the committed tree is reviewed provenance and a live
+    run is not. `fixtures/responses` is git-tracked on purpose -- 36 of its files
+    are deliberate captures that docs/ARCHITECTURE.md counts and the demo replays
+    byte-for-byte -- and until now a live run wrote its own answers into that same
+    directory. One `git add -A` then committed somebody's real shipment as if it
+    were a hand-authored fixture, and the "this run came from a captured
+    response" claim stopped meaning anything you could check.
+
+    Reads check the committed tree *first*, so a reviewed capture can never be
+    shadowed by a machine-generated file of the same key.
+    """
+
+    def __init__(self, directory: Path | Sequence[Path], write_dir: Path | None = None):
+        # A bare Path keeps the ~5 existing construction sites (and every test
+        # that hands in a tmp_path) working: read and write are then the same
+        # directory, which is what each of those callers means.
+        if isinstance(directory, (str, Path)):
+            self.read_dirs: list[Path] = [Path(directory)]
+        else:
+            self.read_dirs = [Path(d) for d in directory]
+        self.write_dir = Path(write_dir) if write_dir is not None else self.read_dirs[0]
+        # Kept for callers that read `.directory` (scripts do): the tree a lookup
+        # is most likely to answer from, which is the committed one.
+        self.directory = self.read_dirs[0]
+        # The authored fallback may only scan reviewed trees. A live tree is
+        # unbounded -- it grows with every run anybody makes against this
+        # instance -- and globbing it on every cache miss would turn a demo
+        # lookup into a directory walk. In the single-directory case there is no
+        # separate live tree, so that one directory is both.
+        self.authored_dirs = [d for d in self.read_dirs if d != self.write_dir] or [
+            self.write_dir]
 
     def path(self, key: str) -> Path:
-        return self.directory / f"{key}.json"
+        """Where a *new* entry for this key would go: always the write tree."""
+        return self.write_dir / f"{key}.json"
+
+    def read_path(self, key: str) -> Path | None:
+        """The first tree that actually holds this key, or None.
+
+        Order is the security-relevant part: the committed capture is consulted
+        before anything a live run produced.
+        """
+        name = f"{key}.json"
+        for directory in self.read_dirs:
+            candidate = directory / name
+            if candidate.is_file():
+                return candidate
+        return None
 
     def _load(self, path: Path) -> dict[str, Any] | None:
         try:
@@ -60,6 +154,11 @@ class ResponseCache:
 
     def is_authored(self, payload: dict[str, Any]) -> bool:
         return AUTHORED_MARKER in str(payload.get("_provenance", "")).upper()
+
+    def _read_payload(self, key: str) -> dict[str, Any] | None:
+        """The stored entry for `key`, from the first tree that has it."""
+        found = self.read_path(key)
+        return self._load(found) if found is not None else None
 
     def get(
         self,
@@ -77,7 +176,7 @@ class ResponseCache:
         flipping VISION_PROVIDER does not silently break DEMO_MODE. Live
         responses are NEVER eligible for this tier.
         """
-        payload = self._load(self.path(key)) if self.path(key).is_file() else None
+        payload = self._read_payload(key)
 
         if payload is None and page_sha256s:
             payload = self._find_authored(page_sha256s, prompt_version=prompt_version)
@@ -98,16 +197,16 @@ class ResponseCache:
         twelve-field object. The shape it would return parses — every key just
         comes back absent — so the damage would be invisible.
         """
-        if not self.directory.is_dir():
-            return None
-        for path in sorted(self.directory.glob("*.json")):
-            payload = self._load(path)
-            if payload is None or not self.is_authored(payload):
-                continue
-            if payload.get("prompt_version") != prompt_version:
-                continue
-            if payload.get("page_sha256") == list(page_sha256s):
-                return payload
+        candidates = [d for d in self.authored_dirs if d.is_dir()]
+        for directory in candidates:
+            for path in sorted(directory.glob("*.json")):
+                payload = self._load(path)
+                if payload is None or not self.is_authored(payload):
+                    continue
+                if payload.get("prompt_version") != prompt_version:
+                    continue
+                if payload.get("page_sha256") == list(page_sha256s):
+                    return payload
         return None
 
     def find_authored_by_pages(
@@ -132,7 +231,7 @@ class ResponseCache:
         Used to label a report honestly: replaying a hand-authored fixture is
         not evidence that a model can read the document.
         """
-        payload = self._load(self.path(key)) if self.path(key).is_file() else None
+        payload = self._read_payload(key)
         if payload is None and page_sha256s:
             payload = self._find_authored(page_sha256s, prompt_version=prompt_version)
         if payload is None:
@@ -149,7 +248,7 @@ class ResponseCache:
         extracted at capture time" instead of showing them as absent and
         implying the document did not state them.
         """
-        payload = self._load(self.path(key)) if self.path(key).is_file() else None
+        payload = self._read_payload(key)
         if payload is None and page_sha256s:
             payload = self._find_authored(page_sha256s)
         if not isinstance(payload, dict):
@@ -168,7 +267,7 @@ class ResponseCache:
         provenance: str = "live API response",
         prompt_version: str = PROMPT_VERSION,
     ) -> Path:
-        self.directory.mkdir(parents=True, exist_ok=True)
+        self.write_dir.mkdir(parents=True, exist_ok=True)
         path = self.path(key)
         path.write_text(
             json.dumps(
@@ -186,8 +285,3 @@ class ResponseCache:
             )
         )
         return path
-
-    def keys(self) -> list[str]:
-        if not self.directory.is_dir():
-            return []
-        return sorted(p.stem for p in self.directory.glob("*.json"))

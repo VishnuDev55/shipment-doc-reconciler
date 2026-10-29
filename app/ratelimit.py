@@ -26,10 +26,14 @@ def _client_key(request: Request) -> str:
     """Who to charge the budget to.
 
     The API key when one was supplied, because that is the only identity that
-    exists here; otherwise the peer address, taking the first hop of
-    X-Forwarded-For since a proxy is the normal way to reach this app. A shared
-    key is one budget by design -- if it is being shared, that is the deployment
-    problem to fix, not something to hide here.
+    exists here and a caller cannot invent a different one to get a fresh bucket.
+    Otherwise the peer address -- unless a trusted proxy is declared, in which
+    case the first hop of `X-Forwarded-For`, since behind a proxy the peer is the
+    proxy and every visitor would otherwise share one budget.
+
+    The header is only read when `TRUSTED_PROXY` says a proxy you control sets
+    it. Believing it unconditionally made the limit optional: any caller could
+    rotate the value per request, and a shared key is one budget by design.
     """
     key = (request.headers.get("x-api-key") or "").strip()
     if not key:
@@ -38,8 +42,15 @@ def _client_key(request: Request) -> str:
             key = auth[7:].strip()
     if key:
         return "key:" + key[-12:]
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return "ip:" + forwarded.split(",")[0].strip()
+    if _trusted_proxy():
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return "ip:" + forwarded.split(",")[0].strip()
     client = request.client
     return "ip:" + (client.host if client else "unknown")
+
+
+def _trusted_proxy() -> bool:
+    from .main import active_settings  # local import: main imports this module
+
+    return bool(active_settings().trusted_proxy)

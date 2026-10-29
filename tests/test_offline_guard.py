@@ -139,3 +139,21 @@ def test_the_in_process_http_surface_still_works():
     """
     client = TestClient(app, base_url="http://testserver")
     assert client.get("/api/health").status_code == 200
+
+
+def test_closing_a_socket_also_revokes_the_port_it_authorized():
+    """Break caught: the guard remembered every port the process had *ever*
+    bound, so a socket that was closed and gone kept authorizing connects to its
+    port. That is why `test_a_loopback_port_this_process_never_bound_is_refused`
+    could fail once in a full run and pass alone: whether port 2080 had ever been
+    handed out as an ephemeral port before that test ran was a property of the
+    suite's history, not of the guard. Authorization has to follow the listener,
+    not the log of listeners.
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = int(probe.getsockname()[1])
+    probe.close()
+
+    with pytest.raises(AssertionError, match="zero"):
+        socket.create_connection(("127.0.0.1", port), timeout=1)

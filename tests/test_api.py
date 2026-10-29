@@ -200,6 +200,79 @@ def test_page_route_blocks_traversal(client):
     assert client.get(f"/page/{sid}/../../{sid}/report.json").status_code in (400, 404)
 
 
+def test_page_route_blocks_traversal_through_the_id_segment(tmp_path, client):
+    """The traversal above only probes `path`. The id was the wider hole.
+
+    `base` was computed from the unvalidated id, so an id of ".." put the base
+    one level above runs/ and a file living there satisfied "am I under base".
+    The existing test asked for a `secret.txt` that was never written, so its
+    404 proved nothing; this one writes it and must still be refused.
+
+    Asserted against the handler because the HTTP layer normalises dot segments
+    out of a URL before it can reach the route.
+    """
+    from fastapi import HTTPException
+
+    from app.main import serve_page
+
+    (tmp_path / "secret.txt").write_text("would have been served before the fix")
+    assert (tmp_path / "runs").is_dir()
+
+    with pytest.raises(HTTPException) as exc:
+        serve_page("..", "secret.txt")
+    assert exc.value.status_code == 404
+
+    with pytest.raises(HTTPException):
+        serve_page("../../etc", "passwd")
+
+    # An unknown-but-well-formed id must 404 too: no run, no file reads at all.
+    with pytest.raises(HTTPException) as exc:
+        serve_page("zzzzzzzzzzzzzzzzzz", "0.jpg")
+    assert exc.value.status_code == 404
+
+    assert client.get("/page/%2e%2e/secret.txt").status_code in (400, 404)
+
+
+@pytest.mark.parametrize("bad_id", ["a.b", "a b", "x" * 25, "sid.txt"])
+def test_no_route_answers_a_malformed_id_with_a_500(client, bad_id):
+    """dir() raising ValueError must never reach a browser as a 500.
+
+    Validating the id at the chokepoint is the fix, but 11 callers sit behind
+    it, and a route that forgets to gate would turn a junk URL into a stack
+    trace. That is a worse leak than the 404 it should be.
+
+    Only shapes that survive URL normalisation are probed here, so each of these
+    really does reach a handler and get refused by the store.
+    """
+    for url in (
+        f"/api/shipments/{bad_id}/report",
+        f"/api/shipments/{bad_id}/corrections",
+        f"/api/shipments/{bad_id}/export",
+        f"/api/shipments/{bad_id}/report.pdf",
+        f"/api/shipments/{bad_id}/raw/anything.json",
+        f"/page/{bad_id}/0.jpg",
+    ):
+        res = client.get(url)
+        assert res.status_code == 404, url
+    res = client.post(f"/api/shipments/{bad_id}/retry", json={"document_id": "d1"})
+    assert res.status_code == 404
+    res = client.post(
+        f"/api/shipments/{bad_id}/documents/d1/fields/total_amount",
+        json={"value": "1"},
+    )
+    assert res.status_code == 404
+
+
+def test_a_real_page_still_serves_after_the_guard(client):
+    """The traversal fixes must not quietly break the one route they protect."""
+    sid = client.get("/api/fixture/shipment_clean").json()["shipment_id"]
+    body = client.get(f"/api/shipments/{sid}/report").json()
+    image_path = body["documents"][0]["pages"][0]["image_path"]
+    res = client.get(f"/page/{sid}/{image_path}")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "image/jpeg"
+
+
 def test_retry_endpoint_round_trips(client):
     sid = client.get("/api/fixture/shipment_clean").json()["shipment_id"]
     body = client.get(f"/api/shipments/{sid}/report").json()

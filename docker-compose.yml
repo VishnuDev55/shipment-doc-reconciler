@@ -2,7 +2,8 @@
 #
 # Keys come from a local .env (docker compose reads it automatically) or from
 # CONSENSUS/DEMO_MODE below. With no keys at all, set DEMO_MODE=true and the
-# bundled cache replays real captured model output instead.
+# bundled cache replays real captured model output instead -- live mode needs
+# API_KEYS too, and says so by refusing to start.
 services:
   reconciler:
     build: .
@@ -13,6 +14,13 @@ services:
       DEMO_MODE: "false"
       VISION_PROVIDER: "nvidia"
       ENABLE_SUMMARY: "true"
+      # This file boots in live mode, and a live instance that has no key to
+      # check requests against refuses to start -- see the lifespan gate in
+      # app/main.py. Put a key in .env (API_KEYS=something) to boot, or flip
+      # DEMO_MODE to "true" above for a keyless tour of the samples. Compose
+      # passes the variable through unset on purpose: an invented default would
+      # be a secret committed to a repository.
+      API_KEYS: "${API_KEYS:-}"
       # The Configure drawer writes keys into this process, and there is no auth
       # in front of it. Harmless on a laptop; dangerous on a shared host, so the
       # compose default matches the local case and says so.

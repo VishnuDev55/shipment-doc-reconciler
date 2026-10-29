@@ -210,3 +210,145 @@ def test_the_spend_cli_reports_what_the_app_recorded(tmp_path, monkeypatch, caps
     out = capsys.readouterr().out
     assert "$0.3000" in out
     assert "calls          : 1" in out
+
+
+# ---------------------------------------------------------------------------
+# reservations: the part of the cap that has not reached the ledger yet
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clean_gate():
+    """Reservations are process state, and this file's tests all share one
+    process. Without this, a reservation taken by an early test silently
+    withholds budget from a later one that never asked for it."""
+    budget.reset_pending()
+    yield
+    budget.reset_pending()
+
+
+def test_a_reservation_holds_money_the_ledger_has_not_spent_yet(tmp_path) -> None:
+    """Break caught: N uploads arriving together all read the same empty ledger,
+    all pass the cap check, and all spend. The cap then means nothing except on
+    a slow day."""
+    settings = make_settings(tmp_path, usd_daily_cap=0.30)
+    assert budget.spent_today(settings) == 0.0
+
+    first = budget.reserve(settings, key="a", shipment_id="a", docs=1, amount=0.20)
+    assert first is not None
+    assert budget.spent_today(settings) == 0.0, "a reservation is not a receipt"
+    assert budget.reserve(settings, key="b", shipment_id="b", docs=1,
+                          amount=0.20) is None, "0.20 more does not fit 0.30 of a day"
+
+
+def test_a_refused_reservation_leaves_the_day_unchanged(tmp_path) -> None:
+    """Break caught: a refusal that still writes its reservation would shrink the
+    cap on every rejected attempt, and one busy caller could lock out a whole
+    instance by trying too hard."""
+    settings = make_settings(tmp_path, usd_daily_cap=0.30)
+    budget.reserve(settings, key="a", shipment_id="a", docs=1, amount=0.20)
+    for i in range(5):
+        assert budget.reserve(settings, key=f"junk{i}", shipment_id="x", docs=1,
+                              amount=0.20) is None
+    assert budget.pending_total() == pytest.approx(0.20)
+
+
+def test_a_leaked_reservation_self_heals_at_its_deadline(tmp_path) -> None:
+    """Break caught: a reservation released only by a callback that never fires
+    (the process was killed, the task was GC'd) would hold the cap until a
+    restart, which on a long-lived instance is never."""
+    clock = iter([0.0] * 4)
+    gate = budget.SpendGate(clock=lambda: next(clock))
+    settings = make_settings(tmp_path, usd_daily_cap=0.30,
+                             spend_reservation_ttl_seconds=100.0)
+
+    assert gate.reserve(settings, key="a", shipment_id="a", docs=1, amount=0.20)
+    assert gate.reserve(settings, key="b", shipment_id="b", docs=1, amount=0.20) is None
+
+    # Past the deadline, read from a fresh clock: the stale one is gone by
+    # itself, and the second run now fits.
+    late = 500.0
+    clock = iter([late, late, late, late])
+    gate._clock = lambda: next(clock)
+    assert gate.pending() == []
+    assert gate.reserve(settings, key="c", shipment_id="c", docs=1, amount=0.20)
+
+
+def test_a_reservation_writes_nothing_to_the_ledger(tmp_path) -> None:
+    """Break caught: persisting reservations means a crashed process wedges the
+    cap for the next one, and the ledger stops meaning "what was spent"."""
+    settings = make_settings(tmp_path, usd_daily_cap=1.00)
+    budget.reserve(settings, key="a", shipment_id="a", docs=2, amount=0.40)
+
+    path = budget.log_path(settings.runs_dir)
+    assert not path.exists(), "the day's money is spent by calls, not by intentions"
+
+
+def test_a_finished_run_counts_what_it_spent_not_what_it_reserved(tmp_path) -> None:
+    """Break caught: an estimate that stays on the cap after the run completes
+    charges the day twice -- once for the guess, once for the invoices."""
+    settings = make_settings(tmp_path, usd_daily_cap=0.30)
+    res = budget.reserve(settings, key="a", shipment_id="a", docs=1, amount=0.25)
+    assert res is not None
+    budget.record_call(settings, "nebius", NANO, {"prompt": 100_000, "completion": 0})
+
+    budget.release("a")
+    assert budget.pending_total() == 0.0
+    # $0.006 of a $0.30 day: the room comes back as the real number, not the guess.
+    assert budget.reserve(settings, key="b", shipment_id="b", docs=1, amount=0.25)
+
+
+def test_releasing_twice_is_not_an_error(tmp_path) -> None:
+    """Break caught: a done-callback and a finally both release, and the second
+    one raising would replace a finished run with a 500 in the logs."""
+    settings = make_settings(tmp_path, usd_daily_cap=1.00)
+    budget.reserve(settings, key="a", shipment_id="a", docs=1, amount=0.10)
+    budget.release("a")
+    budget.release("a")
+    assert budget.pending_total() == 0.0
+
+
+def test_a_cap_of_zero_reserves_nothing_and_refuses_nothing(tmp_path) -> None:
+    """Break caught: the off switch read as "zero money may be committed", which
+    would refuse every upload on an instance that meant to lift the cap."""
+    settings = make_settings(tmp_path, usd_daily_cap=0.0)
+    res = budget.reserve(settings, key="a", shipment_id="a", docs=5, amount=99.0)
+    assert res is not None, "None means refused; an uncapped day never refuses"
+    assert res.amount == 0.0
+    assert budget.pending_total() == 0.0
+
+
+def test_one_document_always_fits_an_empty_day(tmp_path) -> None:
+    """Break caught: an estimate generous enough to exceed the cap on its own
+    means nobody can ever upload again -- a worse outage than the race fixed."""
+    settings = make_settings(tmp_path)  # the shipped default cap
+    one = budget.estimate_run_usd(settings, 1, provider="nvidia")
+    assert one < settings.usd_daily_cap
+    assert budget.reserve(settings, key="a", shipment_id="a", docs=1, amount=one)
+
+
+def test_the_estimate_prices_the_settings_it_was_given(tmp_path) -> None:
+    """Break caught: pricing from module constants while render.yaml narrows the
+    instance means every reservation is wrong in the same direction."""
+    narrow = make_settings(tmp_path, max_pages_per_document=4, usd_daily_cap=2.0)
+    wide = make_settings(tmp_path / "wide", max_pages_per_document=6, usd_daily_cap=2.0)
+    assert budget.estimate_run_usd(wide, 2) > budget.estimate_run_usd(narrow, 2)
+
+    plain = budget.estimate_run_usd(narrow, 2)
+    both = budget.estimate_run_usd(
+        make_settings(tmp_path / "c", max_pages_per_document=4, consensus=True), 2)
+    assert both == pytest.approx(plain * 2), "consensus reads every page twice"
+
+    extra = budget.estimate_run_usd(
+        make_settings(tmp_path / "l", max_pages_per_document=4, enable_line_items=True), 2)
+    assert extra > plain, "line items are one more read per document"
+
+
+def test_the_reserved_ladder_matches_the_ladder_the_client_climbs() -> None:
+    """Break caught: budget.py repeats the backoff lengths because importing
+    .client would cycle, and a ladder that grows in one file and not the other
+    under-reserves every run."""
+    from app.client import BACKOFF_SCHEDULE
+
+    for provider, schedule in BACKOFF_SCHEDULE.items():
+        assert budget.BACKOFF_ATTEMPTS[provider] == len(schedule)

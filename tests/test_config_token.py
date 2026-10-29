@@ -121,3 +121,21 @@ def test_health_does_not_leak_or_require_a_token(make):
     body = client.get("/api/health").json()
     assert body["status"] == "ok"
     assert TOKEN not in json.dumps(body)
+
+
+def test_a_non_ascii_config_token_is_a_401_not_a_traceback(make):
+    """Break caught: `hmac.compare_digest` raises TypeError on a non-ASCII str,
+    so a token header carrying an accented byte crashed the check instead of
+    failing it. Same hole as the API-key path, reached through the other secret.
+    """
+    from starlette.requests import Request
+
+    from app.config_view import _require_config_token
+    from fastapi import HTTPException
+
+    make(config_token=TOKEN)  # configures the reconciler the check reads
+    request = Request({"type": "http", "method": "GET", "path": "/api/config",
+                       "headers": [(b"x-config-token", "tоkü".encode())]})
+    with pytest.raises(HTTPException) as exc:
+        _require_config_token(request)
+    assert exc.value.status_code == 401

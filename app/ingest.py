@@ -20,6 +20,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import math
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +43,11 @@ PDF_SUFFIXES = {".pdf"}
 # decompression bomb is refused rather than survived.
 MAX_IMAGE_PIXELS = 50_000_000
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+# Wall clock one document may hold the renderer for. Deliberately generous: a
+# real six-page scan draws in a second or two, so this only ever trips on a
+# document that is working at the renderer rather than being read by it.
+PDF_RENDER_DEADLINE_SECONDS = 30.0
 
 # Magic numbers, checked before any decoder is handed the bytes.
 _SIGNATURES: tuple[tuple[bytes, str], ...] = (
@@ -248,6 +255,33 @@ def rasterize_image(
     return pages
 
 
+def _render_scale(width: float, height: float, *, scale: float,
+                  long_edge: int) -> float:
+    """The scale to draw a page at, given the size that page declares.
+
+    A PDF states its page size in points and the renderer allocates
+    `width*scale x height*scale` pixels for it, so the number that decides the
+    allocation arrives in the file. `MAX_IMAGE_PIXELS` already refuses an image
+    that declares itself that big, and guarding only the Pillow path left the
+    PDF path open: a sub-MiB document declaring 14400x14400 pt asked for ~3 GB.
+
+    The page is drawn smaller rather than refused. `_encode` resizes every page
+    to `long_edge` moments after the render, so drawing it at more than twice
+    that is wasted memory even for a document nobody is attacking.
+    """
+    if width <= 0 or height <= 0 or scale <= 0:
+        return scale
+    wanted = (width * scale) * (height * scale)
+    if wanted <= MAX_IMAGE_PIXELS:
+        return scale
+    longest = max(width, height)
+    fit = math.sqrt(MAX_IMAGE_PIXELS / wanted)
+    useful = (long_edge * 2) / longest if long_edge else scale
+    # A floor, so a page declared absurd enough to need a scale of zero still
+    # produces a readable page instead of an empty bitmap.
+    return max(min(scale * fit, useful), 0.01)
+
+
 def rasterize_pdf(
     raw: bytes,
     *,
@@ -256,6 +290,7 @@ def rasterize_pdf(
     quality: int = 85,
     max_pages: int = 6,
     preprocess: bool = False,
+    deadline_seconds: float = PDF_RENDER_DEADLINE_SECONDS,
 ) -> list[PageImage]:
     try:
         doc = pdfium.PdfDocument(raw)
@@ -263,9 +298,24 @@ def rasterize_pdf(
         raise ValueError(f"unreadable PDF: {exc}") from exc
 
     pages: list[PageImage] = []
+    started = time.monotonic()
     try:
         for i in range(min(len(doc), max_pages)):
-            pil = doc[i].render(scale=scale).to_pil()
+            # Checked per page rather than once up front: the cost of drawing a
+            # page is not knowable from the file's size, and a document that
+            # keeps the instance's CPU for a minute is the same denial of
+            # service whether it does it on page 1 or page 6.
+            if time.monotonic() - started > deadline_seconds:
+                raise ValueError(
+                    f"PDF took too long to render ({len(pages)} of "
+                    f"{min(len(doc), max_pages)} pages in "
+                    f"{deadline_seconds:.0f} s); it was not read further"
+                )
+            page = doc[i]
+            width, height = page.get_size()
+            pil = page.render(
+                scale=_render_scale(width, height, scale=scale, long_edge=long_edge)
+            ).to_pil()
             pages.append(_encode(pil, len(pages) + 1, long_edge, quality, preprocess))
     finally:
         doc.close()

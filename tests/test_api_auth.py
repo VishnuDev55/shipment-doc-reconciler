@@ -255,3 +255,99 @@ def test_a_key_in_the_query_string_is_not_accepted(guarded):
     make the download links work."""
     assert guarded.get(f"/api/models?api_key={KEY_A}").status_code == 401
     assert guarded.get(f"/api/models?key={KEY_A}").status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# a header is bytes, and bytes are not always ASCII
+# ---------------------------------------------------------------------------
+
+
+def _asgi_request(headers: list[tuple[bytes, bytes]]):
+    """The request as the server actually hands it over: raw header bytes.
+
+    Starlette decodes those as latin-1, so a client that sends UTF-8 in a header
+    produces a `str` with non-ASCII characters in it -- which is a value httpx
+    will not build, and therefore the only way to reach this path honestly.
+    """
+    from starlette.requests import Request
+
+    return Request({"type": "http", "method": "GET", "path": "/api/models",
+                    "headers": headers})
+
+
+def test_a_non_ascii_api_key_header_is_refused_rather_than_crashing(guarded):
+    """Break caught: `hmac.compare_digest` raises TypeError on a non-ASCII str,
+    so a request with an accented byte in `X-API-Key` produced a 500 from inside
+    the auth check -- before anything was authenticated. That is a traceback for
+    a request anybody can send, and it distinguishes "almost right" from "wrong"
+    if the exception's shape varies. It has to be the same 401 as any other bad
+    key.
+    """
+    from fastapi import HTTPException
+
+    from app.auth import require_api_key
+
+    request = _asgi_request([(b"x-api-key", "kлüч".encode())])
+    # FastAPI resolves the header dependency and passes the decoded value, so a
+    # direct call has to hand over the same thing rather than the Depends object.
+    with pytest.raises(HTTPException) as exc:
+        require_api_key(request, supplied=request.headers.get("x-api-key"))
+    assert exc.value.status_code == 401
+
+
+def test_a_non_ascii_bearer_token_is_refused_rather_than_crashing(guarded):
+    """The Authorization header takes the same path and had the same crash."""
+    from fastapi import HTTPException
+
+    from app.auth import require_api_key
+
+    request = _asgi_request([(b"authorization", b"Bearer " + "kлüч".encode())])
+    with pytest.raises(HTTPException) as exc:
+        require_api_key(request, supplied=None)
+    assert exc.value.status_code == 401
+
+
+def test_a_non_ascii_key_in_the_session_body_is_a_401(guarded):
+    """The browser path: the key arrives as JSON, which will happily carry any
+    Unicode the caller likes, and reaches the same constant-time comparison."""
+    res = guarded.post("/api/session", json={"key": "kлüч-not-a-key"})
+    assert res.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# health stays open, but stops describing the deployment to strangers
+# ---------------------------------------------------------------------------
+
+
+def test_health_tells_a_keyed_deployment_less_to_a_stranger(guarded):
+    """Break caught: /api/health answered with the version, the commit, both
+    provider hostnames, the model ids and the retention window of a keyed
+    instance, to anyone who asked. A load balancer needs `status`; a UI needs to
+    know a key is required. Neither needs the model ids, and together they are a
+    description of what to target and what to imitate.
+    """
+    body = guarded.get("/api/health").json()
+
+    assert body["status"] == "ok", "the health check must still answer 200"
+    assert body["api_protected"] is True, "the UI reads this to ask for a key"
+    for leaked in ("version", "git_commit", "model", "base_url",
+                   "vision", "summary", "run_ttl_hours"):
+        assert leaked not in body, f"{leaked} is deployment detail, not health"
+
+
+def test_health_still_describes_the_instance_to_a_key_holder(guarded):
+    """The gate must not hide the detail from the operator's own monitoring, or
+    the fix turns a fingerprint into an outage."""
+    body = guarded.get("/api/health", headers={"X-API-Key": KEY_A}).json()
+
+    assert body["status"] == "ok"
+    assert "version" in body
+    assert body["vision"]["provider"]
+
+
+def test_an_open_instance_keeps_describing_itself(open_client):
+    """Open is a deliberate configuration (the keyless demo). Nothing is being
+    protected there, and the page relies on the detail to explain the mode."""
+    body = open_client.get("/api/health").json()
+    assert body["api_protected"] is False
+    assert "version" in body

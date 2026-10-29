@@ -38,6 +38,8 @@ from .adjudicate import build_unverified_prompt
 from .adjudicate import parse_unverified_note
 from .adjudicate import unverified_note_is_usable
 from .adjudicate import unverified_signature
+from . import budget
+from .cache import purge_cache_older_than
 from .client import (
     ExtractionClient,
     ExtractionOutcome,
@@ -46,7 +48,7 @@ from .client import (
 )
 from .compare import FieldObservation, compare_field
 from .consensus import divergences_between, summarize
-from .config import Settings, get_settings
+from .config import Settings, cache_write_dir, get_settings
 from .correct import apply_correction, revert_corrections
 from .discovery import Catalog, Selection, fetch, resolve
 from .fields import FIELD_LABEL, FIELD_ORDER, FieldKey
@@ -382,8 +384,15 @@ def load_pages(run_dir: Path, doc: DocumentReport) -> list[PageImage]:
     return pages
 
 
+# C0 controls and DEL, removed from any text that came out of a filename. The
+# label is not only shown: it is rendered into the draft email and the report, so
+# a carriage return in a name is a new line of a letter, and a tab or an escape
+# sequence can reorder what a terminal shows about a shipment.
+_CONTROL_CHARS = str.maketrans("", "", "".join(map(chr, (*range(32), 127))))
+
+
 def short_label(filename: str, index: int) -> str:
-    name = Path(filename).name
+    name = Path(filename).name.translate(_CONTROL_CHARS)
     stem = name[:32] + "…" if len(name) > 35 else name
     return stem or f"document {index}"
 
@@ -407,6 +416,15 @@ class Reconciler:
         if self._purged:
             log.info("purged %d run(s) older than %dh", len(self._purged),
                      self.settings.run_ttl_hours)
+        # The cache beside the runs, under the same rule: nothing else ever trims
+        # it, so an instance that has been up for a season holds every response it
+        # has ever received. Uses the resolved write directory, not cache_dir --
+        # pruning the committed tree would delete the demo's own fixtures.
+        self._cache_purged = purge_cache_older_than(
+            cache_write_dir(self.settings), self.settings.live_cache_ttl_hours)
+        if self._cache_purged:
+            log.info("purged %d cache entr(ies) older than %dh", len(self._cache_purged),
+                     self.settings.live_cache_ttl_hours)
         self._tasks: dict[str, asyncio.Task] = {}
         # Discovery results, keyed by host so two roles on one host share a
         # catalog. Both are best-effort: an unreachable host leaves the
@@ -642,6 +660,29 @@ class Reconciler:
 
     # ------------------------------------------------------------------
 
+    def _reserve_spend(self, shipment_id: str, docs: int, *,
+                       key: str | None = None) -> None:
+        """Hold this run's worst-case cost against the day's cap.
+
+        Raises budget.SpendCapReached, which the route turns into a 429: the
+        orchestrator is the layer that knows what a run costs, not the layer that
+        speaks HTTP. Demo mode is exempt -- a replay cannot spend anything, and a
+        laptop whose ledger holds an old day must still be able to run fixtures.
+        """
+        if self.settings.demo_mode:
+            return
+        endpoint = self.client.endpoint
+        amount = budget.estimate_run_usd(
+            self.settings, docs, provider=endpoint.provider, model=endpoint.model)
+        if budget.reserve(self.settings, key=key or shipment_id,
+                          shipment_id=shipment_id, docs=docs, amount=amount) is None:
+            raise budget.SpendCapReached(
+                spent=budget.spent_today(self.settings),
+                reserved=budget.pending_total(),
+                amount=amount,
+                cap=float(self.settings.usd_daily_cap or 0.0),
+            )
+
     async def create_shipment(
         self,
         uploads: list[tuple[str, str | None, bytes]],
@@ -665,6 +706,15 @@ class Reconciler:
             )
 
         shipment_id = new_shipment_id()
+        # The reservation is taken here rather than in the route for two
+        # reasons: the id it is keyed by does not exist until this line, and
+        # this is the first point that can answer "does this run still fit in
+        # the day" without awaiting. Everything above is synchronous, and
+        # `reserve()` is itself synchronous, so no second upload can slip a
+        # reservation in between reading the projection and writing this one.
+        # The route's ledger check stays as the cheap door-stop; it cannot see
+        # in-flight runs, which is exactly what this can.
+        self._reserve_spend(shipment_id, len(uploads))
         self.store.create(shipment_id)
 
         prepared: list[PreparedDocument] = []
@@ -806,18 +856,28 @@ class Reconciler:
             self._tasks[shipment_id] = task
             task.add_done_callback(lambda done: self._task_done(shipment_id, done))
         else:
+            # Nothing was dispatched, so nothing will ever call _task_done for
+            # this id. Without this the reservation would sit on the cap until
+            # its TTL even though the run spent nothing at all.
+            budget.release(shipment_id)
             log.warning("shipment %s: every document was rejected", shipment_id)
         return shipment_id, report
 
     def _task_done(self, shipment_id: str, task: asyncio.Task) -> None:
-        """Surface whatever killed a run.
+        """Surface whatever killed a run, and stop holding its reservation.
 
         A bare create_task swallows exceptions into "Task exception was never
         retrieved", which arrives on stderr some time later with no shipment id
         attached -- so a run that died mid-flight looked like a run that was
         still running. The report on disk is the reader's source of truth; this
         only makes sure the failure is attributable.
+
+        The release happens before the three outcome branches, and `release` is
+        idempotent, so success, cancellation and a crash all cost the day the
+        same thing: whatever the ledger says was actually spent, never the
+        worst case that was reserved.
         """
+        budget.release(shipment_id)
         self._tasks.pop(shipment_id, None)
         if task.cancelled():
             log.warning("shipment %s: processing cancelled", shipment_id)
@@ -1201,7 +1261,7 @@ class Reconciler:
                 comp.adjudication = Adjudication(status="skipped", error=blocked)
             return
 
-        cache = AdjudicationCache(settings.cache_dir)
+        cache = AdjudicationCache(settings.cache_dir, live_dir=cache_write_dir(settings))
         for comp in targets:
             signature = verdict_signature(comp)
             adjudication = Adjudication()
@@ -1277,7 +1337,8 @@ class Reconciler:
         if not settings.enable_adjudication:
             return  # the advisor is off; silence, not a marker
 
-        cache = AdjudicationCache(settings.cache_dir, subdir="unverified_notes")
+        cache = AdjudicationCache(settings.cache_dir, subdir="unverified_notes",
+                                  live_dir=cache_write_dir(settings))
         can_call = not settings.demo_mode and _key_is_real(endpoint.api_key)
         docs_by_id = {d.id: d for d in report.documents}
         for item in report.unverified:
@@ -1355,7 +1416,8 @@ class Reconciler:
             briefing.error = f"{endpoint.provider.upper()}_API_KEY not set"
             return
 
-        cache = AdjudicationCache(settings.cache_dir, subdir="briefings")
+        cache = AdjudicationCache(settings.cache_dir, subdir="briefings",
+                                  live_dir=cache_write_dir(settings))
         signature = briefing_signature(report)
         cached = cache.get(signature)
         if cached and draft_is_usable(cached.get("raw_text", "")) is None:
@@ -1665,20 +1727,33 @@ class Reconciler:
             self.store.write(report)
             return report
 
-        target.status = "running"
-        target.error = None
-        refresh_report(report, self.client)
-        self.store.write(report)
+        # Reserved before the row is touched, so a refusal leaves the document
+        # exactly as it was rather than "running" with nothing ever running. The
+        # key is per document because a shipment can be retried while another of
+        # its documents is being retried; both need to be on the cap at once.
+        key = f"{shipment_id}:{target.id}"
+        self._reserve_spend(shipment_id, 1, key=key)
 
-        res = await self._extract_with_fallback(
-            shipment_id=shipment_id,
-            document_id=target.id,
-            document_label=target.label,
-            pages=pages,
-            declared_doc_type=target.declared_doc_type,
-            raw_dir=self.store.dir(shipment_id) / "raw",
-            record=target,
-        )
+        try:
+            target.status = "running"
+            target.error = None
+            refresh_report(report, self.client)
+            self.store.write(report)
+
+            res = await self._extract_with_fallback(
+                shipment_id=shipment_id,
+                document_id=target.id,
+                document_label=target.label,
+                pages=pages,
+                declared_doc_type=target.declared_doc_type,
+                raw_dir=self.store.dir(shipment_id) / "raw",
+                record=target,
+            )
+        finally:
+            # Nothing dispatches a background task for a retry -- the request
+            # itself is the run -- so this is the release a _task_done would have
+            # been. A transport error inside the await still lands here.
+            budget.release(key)
 
         apply_outcome(target, res)
         if target.extraction is not None:

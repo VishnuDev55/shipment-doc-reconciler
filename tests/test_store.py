@@ -13,6 +13,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from app import store as store_module
 from app.models import Report, Summary
 from app.store import RunStore, _safe_name, new_shipment_id
@@ -57,6 +59,47 @@ def test_an_upload_name_cannot_escape_the_run_directory(tmp_path):
     assert path.parent == store.dir("sid") / "uploads"
     assert path.name.endswith("_evil.pdf")
     assert path.read_bytes() == b"data"
+
+
+# `dir()` is the one join point every run path goes through, and until now it
+# accepted any string. `serve_page` built its containment base out of it, so an
+# id of ".." moved the base to the parent of runs/ and a file there passed the
+# "is it under the base" test -- which is how `GET /page/../.env` served the key
+# file. The generator emits 16 base64url chars, so anything with a dot, a slash
+# or a space was never a legal id in the first place.
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "..",
+        ".",
+        "a/..",
+        "../..",
+        "a\\b",
+        "..\\..\\windows",
+        "/etc/passwd",
+        "sid.txt",
+        "a b",
+        "",
+        "x" * 25,
+    ],
+)
+def test_dir_rejects_anything_that_is_not_a_run_id(tmp_path, bad):
+    store = RunStore(tmp_path / "runs")
+    with pytest.raises(ValueError):
+        store.dir(bad)
+
+
+def test_a_generated_id_is_accepted_by_the_shape_check(tmp_path):
+    store = RunStore(tmp_path / "runs")
+    assert store.dir(new_shipment_id()).is_relative_to(store.root)
+    assert store.dir("sid").name == "sid"  # short hand-written ids stay legal for tests/scripts
+
+
+def test_exists_is_false_for_an_illegal_id_rather_than_raising(tmp_path):
+    # Several routes call exists() before dir(); an unprobed id must read as
+    # "no such run", not surface as a 500.
+    store = RunStore(tmp_path / "runs")
+    assert store.exists("..") is False
 
 
 def test_list_shipments_skips_and_counts_a_corrupt_report(tmp_path):

@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .config import Settings
+from .config import Settings, cache_write_dir
 from .models import Report
 from .summary import SUMMARY_VERSION
 
@@ -42,15 +42,34 @@ def narrative_key(report: Report, model: str) -> str:
 
 
 class NarrativeCache:
+    """Written summaries, read from the committed tree first and written to the
+    live one. Same split, and for the same reason, as `ResponseCache`: three of
+    these narratives are committed fixtures whose provenance the report claims."""
+
     def __init__(self, settings: Settings):
-        self.directory = Path(settings.cache_dir) / "narratives"
+        write_root = cache_write_dir(settings)
+        self.read_dirs = [
+            Path(settings.cache_dir) / "narratives",
+            Path(write_root) / "narratives",
+        ]
+        self.write_dir = self.read_dirs[-1]
+        # Scripts reach for `.directory` when they report where a capture landed.
+        self.directory = self.read_dirs[0]
 
     def path(self, key: str) -> Path:
-        return self.directory / f"{key}.json"
+        return self.write_dir / f"{key}.json"
+
+    def _find(self, key: str) -> Path | None:
+        name = f"{key}.json"
+        for directory in self.read_dirs:
+            candidate = directory / name
+            if candidate.is_file():
+                return candidate
+        return None
 
     def get(self, report: Report, model: str) -> dict[str, Any] | None:
-        path = self.path(narrative_key(report, model))
-        if not path.is_file():
+        path = self._find(narrative_key(report, model))
+        if path is None:
             return None
         try:
             payload = json.loads(path.read_text())
@@ -67,7 +86,7 @@ class NarrativeCache:
         }
 
     def put(self, report: Report, *, model: str, provider: str, text: str) -> Path:
-        self.directory.mkdir(parents=True, exist_ok=True)
+        self.write_dir.mkdir(parents=True, exist_ok=True)
         path = self.path(narrative_key(report, model))
         path.write_text(
             json.dumps(

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import tempfile
@@ -29,10 +30,26 @@ log = logging.getLogger("sdr.store")
 # still surfaces as an error instead of a stalled request.
 _REPLACE_ATTEMPTS = 5
 
+# The shape of a run id, and therefore the shape of a run directory name.
+# `new_shipment_id()` emits 16 chars from A-Za-z0-9-_ ; the class also admits
+# short hand-written ids that tests and scripts pass straight to RunStore.
+#
+# No dot and no separator is the security property: dir() is where every
+# caller-supplied id meets the filesystem, and rejecting "." / ".." / "a/b"
+# there means no route, export, or script can join its way out of runs/ by
+# naming a directory. Length is capped at 24 so an absurd id cannot become an
+# absurd path.
+_ID_RE = re.compile(r"\A[A-Za-z0-9_-]{1,24}\Z")
+
 
 def new_shipment_id() -> str:
     """Unguessable ID is the whole access-control story for a public demo."""
     return secrets.token_urlsafe(12)
+
+
+def is_shipment_id(value: str) -> bool:
+    """True if `value` is shaped like a run id, i.e. can name a run directory."""
+    return bool(_ID_RE.match(value))
 
 
 def _now() -> str:
@@ -43,6 +60,10 @@ class RunStore:
     def __init__(self, root: Path):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        # Resolved once, so every containment check downstream is measured
+        # against an absolute runs root: `is_relative_to` is only trustworthy
+        # when neither side depends on the cwd or an unresolved symlink.
+        self.root_resolved = self.root.resolve()
         # Set by the reconciler to fan report changes out to SSE listeners.
         # Optional by design: scripts and tests write runs without a server.
         self.on_write: Callable[[Report], None] | None = None
@@ -88,9 +109,22 @@ class RunStore:
             return None
 
     def dir(self, shipment_id: str) -> Path:
-        return self.root / shipment_id
+        """The run directory for an id, always inside the runs root.
+
+        Raises ValueError if the id is not a run id. This is the one join
+        between a caller-supplied id and the filesystem, so validating here is
+        what keeps every route, export and script that reaches a run honest --
+        an id of ".." used to resolve to the repository itself.
+        """
+        if not _ID_RE.match(shipment_id):
+            raise ValueError("not a shipment id")
+        return self.root_resolved / shipment_id
 
     def exists(self, shipment_id: str) -> bool:
+        """Whether a run has a report. False for an illegal id, not an error:
+        callers use this as the gate before they touch the filesystem."""
+        if not _ID_RE.match(shipment_id):
+            return False
         return (self.dir(shipment_id) / "report.json").is_file()
 
     def create(self, shipment_id: str) -> Path:
@@ -132,6 +166,11 @@ class RunStore:
         return path
 
     def read(self, shipment_id: str) -> Report | None:
+        # A malformed id names no run, so it reads as one rather than raising:
+        # every caller already turns None into a 404, and a ValueError here
+        # would surface to a browser as a 500 for a URL nobody can fix.
+        if not is_shipment_id(shipment_id):
+            return None
         path = self.dir(shipment_id) / "report.json"
         if not path.is_file():
             return None

@@ -43,7 +43,16 @@ playwright-report/
 # scratch from scripts/live_compare.py
 .live_runcache/
 
+# Where a live run's captured responses land. Tracked fixtures are reviewed
+# provenance; a model's answer about somebody's real shipment is not, and this
+# is the directory that keeps the two apart. See Settings.live_cache_dir.
+.live_cache/
+
 .probe_cache/
+
+# Output of the /brag skill (rendered video, frame dumps, composition).
+brag-output/
+brag-output-*/
 
 # Local tooling output and hand-off notes — not project files.
 graphify-out/

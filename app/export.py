@@ -56,10 +56,45 @@ VERDICT_HEADLINE = {
 }
 
 
+# A cell whose first character is one of these is a formula to a spreadsheet.
+# The tab and CR cases matter as much as the obvious ones: Excel strips leading
+# whitespace before deciding, so "\t=1+1" is a formula that looks like text.
+_FORMULA_STARTS = ("=", "+", "@", "\t", "\r")
+
+
+def _csv_cell(value: object) -> str:
+    """A value a spreadsheet reads as text, not as a program.
+
+    report.csv is built from document text, and a spreadsheet treats a cell
+    beginning `=`, `+`, `-` or `@` as an expression. Opening the export is enough
+    to run it -- no click, no macro prompt -- and the person opening it is the
+    reviewer, who is exactly the account the payload wants.
+
+    A leading apostrophe is the conventional way to say "this is text": Excel and
+    Sheets hide it, and every other reader gets the original string with one
+    harmless character in front. `-` is exempted when what follows is a plain
+    number, because a negative amount is a common, honest value and prefixing all
+    of them would deface every export to stop `-2+3`.
+    """
+    text = "" if value is None else str(value)
+    if text[:1] in _FORMULA_STARTS:
+        return "'" + text
+    if text[:1] == "-":
+        try:
+            float(text.replace(",", ""))
+        except ValueError:
+            return "'" + text
+    return text
+
+
 def report_csv(report: Report) -> str:
     """Long format: one row per field per document. Pivots cleanly in a sheet."""
     buf = io.StringIO()
     writer = csv.writer(buf)
+
+    def emit(cells: list[object]) -> None:
+        writer.writerow([_csv_cell(c) for c in cells])
+
     writer.writerow(
         [
             "shipment_id", "field", "field_label", "kind", "field_status",
@@ -69,7 +104,7 @@ def report_csv(report: Report) -> str:
     )
     for comp in report.comparisons:
         for v in comp.values:
-            writer.writerow(
+            emit(
                 [
                     report.shipment_id,
                     comp.field,
@@ -93,7 +128,7 @@ def report_csv(report: Report) -> str:
     # somebody pivot a shipment to "no problems" while a value nobody printed sat
     # quietly outside the file.
     for u in report.unverified:
-        writer.writerow(
+        emit(
             [
                 report.shipment_id, u.field, u.label, "", "excluded: evidence not found",
                 u.document_label, "", u.page_index, u.value or "", "", "", "", "", "yes",
@@ -113,9 +148,17 @@ def _evidence_data_uri(run_dir: Path | None, image_path: str) -> str | None:
     if run_dir is None:
         return None
     path = run_dir / image_path
-    if not path.is_file():
+    # image_path is written by ingest (pages/<n>.jpg), so a run read from disk
+    # cannot carry a traversal. Checked anyway: this embeds bytes into a
+    # standalone HTML file that ships with no CSP, and the cost of anchoring the
+    # join is one comparison.
+    base = run_dir.resolve()
+    resolved = path.resolve()
+    if not resolved.is_relative_to(base):
         return None
-    b64 = base64.b64encode(path.read_bytes()).decode()
+    if not resolved.is_file():
+        return None
+    b64 = base64.b64encode(resolved.read_bytes()).decode()
     return f"data:image/jpeg;base64,{b64}"
 
 
@@ -340,6 +383,7 @@ def standalone_html(report: Report, run_dir: Path | None = None) -> str:
         banner = ""
     steps, tokens, ms = transparency(report)
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shipment reconciliation {esc(report.shipment_id)}</title>
 <style>

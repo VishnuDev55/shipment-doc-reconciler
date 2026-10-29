@@ -76,6 +76,7 @@ def _check_address(what: str, address: object) -> None:
 
 
 _bind = socket.socket.bind
+_close = socket.socket.close
 _connect = socket.socket.connect
 _connect_ex = socket.socket.connect_ex
 _create_connection = socket.create_connection
@@ -97,6 +98,24 @@ def _guarded_bind(self, address, *args, **kwargs):
         except OSError:
             pass
     return result
+
+
+def _guarded_close(self, *args, **kwargs):
+    """Forget the port this socket owned, before it is gone.
+
+    Authorization has to follow the listener, not the history of listeners. A set
+    that only ever grew meant a port bound once and closed stayed permitted for
+    the rest of the session -- so a later connect to that number was waved
+    through to a closed port, which on some machines hangs rather than refusing.
+    A test in this file then passes or fails depending on which ports the rest of
+    the suite happened to use.
+    """
+    try:
+        if self.fileno() != -1:
+            _self_bound_ports.discard(int(self.getsockname()[1]))
+    except OSError:
+        pass
+    return _close(self, *args, **kwargs)
 
 
 def _guarded_connect(self, address, *args, **kwargs):
@@ -146,6 +165,7 @@ def no_network() -> object:
                  "http_proxy", "https_proxy", "all_proxy", "wss_proxy"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(socket.socket, "bind", _guarded_bind)
+    monkeypatch.setattr(socket.socket, "close", _guarded_close)
     monkeypatch.setattr(socket.socket, "connect", _guarded_connect)
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex)
     monkeypatch.setattr(socket, "create_connection", _guarded_create_connection)
