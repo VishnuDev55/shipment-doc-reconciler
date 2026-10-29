@@ -109,11 +109,16 @@ def _guarded_close(self, *args, **kwargs):
     through to a closed port, which on some machines hangs rather than refusing.
     A test in this file then passes or fails depending on which ports the rest of
     the suite happened to use.
+
+    Only TCP sockets have a port to forget. asyncio's event loop closes an
+    AF_UNIX socketpair on every run, whose `getsockname()` is a string -- and on
+    Linux that string is empty, so indexing it raised IndexError out of `__del__`
+    during garbage collection and painted unrelated tests as failures.
     """
     try:
-        if self.fileno() != -1:
+        if self.fileno() != -1 and self.family in (socket.AF_INET, socket.AF_INET6):
             _self_bound_ports.discard(int(self.getsockname()[1]))
-    except OSError:
+    except (OSError, TypeError, ValueError):
         pass
     return _close(self, *args, **kwargs)
 
