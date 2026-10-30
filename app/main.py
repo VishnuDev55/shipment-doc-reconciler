@@ -240,12 +240,35 @@ if STATIC_DIR.is_dir():
 # ---------------------------------------------------------------------------
 
 
+# How long the first-paint curtain stays away after it has played once. Long
+# enough that clicking around never replays it, short enough that a tab left open
+# all day is not stuck without it forever.
+INTRO_REPEAT_SECONDS = 600
+
+# The curtain is suppressed in the HTML the server sends, not by the client: a
+# script that removes an overlay after it has painted is a flash of a curtain,
+# which is worse than no curtain. A cookie is the whole state -- no storage, no
+# clock, and the browser deletes it for us when the window closes.
+_INTRO_OPEN = '<div id="intro" class="intro" aria-hidden="true">'
+_INTRO_SEEN = '<div id="intro" class="intro" aria-hidden="true" hidden>'
+
+
 @app.get("/", response_class=HTMLResponse)
-def index() -> HTMLResponse:
+def index(request: Request) -> HTMLResponse:
     page = STATIC_DIR / "index.html"
     if not page.is_file():
         raise HTTPException(500, "web/index.html missing from the deployment")
-    return HTMLResponse(page.read_text(encoding="utf-8"))
+    html = page.read_text(encoding="utf-8")
+    seen = bool(request.cookies.get("sdr_intro_seen"))
+    if seen:
+        html = html.replace(_INTRO_OPEN, _INTRO_SEEN, 1)
+    response = HTMLResponse(html)
+    if not seen:
+        response.set_cookie(
+            "sdr_intro_seen", "1", max_age=INTRO_REPEAT_SECONDS,
+            httponly=True, samesite="lax",
+        )
+    return response
 
 
 @app.get("/api/health")

@@ -119,6 +119,9 @@ const intro = { el: null, shownAt: 0, done: false, health: false, access: false,
 function startIntro() {
   const el = $('#intro');
   if (!el) return;
+  // Served hidden: the server saw a recent visit and suppressed the curtain
+  // before the browser had anything to paint. Nothing left to do.
+  if (el.hidden) return;
   const params = new URLSearchParams(location.search);
   const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   // A deep link is somebody asking for a specific report, and a calm setting is

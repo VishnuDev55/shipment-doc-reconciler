@@ -364,3 +364,24 @@ def test_ui_serves_the_narrative_section(client):
     page = client.get("/").text
     assert 'id="narrative-card"' in page
     assert "AI-generated" in page
+
+
+def test_the_first_paint_plays_once_per_window_then_the_server_suppresses_it(client):
+    """The curtain is a one-off, and it is suppressed in the HTML rather than by
+    the client: a script that removes an overlay the browser has already painted
+    is a flash of the very thing it was meant to spare you.
+    """
+    first = client.get("/")
+    assert 'class="intro" aria-hidden="true">' in first.text, "first load draws it"
+    cookie = first.headers.get("set-cookie", "")
+    assert "sdr_intro_seen=1" in cookie
+    assert "Max-Age=600" in cookie, "the window is ten minutes"
+    assert "httponly" in cookie.lower()
+
+    second = client.get("/")
+    assert 'class="intro" aria-hidden="true" hidden>' in second.text, (
+        "a second load inside the window is served without the curtain"
+    )
+    assert "sdr_intro_seen=1" not in second.headers.get("set-cookie", ""), (
+        "the window is not slid forward by every page view"
+    )

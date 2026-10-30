@@ -72,6 +72,18 @@ def test_the_first_paint_shows_the_mark_then_gets_out_of_the_way(page, app):
         "() => document.querySelector('#intro').hidden === true", timeout=6_000)
 
 
+def test_a_second_load_inside_the_window_is_served_without_the_curtain(page, app):
+    """The one-off is decided by the server, so the second load is born without
+    the curtain rather than having it painted and then snatched away."""
+    page.goto(app.base_url + "/")
+    page.wait_for_function(
+        "() => document.querySelector('#intro').hidden === true", timeout=6_000)
+
+    page.goto(app.base_url + "/")
+    # No waiting: if it needed the client to hide it, this would already be false.
+    assert page.evaluate("() => document.querySelector('#intro').hidden") is True
+
+
 def test_a_deep_link_skips_the_intro(page, app):
     """Somebody opening ?demo= or ?run= asked for that content, so the curtain
     would be in the way rather than covering for anything."""
