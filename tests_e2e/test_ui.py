@@ -55,6 +55,30 @@ def test_the_app_boots_without_a_script_error_and_shows_the_empty_state(page, ap
     assert page.errors == [], f"uncaught errors: {page.errors}"
 
 
+def test_the_first_paint_shows_the_mark_then_gets_out_of_the_way(page, app):
+    """The intro is a curtain over a gap, not a gate. It has to appear, be
+    incapable of swallowing a click while it is up, and leave without waiting for
+    a permission slip -- including when /api/health is slow, which is what the
+    hard cap in app.js covers.
+    """
+    page.goto(app.base_url + "/")
+    intro = page.locator("#intro")
+    intro.wait_for(state="attached", timeout=10_000)
+    assert page.evaluate("() => !document.querySelector('#intro').hidden")
+    assert page.evaluate(
+        "() => getComputedStyle(document.querySelector('#intro')).pointerEvents") == "none",         "the curtain must never intercept a click"
+
+    page.wait_for_function(
+        "() => document.querySelector('#intro').hidden === true", timeout=6_000)
+
+
+def test_a_deep_link_skips_the_intro(page, app):
+    """Somebody opening ?demo= or ?run= asked for that content, so the curtain
+    would be in the way rather than covering for anything."""
+    page.goto(app.base_url + "/?demo=shipment_clean", wait_until="load")
+    assert page.evaluate("() => document.querySelector('#intro').hidden") is True
+
+
 def test_cold_start_announces_demo_mode_before_anything_is_reconciled(page, app):
     """First load in DEMO_MODE has to say what is about to happen: the responses
     are captured real model output being replayed, not a live call and not a
@@ -71,6 +95,26 @@ def test_a_sample_shipment_renders_a_settled_verdict(report_page):
     assert "Conflicts found" in report_page.locator("#verdict-headline").inner_text()
     assert report_page.locator("#counts button").count() >= 4
     assert report_page.errors == []
+
+
+def test_a_sample_run_can_be_cleared_like_an_upload(page, app):
+    """Break caught: Clear was shown only when files were staged, and a sample
+    run empties `state.files` on purpose (it uploads nothing). A report opened
+    from the sidebar therefore had no way back to the empty state short of
+    editing the URL by hand."""
+    page.goto(app.base_url + "/")
+    page.wait_for_selector("#fixture-list .picker", timeout=20_000)
+    assert page.locator("#reset").is_hidden(), "nothing to clear on a fresh page"
+
+    page.locator("#fixture-list .picker", has_text="Clean").click()
+    page.wait_for_selector("#results:not([hidden])", timeout=30_000)
+    page.locator("#reset").wait_for(state="visible", timeout=5_000)
+
+    page.click("#reset")
+    page.wait_for_selector("#empty:not([hidden])", timeout=10_000)
+    assert page.locator("#results").is_hidden()
+    assert "?run=" not in page.url, "the cleared run must not stay in the URL"
+    assert page.locator("#reset").is_hidden()
 
 
 def test_the_banner_and_the_verdict_do_not_give_two_orders(report_page):
@@ -160,6 +204,37 @@ def test_a_stage_event_renders_the_per_document_timeline(page, app):
     assert "reading" in text
     assert "nvidia" in text and "nvidia/nemotron" in text
     assert "1.2 s" in text
+
+
+def test_the_analysing_card_is_shown_even_when_the_run_is_faster_than_a_frame(page, app):
+    """Break caught: the only "extracting" line lived inside #results, which is
+    populated after the run has already finished. A cached demo run settles in
+    about 150 ms, so that line was a state nobody ever saw and the UI went
+    straight from the upload bar to a finished report.
+
+    The card under the upload bar is drawn by the click handler, before its first
+    await, so it is readable even when the run is; it holds long enough to be
+    seen, and it names the outcome before it leaves rather than vanishing
+    mid-sentence.
+    """
+    page.goto(app.base_url + "/")
+    page.wait_for_selector("#dropzone", timeout=20_000)
+
+    upload = REPO / "fixtures" / "images" / "invoice_clean.png"
+    page.set_input_files("#file-input", str(upload))
+    page.wait_for_function(
+        "() => !document.querySelector('#analyze').disabled", timeout=15_000)
+    page.click("#analyze")
+
+    card = page.locator("#analysis")
+    card.wait_for(state="visible", timeout=2_000)
+    assert "Reading" in page.locator("#analysis-line").inner_text()
+
+    page.wait_for_function(
+        "() => /Reconciliation ready/.test("
+        "document.querySelector('#analysis-line').textContent || '')", timeout=15_000)
+    assert "1 document" in page.locator("#analysis-line").inner_text()
+    card.wait_for(state="hidden", timeout=15_000)
 
 
 def test_the_goods_lines_panel_is_absent_when_the_feature_was_never_asked_for(report_page):
@@ -411,7 +486,11 @@ def test_a_protected_instance_asks_for_a_key_and_the_key_opens_it(start_server, 
 
     # ...and the browser can now actually load a report through the session.
     page.goto(server.base_url + "/?demo=shipment_clean")
-    page.wait_for_selector("#results:not([hidden])", timeout=60_000)
+    # The results panel appears with skeletons before the report is revealed (the
+    # analysing card holds it briefly), so the wait is the table, not the box.
+    page.wait_for_function(
+        "() => document.querySelectorAll('#cmp tbody tr').length >= 10",
+        timeout=60_000)
     assert page.locator("#cmp tbody tr").count() >= FIELD_COUNT
 
 

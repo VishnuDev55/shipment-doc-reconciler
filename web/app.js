@@ -104,7 +104,52 @@ const state = {
 // boot
 // ---------------------------------------------------------------------
 
+// ---------------------------------------------------------------------
+// first paint
+// ---------------------------------------------------------------------
+
+// Long enough that the mark is seen rather than flashed, short enough that it
+// never reads as a wait. The cap is the honest part: if /api/health or the
+// access check is slow, the intro leaves anyway and the page speaks for itself.
+const INTRO_MIN_MS = 480;
+const INTRO_MAX_MS = 1300;
+
+const intro = { el: null, shownAt: 0, done: false, health: false, access: false, until: 0 };
+
+function startIntro() {
+  const el = $('#intro');
+  if (!el) return;
+  const params = new URLSearchParams(location.search);
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // A deep link is somebody asking for a specific report, and a calm setting is
+  // an instruction: neither gets a curtain.
+  if (calm || params.get('run') || params.get('demo')) {
+    el.hidden = true;
+    return;
+  }
+  intro.el = el;
+  intro.shownAt = performance.now();
+  intro.until = setTimeout(dismissIntro, INTRO_MAX_MS);
+}
+
+function introArrived(stage) {
+  intro[stage] = true;
+  if (intro.health && intro.access) dismissIntro();
+}
+
+function dismissIntro() {
+  if (!intro.el || intro.done) return;
+  intro.done = true;
+  clearTimeout(intro.until);
+  const wait = Math.max(0, INTRO_MIN_MS - (performance.now() - intro.shownAt));
+  setTimeout(() => {
+    intro.el.classList.add('is-out');
+    setTimeout(() => { intro.el.hidden = true; }, 340);
+  }, wait);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  startIntro();
   initTheme();
   wireDropzone();
   wireButtons();
@@ -116,6 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // sequence asks before it loads: history, fixtures and the demo shortcut all
   // wait for the unlock that may never come.
   ensureAccess().then((granted) => {
+    introArrived('access');
     if (!granted) return;
     loadFixtures();
     loadHistory();
@@ -204,6 +250,7 @@ async function loadHealth() {
     renderModeChip(h);
     renderConnection(h);
     renderKeyWarning(h);
+    introArrived('health');
   } catch (err) {
     state.healthResolved = true;
     clearTimeout(timer);
@@ -213,6 +260,7 @@ async function loadHealth() {
     chip.hidden = false;
     chip.className = 'flag flag-bad';
     chip.textContent = 'cannot reach the server';
+    introArrived('health');
   }
 }
 
@@ -451,6 +499,12 @@ function paintFileStates() {
   });
 }
 
+function syncClear() {
+  const btn = $('#reset');
+  if (!btn) return;
+  btn.hidden = !(state.files.length || state.shipmentId);
+}
+
 function renderUploads() {
   const list = $('#upload-list');
   list.innerHTML = '';
@@ -459,13 +513,13 @@ function renderUploads() {
   if (!count) {
     list.hidden = true;
     $('#analyze').disabled = true;
-    $('#reset').hidden = true;
     $('#intake-count').textContent = '';
     $('#dropzone').hidden = false;
+    syncClear();
     return;
   }
   list.hidden = false;
-  $('#reset').hidden = false;
+  syncClear();
   $('#intake-count').textContent = `${count} of 5 documents`;
 
   state.files.forEach((file, i) => {
@@ -513,6 +567,7 @@ function wireButtons() {
   });
   $('#reset').addEventListener('click', () => {
     stopWatching();
+    stopAnalysis(true);
     state.files = []; state.declared = []; state.fileStates = [];
     state.shipmentId = null; state.report = null;
     state.stages = {}; state.readingSince = {};
@@ -675,6 +730,7 @@ async function uploadAndAnalyse() {
   renderUploads();
   showUploadBytes(0, 0);
   setProgress('Uploading ' + files.length + ' document(s)…');
+  startAnalysis();
 
   try {
     const data = await uploadWithProgress(form, showUploadBytes);
@@ -688,6 +744,7 @@ async function uploadAndAnalyse() {
     hideUploadProgress();
     setProgress('');
     stopWatching();
+    stopAnalysis(true);
     showError('Upload failed: ' + message, { retry: true });
   } finally {
     setBusy(false);
@@ -697,6 +754,7 @@ async function uploadAndAnalyse() {
 async function runFixture(name) {
   showError(null);
   setProgress('Reading the bundled sample shipment…');
+  startAnalysis();
   try {
     const res = await fetch('/api/fixture/' + encodeURIComponent(name));
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || ('HTTP ' + res.status));
@@ -708,6 +766,7 @@ async function runFixture(name) {
   } catch (err) {
     showError('Could not load the sample shipment: ' + err.message);
     setProgress('');
+    stopAnalysis(true);
   }
 }
 
@@ -716,14 +775,17 @@ async function openRun(shipmentId) {
   try {
     const report = await getJSON(`/api/shipments/${encodeURIComponent(shipmentId)}/report`);
     state.shipmentId = shipmentId;
+    syncClear();
     state.report = report;
     showResults();
     renderReport(report);
     loadHistory();
     if (report.state === 'running') {
+      startAnalysis();
       watchRun(shipmentId);
     } else {
       setProgress('');
+      stopAnalysis(true);
     }
   } catch (err) {
     showError('Could not open that run: ' + err.message);
@@ -732,6 +794,7 @@ async function openRun(shipmentId) {
 
 function beginRun(shipmentId) {
   state.shipmentId = shipmentId;
+  syncClear();
   state.report = null;
   state.filter = null;
   state.readingSince = {};
@@ -761,6 +824,14 @@ async function poll() {
 
 function applyReport(report) {
   state.report = report;
+  if (report.state !== 'running' && analysis.active) {
+    const wait = ANALYSIS_MIN_MS - (Date.now() - analysis.shownAt);
+    if (wait > 0) {
+      clearTimeout(analysis.revealTimer);
+      analysis.revealTimer = setTimeout(() => applyReport(state.report || report), wait);
+      return;
+    }
+  }
   renderReport(report);
   if (report.state !== 'running') {
     stopWatching();
@@ -769,6 +840,7 @@ function applyReport(report) {
     // stream never reached is settled from the report, which is the truth.
     hideUploadProgress();
     settleFileStates(report);
+    finishAnalysis(report);
     setProgress('');
     state.stages = {};
     state.readingSince = {};
@@ -827,6 +899,99 @@ function renderStageLine() {
   if (host) host.textContent = stageLineText();
 }
 
+// ---------------------------------------------------------------------
+// the analysing panel
+// ---------------------------------------------------------------------
+
+// A cached run can settle in ~150 ms. Rendering that fast swaps a skeleton for
+// content between two frames, which hides the state change entirely, so the
+// reveal waits until this card has been readable. The card tells the truth the
+// whole time -- it says "ready" the moment it is -- so the wait delays the
+// answer, never the claim.
+const ANALYSIS_MIN_MS = 650;
+const ANALYSIS_FAREWELL_MS = 420;
+
+// Indeterminate by design: a model call has no honest percentage. The line names
+// the phase and never claims how far through it is; real per-document stages
+// from the SSE stream replace these the moment they arrive.
+const ANALYSIS_STEPS = [
+  [0, 'Reading the pages…'],
+  [1300, 'Verifying the figures against the document text…'],
+  [3000, 'Comparing what each document says…'],
+  [6000, 'Scoring the risk…'],
+];
+
+const analysis = { active: false, shownAt: 0, timer: 0, hideTimer: 0, revealTimer: 0 };
+
+function neutralAnalysisLine(ms) {
+  let line = ANALYSIS_STEPS[0][1];
+  for (const [after, text] of ANALYSIS_STEPS) if (ms >= after) line = text;
+  return line;
+}
+
+function renderAnalysisChips() {
+  const host = $('#analysis-chips');
+  if (!host) return;
+  host.innerHTML = '';
+  state.files.forEach((file, i) => {
+    host.appendChild(el('li', 'an-chip is-' + (state.fileStates[i] || 'queued'), file.name));
+  });
+}
+
+function renderAnalysis() {
+  if (!analysis.active) return;
+  const line = $('#analysis-line');
+  if (line) {
+    line.textContent = stageLineText() || neutralAnalysisLine(Date.now() - analysis.shownAt);
+  }
+  renderAnalysisChips();
+}
+
+function startAnalysis() {
+  const host = $('#analysis');
+  if (!host) return;
+  clearTimeout(analysis.hideTimer);
+  clearTimeout(analysis.revealTimer);
+  clearInterval(analysis.timer);
+  analysis.active = true;
+  analysis.shownAt = Date.now();
+  host.hidden = false;
+  renderAnalysis();
+  analysis.timer = setInterval(renderAnalysis, 700);
+}
+
+/** Name the outcome. Called the moment the run settles, before the reveal. */
+function markAnalysisReady(report) {
+  if (!analysis.active) return;
+  const line = $('#analysis-line');
+  const docs = (report && report.documents) || [];
+  if (line) {
+    line.textContent = report && report.state === 'failed'
+      ? 'Could not finish this run'
+      : 'Reconciliation ready' + (docs.length ? ' — ' + docs.length + ' document(s)' : '');
+  }
+  renderAnalysisChips();
+  clearInterval(analysis.timer);
+}
+
+/** Let it go: a beat to be read, unless this is a hard reset. */
+function stopAnalysis(immediate = false) {
+  const host = $('#analysis');
+  if (!host || !analysis.active) return;
+  analysis.active = false;
+  clearInterval(analysis.timer);
+  clearTimeout(analysis.revealTimer);
+  const wait = immediate ? 0 : ANALYSIS_FAREWELL_MS;
+  clearTimeout(analysis.hideTimer);
+  analysis.hideTimer = setTimeout(() => { host.hidden = true; }, wait);
+}
+
+function finishAnalysis(report) {
+  if (!analysis.active) return;
+  markAnalysisReady(report);
+  stopAnalysis(false);
+}
+
 /** After the run, no file row may still claim to be in flight. */
 function settleFileStates(report) {
   let changed = false;
@@ -854,6 +1019,7 @@ function applyStage(ev) {
   }
   renderStageLine();
   renderTimeline();
+  renderAnalysis();
 }
 
 const STAGE_LABEL = {

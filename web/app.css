@@ -177,10 +177,15 @@ code { font-family: var(--mono); font-size: .9em; }
 
 .brand-mark {
   width: 1.65rem; height: 1.65rem; flex: none; border-radius: 6px;
-  background:
-    linear-gradient(transparent 46%, var(--accent-ink) 46%, var(--accent-ink) 54%, transparent 54%) center/70% 100% no-repeat,
-    var(--accent);
+  background: var(--accent);
+  display: grid;
+  place-items: center;
 }
+.brand-mark svg { width: 84%; height: 84%; display: block; }
+.bm-back   { fill: none; stroke: var(--accent-ink); stroke-width: 2.2; }
+.bm-front  { fill: var(--accent-ink); }
+.bm-tick   { fill: none; stroke: var(--accent); stroke-width: 2.5;
+             stroke-linecap: round; stroke-linejoin: round; }
 
 .brand-text { display: flex; flex-direction: column; min-width: 0; }
 .brand-text strong { font-size: .95rem; font-weight: 600; letter-spacing: -.012em; }
@@ -1169,4 +1174,166 @@ fieldset.field legend {
   .bar, .rail, .row-actions, .drawer, .scrim, .dropzone { display: none !important; }
   .layout { grid-template-columns: 1fr; }
   .panel { border: none; box-shadow: none; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Analysing — the phase between "uploaded" and "reconciled"           */
+/* ------------------------------------------------------------------ */
+
+/* A document being read: the rows light up in sequence and a soft beam sweeps
+ * down the page. Indeterminate on purpose -- there is no honest percentage for
+ * a model call, and a fake one would be a lie the UI could not take back. */
+.analysis {
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  margin-top: .7rem;
+  padding: .7rem .9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--accent-soft), var(--surface));
+  animation: rise var(--motion) var(--ease) both;
+}
+
+.an-art { width: 3.1rem; height: 3.9rem; flex: none; overflow: hidden; }
+.an-page { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.5; }
+.an-row {
+  stroke: var(--accent);
+  stroke-width: 3.6;
+  stroke-linecap: round;
+  opacity: .3;
+  animation: an-row 1.8s var(--ease) infinite;
+}
+.an-row:nth-of-type(2) { animation-delay: .1s; }
+.an-row:nth-of-type(3) { animation-delay: .2s; }
+.an-row:nth-of-type(4) { animation-delay: .3s; }
+.an-row:nth-of-type(5) { animation-delay: .4s; }
+.an-beam {
+  fill: var(--accent);
+  opacity: 0;
+  animation: an-scan 1.9s var(--ease) infinite;
+}
+
+.an-copy { min-width: 0; }
+.an-line { margin: 0; font-size: .92rem; color: var(--ink); }
+.an-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  margin: .35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.an-chip {
+  font-family: var(--mono);
+  font-size: .72rem;
+  padding: .1rem .45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-3);
+}
+.an-chip.is-uploading,
+.an-chip.is-reading,
+.an-chip.is-verifying,
+.an-chip.is-comparing { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.an-chip.is-done    { border-color: var(--ok); color: var(--ok); }
+.an-chip.is-failed  { border-color: var(--bad); color: var(--bad); }
+
+@keyframes an-scan {
+  0%   { transform: translateY(0);    opacity: 0; }
+  12%  { opacity: .38; }
+  88%  { opacity: .38; }
+  100% { transform: translateY(92px); opacity: 0; }
+}
+@keyframes an-row {
+  0%, 100% { opacity: .3; }
+  45%      { opacity: .95; }
+}
+
+/* The panel still appears and still names the phase; only the motion stops. */
+@media (prefers-reduced-motion: reduce) {
+  .an-beam { display: none; }
+  .an-row { animation: none; opacity: .8; }
+}
+
+
+/* ------------------------------------------------------------------ */
+/* First paint — the mark, drawn once, then out of the way             */
+/* ------------------------------------------------------------------ */
+
+/* Decorative only: aria-hidden in the markup, pointer-events never, and it is
+ * removed from the document the moment it has finished leaving. It covers the
+ * gap before the first answer rather than adding to the wait. */
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.intro[hidden] { display: none; }
+
+.intro-pane { position: absolute; left: 0; right: 0; height: 50.5%; background: var(--bg); }
+.intro-pane-top { top: 0; }
+.intro-pane-bottom { bottom: 0; }
+
+.intro-core {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .85rem;
+}
+
+.intro-tile {
+  width: 76px;
+  height: 76px;
+  border-radius: 19px;
+  background: var(--accent);
+  display: grid;
+  place-items: center;
+  animation: im-pop 220ms var(--ease) both;
+}
+.intro-mark { width: 58px; height: 58px; display: block; }
+.im-back { fill: none; stroke: var(--accent-ink); stroke-width: 2.2;
+           animation: im-back 190ms var(--ease) 60ms both; }
+.im-front { fill: var(--accent-ink); transform-box: fill-box; transform-origin: 50% 55%;
+            animation: im-front 210ms var(--ease) 120ms both; }
+.im-tick {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  animation: im-tick 240ms var(--ease) 230ms forwards;
+}
+
+.intro-word { text-align: center; animation: im-word 240ms var(--ease) 260ms both; }
+.intro-word strong { display: block; font-size: .95rem; font-weight: 600; letter-spacing: -.012em; color: var(--ink); }
+.intro-word span { display: block; font-size: .7rem; color: var(--ink-3); letter-spacing: .02em; }
+
+.intro-rail { width: 68px; height: 3px; margin-top: .45rem; border-radius: 3px;
+              background: var(--line); overflow: hidden; }
+.intro-rail i { display: block; width: 40%; height: 100%; background: var(--accent); animation: im-sweep 900ms linear infinite; }
+
+.intro.is-out .intro-pane-top { animation: im-up 280ms var(--ease) forwards; }
+.intro.is-out .intro-pane-bottom { animation: im-down 280ms var(--ease) forwards; }
+.intro.is-out .intro-core { animation: im-fade 160ms linear forwards; }
+
+@keyframes im-pop  { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
+@keyframes im-back { from { opacity: 0; transform: translate(-3px, 3px); } to { opacity: 1; transform: none; } }
+@keyframes im-front { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+@keyframes im-tick { to { stroke-dashoffset: 0; } }
+@keyframes im-word { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes im-sweep { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+@keyframes im-up   { to { transform: translateY(-101%); } }
+@keyframes im-down { to { transform: translateY(101%); } }
+@keyframes im-fade { to { opacity: 0; } }
+
+/* No motion means no intro at all, not a still frame of one. */
+@media (prefers-reduced-motion: reduce) {
+  .intro { display: none; }
 }
